@@ -31,3 +31,11 @@ Append-only log. Newest at the bottom.
   the PC, NVIDIA Jetson wheels on the Orin).
 - **`pyproject.toml` lives in `AI_Agent/`** (all code there). Hatchling won't
   read a README outside the project dir, so the package has no `readme` field.
+
+## 2026-11-08 — Repo publishing
+
+- **One bootstrap commit straight to `main`** (README, LICENSE, .gitignore only),
+  because an empty repo has no base branch for a PR. Everything after that goes
+  through feature branches and PRs that the owner merges.
+- **Commits use the GitHub noreply email**, so no personal address ends up in
+  public history.
