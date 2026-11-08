@@ -1,0 +1,47 @@
+# Private / local-only top-level folders
+/User_reference/
+/Dependencies/
+/Data/
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.token
+*credentials*.json
+*client_secret*.json
+
+# Model weights and caches (downloaded by script, never committed)
+*.onnx
+*.tflite
+*.gguf
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Audio / personal data that should never land in git
+*.wav
+*.flac
+*.mp3
+*.npy
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
