@@ -1,0 +1,16 @@
+# Jetson Orin Nano 8 GB (JetPack 6.2, ARM64, Super mode). Shared CPU/GPU RAM.
+name: jetson-orin-nano
+device: cuda
+llm:
+  backend: ollama
+  model: qwen3:4b          # ~2.5-3 GB at Q4
+  small_model: qwen3:1.7b  # fallback if RAM is tight with voice models loaded
+  num_ctx: 4096
+  temperature: 0.3
+  think: false
+  keep_alive: 60m
+  timeout_s: 120
+  max_tool_rounds: 3
+telemetry:
+  enabled: true
+  log_text: false

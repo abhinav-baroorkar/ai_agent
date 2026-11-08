@@ -1,0 +1,13 @@
+# Optional local Home Assistant for testing the tools.
+# Note: on WSL2/Docker Desktop, LAN discovery (WiZ, Govee) may not work; run HA on
+# the Jetson or a Pi for real devices. Config is kept in Data/ (git-ignored).
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: homeassistant
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - TZ=Etc/UTC
+    volumes:
+      - ../../../Data/home-assistant:/config
