@@ -1,0 +1,13 @@
+# Which tools the LLM can see, and what they may touch.
+home_assistant:
+  enabled: true
+  timeout_s: 10
+  # Only these domains are listed or controllable.
+  allowed_services:
+    light: [turn_on, turn_off, toggle]
+    switch: [turn_on, turn_off, toggle]
+    fan: [turn_on, turn_off, toggle]
+    scene: [turn_on]
+    media_player: [media_play, media_pause, volume_set]
+  # Optional allowlist of entity_ids. Empty = every entity in allowed domains.
+  exposed_entities: []
