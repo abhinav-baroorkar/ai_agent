@@ -1,16 +1,14 @@
-// Concept 1: a presence, not a face. A sphere of about 2,800 points of light
-// with real depth. It breathes when idle, opens toward the voice when
-// listening, gathers into orbiting rings when thinking, and ripples with the
-// speech when speaking.
-import { Stage, rgba, mix } from './stage.js';
+// The body of the being: a sphere of about 2,800 points of light with real
+// depth. It opens toward the voice when listening, gathers into crossed rings
+// when thinking, and ripples with the speech when speaking.
+import { rgba, mix } from './stage.js';
+import { WHITE, glow } from './parts.js';
 
 const N = 2800;
 const BUCKETS = 7;
-const WHITE = [255, 250, 240];
 
-class Orb extends Stage {
-  constructor(root) {
-    super(root, 1.7);
+export class Sphere {
+  constructor() {
     this.spin = 0;
     this.points = [];
     const golden = Math.PI * (3 - Math.sqrt(5));
@@ -26,41 +24,27 @@ class Orb extends Stage {
     this.paths = Array.from({ length: BUCKETS }, () => []);
   }
 
-  draw(ctx, u) {
-    const { w, lvl, trail, t, color } = this;
-    const R = u * 0.7 * (1 + 0.025 * Math.sin(t * 0.9));
+  // Draws around the origin. ctx is in real pixels; R is the radius.
+  // shimmer: -1 for none, or 0..1 as a band of light crosses from top to bottom.
+  // core: how bright the centre is (the eyed variant dims it so the eyes read).
+  draw(ctx, R, mood, { shimmer = -1, core = 1 } = {}) {
+    const { w, lvl, trail, t, color } = mood;
     const voice = lvl * (w.speaking + w.listening);
-    ctx.translate(0, -R * 0.06);
-    this.spin += this.dt * (0.16 + 1.5 * w.thinking + 0.25 * w.speaking);
+    this.spin += mood.dt * (0.16 + 1.5 * w.thinking + 0.25 * w.speaking);
+    const band = shimmer < 0 ? 9 : 1.3 - 2.6 * shimmer;
 
     // light around and inside the sphere
     ctx.globalCompositeOperation = 'source-over';
-    let g = ctx.createRadialGradient(0, 0, R * 0.2, 0, 0, R * 2.3);
-    g.addColorStop(0, rgba(color, 0.2 + 0.2 * voice));
-    g.addColorStop(0.45, rgba(color, 0.06 + 0.07 * voice));
-    g.addColorStop(1, rgba(color, 0));
-    ctx.fillStyle = g;
-    ctx.fillRect(-u * 1.7, -u * 1.7, u * 3.4, u * 3.4);
+    glow(ctx, 0, 0, R * 2.1, color, 0.2 + 0.2 * voice);
     const coreR = R * (0.55 + 0.25 * w.listening + 0.3 * trail - 0.15 * w.thinking);
-    g = ctx.createRadialGradient(0, 0, 0, 0, 0, coreR);
-    g.addColorStop(0, rgba(mix(color, WHITE, 0.6), 0.5 + 0.4 * voice + 0.2 * w.thinking));
-    g.addColorStop(0.35, rgba(color, 0.22 + 0.25 * voice));
+    let g = ctx.createRadialGradient(0, 0, 0, 0, 0, coreR);
+    g.addColorStop(0, rgba(mix(color, WHITE, 0.6), (0.5 + 0.4 * voice + 0.2 * w.thinking) * core));
+    g.addColorStop(0.35, rgba(color, (0.22 + 0.25 * voice) * core));
     g.addColorStop(1, rgba(color, 0));
     ctx.fillStyle = g;
     ctx.fillRect(-coreR, -coreR, coreR * 2, coreR * 2);
-    // a faint pool of light below, so it sits in the room instead of floating on black
-    ctx.save();
-    ctx.translate(0, R * 1.42);
-    ctx.scale(1, 0.13);
-    g = ctx.createRadialGradient(0, 0, 0, 0, 0, R * 1.1);
-    g.addColorStop(0, rgba(color, 0.2 + 0.2 * voice));
-    g.addColorStop(1, rgba(color, 0));
-    ctx.fillStyle = g;
-    ctx.fillRect(-R * 1.1, -R * 1.1, R * 2.2, R * 2.2);
-    ctx.restore();
-
     // the faint skin of the sphere: brightest at the edge, like a soap bubble
-    const skin = 1 - w.thinking - 0.6 * (w.listening + w.speaking);
+    const skin = Math.max(0, 1 - w.thinking - 0.6 * (w.listening + w.speaking));
     g = ctx.createRadialGradient(0, 0, R * 0.7, 0, 0, R * 1.07);
     g.addColorStop(0, rgba(color, 0));
     g.addColorStop(0.8, rgba(color, 0.1 * skin));
@@ -74,6 +58,7 @@ class Orb extends Stage {
     const ci = Math.cos(-this.spin * 0.7);
     const si = Math.sin(-this.spin * 0.7);
     const tilt = 0.36 + 0.07 * Math.sin(t * 0.31);
+    const u = R / 0.7;
     const ct = Math.cos(tilt);
     const st = Math.sin(tilt);
     const open = w.listening * (0.3 + 0.55 * lvl);
@@ -113,8 +98,9 @@ class Orb extends Stage {
       }
       const persp = 1 / (1 - zv * 0.26);
       const d = (zv + 1.25) / 2.5;
-      const bucket = Math.min(BUCKETS - 1, Math.max(0, (d * BUCKETS) | 0));
-      this.paths[bucket].push(xv * R * persp, yv * R * persp, p.size * persp * (0.8 + 0.35 * Math.sin(t * 1.7 + p.ph * 5)));
+      const lit = Math.max(0, 1 - Math.abs(y - band) * 5); // the shimmer band passing this point
+      const bucket = Math.min(BUCKETS - 1, Math.max(0, ((d + lit * 0.4) * BUCKETS) | 0));
+      this.paths[bucket].push(xv * R * persp, yv * R * persp, p.size * persp * (0.8 + 0.35 * Math.sin(t * 1.7 + p.ph * 5) + lit));
     }
 
     ctx.globalCompositeOperation = 'lighter';
@@ -134,8 +120,4 @@ class Orb extends Stage {
     }
     ctx.globalCompositeOperation = 'source-over';
   }
-}
-
-export function create(root) {
-  return new Orb(root);
 }
