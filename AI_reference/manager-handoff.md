@@ -53,8 +53,8 @@ only for now; satellites on other devices come later.
 | `feat/brain-server` | Staff SDE | FastAPI brain server, WebSocket chat, bots store, connector registry, `serve` and `window` commands, laptop profile | assigned 2026-11-14 |
 | `feat/web-ui` | Design expert | Face + home screen, bots screen, settings/connectors, mock mode | assigned 2026-11-14 |
 | `feat/voice-stages` | Jack of all tasks | faster-whisper STT and Kokoro TTS stages, fakes, bench script | assigned 2026-11-14 |
-| `docs/scope-refresh` | Grunt work | plan.md, decisions.md, linkedin-notes.md, README, .env.example for the new scope | done (`af6541e`, 86 tests pass); two fix commits (`82544a8`, `b8e1b7e`) answer all eight review findings; in re-review |
-| `docs/handoff` | Documentation engineer | this file, `team.md`, devlog; owner notes in `User_reference/` | `01530a7`; kept current |
+| `docs/scope-refresh` | Grunt work | plan.md, decisions.md, linkedin-notes.md, README, .env.example for the new scope | merged and pushed (`main` is `6fbc60d`, 86 tests pass) |
+| `docs/handoff` | Documentation engineer | this file, `team.md`, devlog; owner notes in `User_reference/` | in first review; new commits on top only. Now also owns `plan.md`, `decisions.md`, `linkedin-notes.md`, `README.md`, `.env.example` |
 
 Merge order: `feat/brain-server` first (others depend on its API), then
 `feat/web-ui`, then `feat/voice-stages` (the server session wires the real
@@ -79,17 +79,13 @@ Our own design, with ideas and code from an earlier project of the owner's. In o
 
 ## Pending doc follow-ups
 
-- After `docs/scope-refresh` merges: `team.md` says "source `AI_Agent/scripts/env.sh`"
-  in place of the manual cache exports. On that branch the script is safe to source
-  from a worktree: caches go to the main root's `Dependencies/`, and only the main
-  checkout shares `Dependencies/.venv`.
 - After `feat/brain-server` is on `main`: update stale facts in `CLAUDE.md` (current
   phase, profile list, `server/` package, commands) and `User_reference/HOW_TO_RUN.md`.
   Leave the workflow and merge rules in `CLAUDE.md` as they are.
 
 ## Reuse of earlier code
 
-The owner allows reusing code from an earlier project of his. Rules for doing it are in the team rules. Copying happens only when a task brief says so.
+The owner allows reusing code from an earlier project of his. Rules for doing it are in the team rules. Copying happens only when a task brief says so. **Hold:** a reviewer has asked the owner whether that code is his to publish or is a client's work product. No task that copies from it is assigned until he answers.
 
 ## Waiting on the owner
 

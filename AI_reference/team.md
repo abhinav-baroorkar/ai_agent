@@ -36,8 +36,14 @@ One role per session. Add or drop roles as the work needs.
   git fetch origin
   git worktree add Dependencies/worktrees/<branch-name> -b <branch> origin/main
   ```
-- Python env per worktree: `cd <worktree>/AI_Agent && uv sync` (makes a local `.venv`).
-  Do not source `scripts/env.sh` there: it would share one venv between worktrees.
+- Python env per worktree: `source AI_Agent/scripts/env.sh` (bash only, not zsh), then
+  `cd <worktree>/AI_Agent && uv sync`. In a worktree the script keeps the worktree's
+  own `.venv` and sends caches to the main checkout's `Dependencies/`. Never set
+  `UV_PROJECT_ENVIRONMENT` yourself. A branch made before the script was fixed
+  needs `git merge origin/main` first.
+- A worktree has no `.env`: no Home Assistant token, and `sasha doctor` skips Home
+  Assistant. That is intended; secrets stay with the main checkout. Telemetry from a
+  worktree goes to that worktree's `Data/`.
 - A worker touches only the files its task names. Anything else: ask Primary.
 - Shared team files live in `Dependencies/team/` (git-ignored, local):
   `team-rules.md` and `api-contract.md`. Primary owns both.
@@ -83,14 +89,10 @@ One role per session. Add or drop roles as the work needs.
 
 - Change nothing outside the project folder (the repo root). No other folder, no
   other project. Reading elsewhere is allowed; writing, moving and deleting are not.
-- That includes caches and downloads. Before any install or model download, set
-  (with `SASHA_ROOT` pointing at the repo root):
-  ```
-  export HF_HOME=$SASHA_ROOT/Dependencies/hf
-  export UV_CACHE_DIR=$SASHA_ROOT/Dependencies/uv-cache
-  export XDG_CACHE_HOME=$SASHA_ROOT/Dependencies/cache
-  ```
-  Still don't set `UV_PROJECT_ENVIRONMENT`: each worktree keeps its own `.venv`.
+- That includes caches and downloads. Before any install or model download, run
+  `source AI_Agent/scripts/env.sh` from your worktree (bash only). It points
+  `HF_HOME`, `UV_CACHE_DIR` and `XDG_CACHE_HOME` at the main checkout's
+  `Dependencies/` and leaves the worktree's own `.venv` alone.
 - Any program the project starts keeps its files inside the project too. A browser
   window uses `--user-data-dir` under `Data/`.
 - Don't pull or delete Ollama models; use the ones already installed.
