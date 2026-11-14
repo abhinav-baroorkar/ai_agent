@@ -25,7 +25,7 @@ def test_serve_refuses_non_loopback_host(capsys: pytest.CaptureFixture[str]) -> 
 
 def test_loopback_and_origins() -> None:
     assert all(is_loopback(h) for h in ("127.0.0.1", "localhost", "::1", "[::1]"))
-    assert not is_loopback("192.168.1.10") and not is_loopback("0.0.0.0")
+    assert not is_loopback("lan.example") and not is_loopback("0.0.0.0")
     assert "http://localhost:8765" in allowed_origins(8765)
     assert "http://dev.local:5173" in allowed_origins(8765, ["http://dev.local:5173/"])
 
