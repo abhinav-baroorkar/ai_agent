@@ -1,4 +1,4 @@
-# Brain API contract v0.1 (server and UI both build against this)
+# Brain API contract v0.1.1 (server and UI both build against this)
 
 Owner of this file: Primary. Staff SDE copies it to `AI_reference/api-contract.md`
 in the server branch. To change it, ask Primary; don't change it on your own.
@@ -12,8 +12,8 @@ per-device token; v0 has no auth because it only listens on localhost.
 
 | Method + path | Returns / does |
 | --- | --- |
-| `GET /api/health` | `{ok, assistant:{name, pronouns:{subject, object, possessive}}, profile, default_bot, voice:{stt:bool, tts:bool, tts_languages:["en"]}}` |
-| `GET /api/models` | `{models:[{name, size_gb}]}` from Ollama |
+| `GET /api/health` | `{ok, assistant:{name, pronouns:{subject, object, possessive}}, profile, default_bot, voice:{stt:bool, tts:bool, tts_languages:["en"]}, limits:{max_sockets}}` |
+| `GET /api/models` | `{models:[{name, size_gb, tools:bool}]}` from Ollama: only models that can chat; `tools` says whether the model supports tool calls |
 | `GET /api/bots` | `{bots:[Bot]}` |
 | `POST /api/bots` | create a Bot, returns it |
 | `PATCH /api/bots/{id}` | edit a Bot |
@@ -70,5 +70,7 @@ Rules:
 - v0.1 (2026-11-14): `speak` query parameter; one conversation per socket stated;
   `PUT /api/connectors/{id}` returns the Connector; `pronouns` is an object;
   `voice.tts_languages` added.
+- v0.1.1 (2026-11-14): `GET /api/health` adds `limits:{max_sockets}`; `GET /api/models`
+  lists only chat-capable models, each `{name, size_gb, tools:bool}`.
 - Planned for v0.2 (not built yet): `POST /api/connectors` and
   `DELETE /api/connectors/{id}` to add and remove MCP connectors from Settings.

@@ -102,6 +102,7 @@ def test_socket_cap_refuses_with_1013(settings: Settings, tmp_path: Path) -> Non
         update={"profile": settings.profile.model_copy(update={"server": server})}
     )
     client = Harness(capped, tmp_path).client()
+    assert client.get("/api/health").json()["limits"] == {"max_sockets": 2}  # what the UI reads
     with client.websocket_connect(f"{WS}/ws") as a, client.websocket_connect(f"{WS}/ws") as b:
         opened(a)
         opened(b)
