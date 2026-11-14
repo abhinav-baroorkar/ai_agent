@@ -42,7 +42,8 @@ def test_browser_command_uses_isolated_profile(
     assert f"--user-data-dir={tmp_path / 'chrome-profile'}" in cmd
     sealed = (
         "--proxy-server=http://127.0.0.1:9",
-        "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1",
+        "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1, EXCLUDE ::1",
+        "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
     )
     for flag in (
         "--password-store=basic",
@@ -51,8 +52,54 @@ def test_browser_command_uses_isolated_profile(
         *sealed,
     ):
         assert flag in cmd
+    other = launch.browser_command("http://x", tmp_path, proxy_port=4321)
+    assert other is not None and other[-1] == "--proxy-server=http://127.0.0.1:4321"
     monkeypatch.setattr(launch.shutil, "which", lambda n: None)
     assert launch.browser_command("http://x", tmp_path) is None
+
+
+def test_port_is_closed_sees_a_real_listener() -> None:
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        port = listener.getsockname()[1]
+        assert launch.port_is_closed(port) is False
+    assert launch.port_is_closed(port) is True
+
+
+def test_dead_proxy_port_avoids_a_listening_port_9() -> None:
+    assert launch.dead_proxy_port(lambda p: True) == 9
+    picked = launch.dead_proxy_port(lambda p: p != 9)  # something listens on 9
+    assert picked != 9 and 1024 <= picked <= 65535
+    with pytest.raises(RuntimeError, match="no closed local port"):
+        launch.dead_proxy_port(lambda p: False)
+
+
+def test_window_uses_the_checked_proxy_port(
+    settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spawned: list[list[str]] = []
+    monkeypatch.setattr(launch, "is_running", lambda url, timeout_s=1.5: True)
+    monkeypatch.setattr(launch, "dead_proxy_port", lambda: 4321)
+    monkeypatch.setattr(launch.shutil, "which", lambda n: "/usr/bin/google-chrome")
+    s = _settings_in(settings, tmp_path)
+    assert launch.open_window(s, spawn=lambda c, **_: spawned.append(c)) == 0  # type: ignore[arg-type,func-returns-value]
+    assert "--proxy-server=http://127.0.0.1:4321" in spawned[0]
+
+
+def test_window_not_opened_without_a_dead_port(
+    settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def none_free() -> int:
+        raise RuntimeError("found no closed local port for the window's dead proxy")
+
+    spawned: list[Any] = []
+    monkeypatch.setattr(launch, "dead_proxy_port", none_free)
+    s = _settings_in(settings, tmp_path)
+    assert launch.open_window(s, spawn=lambda c, **_: spawned.append(c)) == 1  # type: ignore[arg-type,func-returns-value]
+    assert spawned == []
 
 
 class FakeProc:
