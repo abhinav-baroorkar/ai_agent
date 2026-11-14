@@ -38,11 +38,15 @@ members, emails, addresses, tokens, device serials).
 - `tools/` — `home_assistant`, `gmail` (search/read/create_draft only — **there
   must never be a send function**), `calendar` (read-only).
 - `languages/` — `mr/phrases.yaml` (Marathi fast-path commands), `en/`.
+- `server/` — brain server (FastAPI): HTTP + WebSocket API, speech, window launcher.
+- `connectors/` — connector registry (Home Assistant built in).
+- `bots.py`, `state.py` — bots and their JSON state under `Data/state/`.
 - `avatar/` — web face over WebSocket (idle / listening / thinking / speaking).
 - `telemetry/` — one JSON line per request: per-stage latency, model versions,
   RAM/VRAM, success.
 
-Hardware profiles: `AI_Agent/config/profiles/pc.yaml` and `jetson-orin-nano.yaml`.
+Hardware profiles: `AI_Agent/config/profiles/laptop.yaml` (the default), `pc.yaml` and
+`jetson-orin-nano.yaml`.
 
 ## Rules
 
@@ -80,6 +84,8 @@ Hardware profiles: `AI_Agent/config/profiles/pc.yaml` and `jetson-orin-nano.yaml
   - `uv run pytest` / `uv run ruff check .` / `uv run mypy src`
   - `uv run sasha chat` — text-only CLI loop
   - `uv run sasha doctor` — check Ollama and Home Assistant connectivity
+  - `uv run sasha serve` — run the brain server (HTTP + WebSocket + web UI)
+  - `uv run sasha window` — open the assistant in an app window (starts the server if needed)
 
 ## Current phase
 
