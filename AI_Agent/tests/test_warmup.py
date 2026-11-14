@@ -49,6 +49,7 @@ def test_warm_up_loads_with_profile_context_and_keep_alive() -> None:
     [
         (httpx.ConnectError("refused"), "not reachable (ConnectError)"),
         (httpx.ReadTimeout("slow"), "did not load m:9b within"),
+        (httpx.ConnectTimeout("silent"), "not reachable (no answer within 3 s)"),
         (httpx.Response(404, json={"error": "model not found"}), "HTTP 404"),
     ],
 )
@@ -60,6 +61,23 @@ def test_warm_up_failures_are_plain_warnings(handler_result: Any, expected: str)
 
     warning = warm_up_llm(CFG, "http://ollama.test", "m:9b", client=_client(handler))
     assert warning is not None and expected in warning
+
+
+def test_connect_timeout_stays_short_for_both_calls() -> None:
+    """A per-request bare float would also set connect to 45 s / 5 s."""
+    seen: dict[str, dict[str, Any]] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen[request.url.path] = request.extensions["timeout"]
+        return httpx.Response(200, json={"models": []})
+
+    client = _client(handler)
+    warm_up_llm(CFG, "http://ollama.test", "m:9b", client=client)
+    gpu_share("http://ollama.test", "m:9b", client=client)
+    assert seen["/api/generate"]["connect"] == 3.0
+    assert seen["/api/generate"]["read"] == 45.0
+    assert seen["/api/ps"]["connect"] == 3.0
+    assert seen["/api/ps"]["read"] == 5.0
 
 
 def _ps(models: Any) -> httpx.Client:
@@ -93,6 +111,14 @@ def test_telemetry_records_startup_gpu_share(settings: Settings, tmp_path: Any) 
     assert writer.start().models["llm_gpu_share_at_start"] == "m:9b:83%"
 
 
+def test_telemetry_records_voice_models_on_voice_turns_only(tmp_path: Any) -> None:
+    writer = PlacementTelemetry(tmp_path, "a", "p", enabled=False)
+    writer.voice_models = {"stt": "whisper@x", "tts": "kokoro@y"}
+    voice = writer.start(input_mode="voice").models
+    assert voice["stt"] == "whisper@x" and voice["tts"] == "kokoro@y"
+    assert "stt" not in writer.start(input_mode="text").models
+
+
 def test_build_deps_warms_llm_before_voice_and_warns_on_split(
     settings: Settings, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -113,3 +139,18 @@ def test_build_deps_warms_llm_before_voice_and_warns_on_split(
     assert deps.warnings[:2] == ["warm-up failed", "voice off"]
     assert "50% on the GPU" in deps.warnings[2]
     assert deps.telemetry.start().models["llm_gpu_share_at_start"].endswith(":50%")
+
+
+def test_build_deps_puts_voice_versions_in_voice_telemetry(
+    settings: Settings, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sasha.pipeline.fakes import FakeSTT, FakeTTS
+
+    monkeypatch.setattr(deps_module, "warm_up_llm", lambda *a, **k: None)
+    monkeypatch.setattr(deps_module, "gpu_share", lambda *a, **k: 1.0)
+    monkeypatch.setattr(deps_module, "load_voice_stages", lambda s: (FakeSTT(), FakeTTS(), []))
+    paths = settings.paths.model_copy(update={"root": tmp_path, "data_dir": tmp_path / "Data"})
+    deps = deps_module.build_deps(settings.model_copy(update={"paths": paths}))
+    models = deps.telemetry.start(input_mode="voice").models
+    assert (models["stt"], models["tts"]) == ("fake-stt", "fake-tts")
+    assert deps.warnings == []

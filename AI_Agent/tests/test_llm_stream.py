@@ -99,5 +99,6 @@ def test_stream_connect_error() -> None:
 def test_list_model_info_sizes() -> None:
     body = {"models": [{"name": "qwen3.5:9b", "size": 6_591_000_000}, {"size": 1}]}
     llm = _llm(lambda r: httpx.Response(200, json=body))
-    assert llm.list_model_info() == [{"name": "qwen3.5:9b", "size_gb": 6.59}]
+    # /api/show gets the same body (no "capabilities"): unknown, so listed, tools false.
+    assert llm.list_model_info() == [{"name": "qwen3.5:9b", "size_gb": 6.59, "tools": False}]
     assert llm.list_models() == ["qwen3.5:9b"]

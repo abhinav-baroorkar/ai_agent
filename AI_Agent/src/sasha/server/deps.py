@@ -112,6 +112,9 @@ def build_deps(settings: Settings, reload_env: bool = True) -> ServerDeps:
         warnings.append(warning)
     telemetry = make_telemetry(settings)
     telemetry.placement = placement
+    telemetry.voice_models = {
+        name: stage.model_version() for name, stage in (("stt", stt), ("tts", tts)) if stage
+    }
     return ServerDeps(
         settings=settings,
         bots=bots,
