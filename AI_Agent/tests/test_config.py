@@ -10,7 +10,7 @@ from tests.conftest import REPO_ROOT
 
 
 def test_default_profile_loads(settings: Settings) -> None:
-    assert settings.profile.name == "pc"
+    assert settings.profile.name == "laptop"
     assert settings.profile.llm.model
     assert settings.assistant.name
     assert settings.paths.data_dir == REPO_ROOT / "Data"
@@ -18,7 +18,7 @@ def test_default_profile_loads(settings: Settings) -> None:
 
 def test_both_profiles_exist_and_load() -> None:
     names = available_profiles(REPO_ROOT / "AI_Agent" / "config")
-    assert {"pc", "jetson-orin-nano"} <= set(names)
+    assert {"laptop", "pc", "jetson-orin-nano"} <= set(names)
     for name in names:
         assert load_settings(profile=name, root=REPO_ROOT, load_env_file=False).profile.name == name
 

@@ -3,13 +3,27 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 from sasha.config import Settings
-from sasha.pipeline.llm import LLM, Message
+from sasha.pipeline.llm import LLM, LLMCancelled, LLMResponse, Message, StreamingLLM
 from sasha.telemetry import RequestTrace, TelemetryWriter
 from sasha.tools import ToolRegistry
+
+
+@dataclass
+class TurnHooks:
+    """Optional callbacks for one request (the server uses them; the CLI doesn't).
+
+    `on_delta` gets answer text as it streams, `on_tool(name, ok)` fires after each tool,
+    and `should_stop()` returning true cancels the request (raises `LLMCancelled`).
+    """
+
+    on_delta: Callable[[str], None] | None = None
+    on_tool: Callable[[str, bool], None] | None = None
+    should_stop: Callable[[], bool] | None = None
 
 
 @dataclass
@@ -48,13 +62,14 @@ class Assistant:
         tools: ToolRegistry,
         telemetry: TelemetryWriter,
         history_turns: int = 8,
+        system_prompt: str | None = None,
     ) -> None:
         self.settings = settings
         self.llm = llm
         self.tools = tools
         self.telemetry = telemetry
         self.history_turns = history_turns
-        self.system_prompt = settings.assistant.render_system_prompt()
+        self.system_prompt = system_prompt or settings.assistant.render_system_prompt()
         self._history: list[Message] = []
         self.last_tool_calls: list[dict[str, Any]] = []
 
@@ -73,14 +88,17 @@ class Assistant:
             {"role": "user", "content": text},
         ]
 
-    def handle_text(self, text: str) -> Reply:
-        trace = self.telemetry.start(input_mode="text")
+    def handle_text(
+        self, text: str, hooks: TurnHooks | None = None, input_mode: str = "text"
+    ) -> Reply:
+        hooks = hooks or TurnHooks()
+        trace = self.telemetry.start(input_mode=input_mode)
         trace.models["llm"] = self.llm.model_version()
         trace.record_text("user", text)
         calls_made: list[dict[str, Any]] = []
         self.last_tool_calls = calls_made
         try:
-            reply = self._run(text, trace, calls_made)
+            reply = self._run(text, trace, calls_made, hooks)
         except BaseException as exc:  # includes Ctrl-C: still write the telemetry line
             trace.finish(success=False, error=f"{type(exc).__name__}: {exc}")
             if isinstance(exc, Exception):
@@ -94,7 +112,20 @@ class Assistant:
         ]
         return reply
 
-    def _run(self, text: str, trace: RequestTrace, calls_made: list[dict[str, Any]]) -> Reply:
+    def _ask(
+        self, messages: list[Message], tools: list[dict[str, Any]] | None, hooks: TurnHooks
+    ) -> LLMResponse:
+        if hooks.on_delta and isinstance(self.llm, StreamingLLM):
+            return self.llm.chat_stream(messages, tools, hooks.on_delta, hooks.should_stop)
+        return self.llm.chat(messages, tools=tools)
+
+    def _run(
+        self,
+        text: str,
+        trace: RequestTrace,
+        calls_made: list[dict[str, Any]],
+        hooks: TurnHooks,
+    ) -> Reply:
         messages = self._messages(text)
         max_rounds = self.settings.profile.llm.max_tool_rounds
         specs = self.tools.specs() if len(self.tools) else None
@@ -103,7 +134,7 @@ class Assistant:
             # On the last round, withhold tools so the model must answer in words.
             offer_tools = specs if round_no < max_rounds else None
             with trace.stage("llm", round=round_no, model=self.llm.model_id) as meta:
-                resp = self.llm.chat(messages, tools=offer_tools)
+                resp = self._ask(messages, offer_tools, hooks)
                 meta.update(resp.stats)
                 meta["tool_calls"] = len(resp.tool_calls)
 
@@ -112,10 +143,14 @@ class Assistant:
 
             messages.append({"role": "assistant", **resp.raw_message})
             for call in resp.tool_calls:
+                if hooks.should_stop and hooks.should_stop():
+                    raise LLMCancelled  # never run a tool after the user said stop
                 with trace.stage(f"tool:{call.name}") as meta:
                     result = self.tools.call(call.name, call.arguments)
                     meta["ok"] = result.ok
                 calls_made.append({"name": call.name, "arguments": call.arguments, "ok": result.ok})
+                if hooks.on_tool:
+                    hooks.on_tool(call.name, result.ok)
                 content = wrap_untrusted(call.name, result.content)
                 messages.append({"role": "tool", "tool_name": call.name, "content": content})
 

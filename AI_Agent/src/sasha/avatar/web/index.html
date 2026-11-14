@@ -1,0 +1,51 @@
+<!doctype html>
+<!-- Placeholder only. The real UI is built in the web-ui branch and replaces this file. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Assistant</title>
+  <style>
+    body { font: 16px system-ui, sans-serif; margin: 2rem; background: #111; color: #eee; }
+    #log { white-space: pre-wrap; margin: 1rem 0; }
+    input { width: 70%; padding: .5rem; }
+  </style>
+</head>
+<body>
+  <h1 id="name">Assistant</h1>
+  <p>Placeholder page: the real face arrives with the web UI.</p>
+  <div id="log"></div>
+  <form id="f"><input id="t" autocomplete="off" placeholder="Type a message"> <button>Send</button></form>
+  <script>
+    const log = document.getElementById("log");
+    fetch("/api/health").then(r => r.json()).then(h => {
+      document.getElementById("name").textContent = h.assistant.name;
+      document.title = h.assistant.name;
+    });
+    const ws = new WebSocket(`ws://${location.host}/ws?bot=main`);
+    let current = null;
+    ws.onmessage = (e) => {
+      if (typeof e.data !== "string") return;
+      const m = JSON.parse(e.data);
+      if (m.type === "reply_delta") {
+        if (!current) { current = document.createElement("div"); log.append(current); }
+        current.textContent += m.text;
+      } else if (m.type === "reply") {
+        if (!current) { current = document.createElement("div"); log.append(current); }
+        current.textContent = "> " + m.text;
+        current = null;
+      } else if (m.type === "error") {
+        log.append(Object.assign(document.createElement("div"), {textContent: "[error] " + m.message}));
+      }
+    };
+    document.getElementById("f").onsubmit = (e) => {
+      e.preventDefault();
+      const t = document.getElementById("t");
+      if (!t.value.trim()) return;
+      log.append(Object.assign(document.createElement("div"), {textContent: "you: " + t.value}));
+      ws.send(JSON.stringify({type: "text", text: t.value}));
+      t.value = "";
+    };
+  </script>
+</body>
+</html>
