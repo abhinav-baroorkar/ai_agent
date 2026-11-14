@@ -69,12 +69,20 @@ def test_port_is_closed_sees_a_real_listener() -> None:
     assert launch.port_is_closed(port) is True
 
 
-def test_dead_proxy_port_avoids_a_listening_port_9() -> None:
+def test_dead_proxy_port_is_always_privileged() -> None:
     assert launch.dead_proxy_port(lambda p: True) == 9
-    picked = launch.dead_proxy_port(lambda p: p != 9)  # something listens on 9
-    assert picked != 9 and 1024 <= picked <= 65535
-    with pytest.raises(RuntimeError, match="no closed local port"):
-        launch.dead_proxy_port(lambda p: False)
+    assert launch.dead_proxy_port(lambda p: p != 9) == 1  # something listens on 9
+    assert launch.dead_proxy_port(lambda p: p not in (9, 1, 3)) == 5
+    tried: list[int] = []
+
+    def nothing_closed(port: int) -> bool:
+        tried.append(port)
+        return False
+
+    with pytest.raises(RuntimeError, match="no closed privileged local port"):
+        launch.dead_proxy_port(nothing_closed)
+    # Never an ephemeral port: every candidate is below 1024, port 9 first.
+    assert tried[0] == 9 and max(tried) < 1024 and len(tried) == len(set(tried)) == 512
 
 
 def test_window_uses_the_checked_proxy_port(
@@ -221,3 +229,40 @@ def test_window_refuses_remote_host_from_profile(settings: Settings, tmp_path: P
     server = s.profile.server.model_copy(update={"host": "example.com"})
     s = s.model_copy(update={"profile": s.profile.model_copy(update={"server": server})})
     assert launch.open_window(s, spawn=lambda c, **_: None) == 2  # type: ignore[arg-type,return-value]
+
+
+def test_start_wait_covers_the_llm_warmup() -> None:
+    from sasha.server.warmup import WARMUP_TIMEOUT_S
+
+    assert launch.START_TIMEOUT_S == WARMUP_TIMEOUT_S + launch.START_MARGIN_S
+    assert launch.START_TIMEOUT_S >= 90 and launch.START_MARGIN_S >= 30
+
+
+def test_wait_until_up_prints_progress_every_10_s(monkeypatch: pytest.MonkeyPatch) -> None:
+    now = [0.0]
+
+    def clock() -> float:
+        now[0] += 0.5  # half a second per loop turn
+        return now[0]
+
+    lines: list[str] = []
+    monkeypatch.setattr(launch, "is_running", lambda url, timeout_s=1.5: now[0] >= 25)
+    monkeypatch.setattr(launch.time, "sleep", lambda s: None)
+    up = launch.wait_until_up("http://x", FakeProc(), 90, say=lines.append, clock=clock)  # type: ignore[arg-type]
+    assert up is True
+    assert len(lines) == 2 and all("still starting" in line for line in lines)
+    assert "(10 s)" in lines[0] and "(20 s)" in lines[1]
+
+
+def test_wait_until_up_gives_up_at_the_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    now = [0.0]
+
+    def clock() -> float:
+        now[0] += 1.0
+        return now[0]
+
+    monkeypatch.setattr(launch, "is_running", lambda url, timeout_s=1.5: False)
+    monkeypatch.setattr(launch.time, "sleep", lambda s: None)
+    lines: list[str] = []
+    assert launch.wait_until_up("http://x", FakeProc(), 30, say=lines.append, clock=clock) is False  # type: ignore[arg-type]
+    assert len(lines) == 2  # at 10 s and 20 s, then it stops at 30 s

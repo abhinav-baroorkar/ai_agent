@@ -112,6 +112,7 @@ def create_app(deps: ServerDeps, web_dir: Path | None = WEB_DIR) -> FastAPI:
                 "tts": voice.tts is not None,
                 "tts_languages": voice.languages,
             },
+            "limits": {"max_sockets": server.max_sockets},
         }
 
     @app.get("/api/models")
