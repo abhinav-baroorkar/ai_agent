@@ -8,7 +8,8 @@ import pytest
 from starlette.websockets import WebSocketDisconnect
 
 from sasha.config import Settings
-from sasha.server.voice import basic_split_sentences, sentence_splitter, tts_languages
+from sasha.pipeline.tts import split_sentences
+from sasha.server.voice import VoiceStages, tts_languages
 from tests.server_fakes import WS, FakeSTT, FakeTTS, Harness, resp
 from tests.test_server_ws import frames_until_idle, opened, types
 
@@ -96,10 +97,5 @@ def test_each_socket_has_its_own_history(settings: Settings, tmp_path: Path) -> 
 
 
 def test_splitter_and_languages_helpers() -> None:
-    assert basic_split_sentences("Hi there. How are you? Fine") == [
-        "Hi there.",
-        "How are you?",
-        "Fine",
-    ]
-    assert callable(sentence_splitter())
+    assert VoiceStages().split is split_sentences  # the TTS stage's own splitter
     assert tts_languages(None) == [] and tts_languages(FakeTTS(["en", "mr"])) == ["en", "mr"]
