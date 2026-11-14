@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Keep the venv and caches inside the project's Dependencies/ folder (git-ignored).
+# Keep the venv, caches and temp files inside the project's Dependencies/ folder (git-ignored).
 # Safe to source from the main checkout or from a worktree under
 # Dependencies/worktrees/<name>/. Ollama keeps its own model store.
 # Usage: source AI_Agent/scripts/env.sh
@@ -16,5 +16,6 @@ esac
 export HF_HOME="$_main/Dependencies/hf"
 export UV_CACHE_DIR="$_main/Dependencies/uv-cache"
 export XDG_CACHE_HOME="$_main/Dependencies/cache"
-mkdir -p "$HF_HOME" "$UV_CACHE_DIR" "$XDG_CACHE_HOME" "$_main/Data/logs"
+export TMPDIR="$_main/Dependencies/tmp"
+mkdir -p "$HF_HOME" "$UV_CACHE_DIR" "$XDG_CACHE_HOME" "$TMPDIR" "$_main/Data/logs"
 unset _root _main
