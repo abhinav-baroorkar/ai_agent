@@ -12,6 +12,8 @@ wake_word:
 voice:
   tts_speaker: Sunita  # Indic Parler-TTS named voice (Phase 2)
   description: A calm, warm female voice, clear and close-up, moderate pace.
+  en_voice: af_heart   # Kokoro-82M voice for English (af_* = US female, bf_* = UK female)
+  speed: 1.0           # 0.5-2.0
 languages:
   default: en
   supported: [en, mr]

@@ -14,3 +14,12 @@ llm:
 telemetry:
   enabled: true
   log_text: false
+stt:
+  backend: faster-whisper
+  model: small            # Whisper size: tiny | base | small | medium | large-v3
+  device: cpu            # auto tries CUDA, falls back to CPU int8
+  compute_type: auto
+  beam_size: 1
+tts:
+  backend: kokoro          # Kokoro-82M via onnxruntime
+  device: cpu

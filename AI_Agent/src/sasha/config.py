@@ -40,6 +40,8 @@ class WakeWord(BaseModel):
 class Voice(BaseModel):
     tts_speaker: str | None = None
     description: str = ""
+    en_voice: str = "af_heart"  # Kokoro voice id for English replies
+    speed: float = Field(default=1.0, ge=0.5, le=2.0)
 
 
 class Languages(BaseModel):
@@ -91,11 +93,32 @@ class TelemetryConfig(BaseModel):
     log_text: bool = False
 
 
+class STTConfig(BaseModel):
+    backend: str = "faster-whisper"
+    model: str = "small"
+    device: str = "auto"  # auto (try cuda, fall back to cpu) | cuda | cpu
+    compute_type: str = "auto"  # auto: float16 on cuda, int8 on cpu
+    beam_size: int = 1
+    cpu_threads: int = 0  # 0: library default
+    vad_filter: bool = False  # the client already sends one trimmed utterance
+
+
+class TTSConfig(BaseModel):
+    backend: str = "kokoro"
+    device: str = "cpu"
+    model_repo: str = "fastrtc/kokoro-onnx"
+    revision: str = "8d07950c9b6c87ce6809e9bba7bd494336217c2a"
+    model_file: str = "kokoro-v1.0.onnx"
+    voices_file: str = "voices-v1.0.bin"
+
+
 class Profile(BaseModel):
     name: str
     device: str = "cpu"
     llm: LLMConfig
     telemetry: TelemetryConfig = Field(default_factory=TelemetryConfig)
+    stt: STTConfig = Field(default_factory=STTConfig)
+    tts: TTSConfig = Field(default_factory=TTSConfig)
 
 
 class HomeAssistantConfig(BaseModel):
