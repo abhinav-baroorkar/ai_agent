@@ -30,10 +30,20 @@ class FakeSTT:
 class FakeTTS:
     """Silence whose length grows with the text: `ms_per_char` per character."""
 
-    def __init__(self, sample_rate: int = 24000, ms_per_char: int = 10) -> None:
+    def __init__(
+        self,
+        sample_rate: int = 24000,
+        ms_per_char: int = 10,
+        languages: tuple[str, ...] = ("en",),
+    ) -> None:
         self.sample_rate = sample_rate
         self.ms_per_char = ms_per_char
+        self._languages = languages
         self.spoken: list[str] = []
+
+    @property
+    def languages(self) -> tuple[str, ...]:
+        return self._languages
 
     def model_version(self) -> str:
         return "fake-tts"

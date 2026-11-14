@@ -23,6 +23,8 @@ def test_fakes_satisfy_protocols() -> None:
     tts: TextToSpeech = FakeTTS()
     assert stt.model_version() == "fake-stt"
     assert tts.model_version() == "fake-tts"
+    assert tts.languages == ("en",)
+    assert FakeTTS(languages=("en", "mr")).languages == ("en", "mr")
 
 
 def test_fake_stt_returns_text_and_records_call() -> None:
@@ -74,7 +76,8 @@ def test_profiles_have_voice_config() -> None:
 
 def test_voice_config_defaults_keep_old_profiles_valid() -> None:
     assert STTConfig().model == "small"
-    assert TTSConfig().revision  # pinned, so a moved upstream file can't change the voice
+    rev = TTSConfig().revision  # pinned, so a moved upstream file can't change the voice
+    assert len(rev) == 40 and all(c in "0123456789abcdef" for c in rev)
 
 
 def test_hf_cache_dir_stays_in_project(monkeypatch: pytest.MonkeyPatch) -> None:

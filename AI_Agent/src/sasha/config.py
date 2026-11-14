@@ -106,10 +106,10 @@ class STTConfig(BaseModel):
 class TTSConfig(BaseModel):
     backend: str = "kokoro"
     device: str = "cpu"
-    model_repo: str = "fastrtc/kokoro-onnx"
-    revision: str = "8d07950c9b6c87ce6809e9bba7bd494336217c2a"
-    model_file: str = "kokoro-v1.0.onnx"
-    voices_file: str = "voices-v1.0.bin"
+    model_repo: str = "onnx-community/Kokoro-82M-v1.0-ONNX"  # official ONNX export, Apache-2.0
+    revision: str = "1939ad2a8e416c0acfeecc08a694d14ef25f2231"  # full commit hash, pinned
+    model_file: str = "onnx/model.onnx"  # fp32; the int8 export was 5x slower on CPU
+    voices_dir: str = "voices"  # one <voice>.bin (float32, 510x256) per voice
     threads: int = 0  # onnxruntime intra-op threads; 0: library default
 
 

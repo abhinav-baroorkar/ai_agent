@@ -38,13 +38,18 @@ def float_to_pcm16(audio: NDArray[np.float32]) -> bytes:
     return bytes((clipped * 32767.0).astype("<i2").tobytes())
 
 
-def model_files(config: TTSConfig, root: Path, download: bool = False) -> tuple[Path, Path]:
-    """Paths of the ONNX model and voices file in the project HF cache."""
+STYLE_DIM = 256
+
+
+def model_files(
+    config: TTSConfig, voice_id: str, root: Path, download: bool = False
+) -> tuple[Path, Path]:
+    """Paths of the ONNX model and the voice's style file in the project HF cache."""
     from huggingface_hub import hf_hub_download
 
     cache = hf_cache_dir(root)
     paths = []
-    for filename in (config.model_file, config.voices_file):
+    for filename in (config.model_file, f"{config.voices_dir}/{voice_id}.bin"):
         try:
             paths.append(
                 Path(
@@ -64,6 +69,20 @@ def model_files(config: TTSConfig, root: Path, download: bool = False) -> tuple[
     return paths[0], paths[1]
 
 
+def voices_npz(voice_bin: Path, voice_id: str, revision: str, root: Path) -> Path:
+    """kokoro-onnx loads voices from one .npz; the official repo ships one raw .bin per
+    voice. Pack the voice into a small .npz next to the HF cache (inside the project)."""
+    out = hf_cache_dir(root).parent / "derived" / f"kokoro-{revision[:12]}-{voice_id}.npz"
+    if not out.is_file():
+        style = np.fromfile(voice_bin, dtype=np.float32).reshape(-1, 1, STYLE_DIM)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        tmp = out.with_suffix(".tmp.npz")
+        arrays: dict[str, Any] = {voice_id: style}
+        np.savez(tmp, **arrays)
+        tmp.replace(out)
+    return out
+
+
 class KokoroTTS:
     """`TextToSpeech` on kokoro-onnx. English only for now; Marathi comes in Phase 2."""
 
@@ -74,7 +93,8 @@ class KokoroTTS:
         self.voice_id = voice.en_voice
         self.speed = voice.speed
         self.lang = kokoro_lang(self.voice_id)
-        model_path, voices_path = model_files(config, root)
+        model_path, voice_bin = model_files(config, self.voice_id, root)
+        voices_path = voices_npz(voice_bin, self.voice_id, config.revision, root)
 
         import onnxruntime as ort
         from kokoro_onnx import Kokoro  # lazy: pulls in GPL-3.0 phonemizer/espeak-ng
@@ -86,6 +106,11 @@ class KokoroTTS:
         if self.voice_id not in self._kokoro.voices:
             known = ", ".join(sorted(self._kokoro.voices))
             raise ValueError(f"Unknown Kokoro voice {self.voice_id!r}. Known: {known}")
+
+    @property
+    def languages(self) -> tuple[str, ...]:
+        """Languages this stage can speak (ISO 639-1)."""
+        return ("en",)
 
     def model_version(self) -> str:
         return f"kokoro-82m-v1.0-onnx@{self.config.revision[:8]}:{self.voice_id}"
@@ -104,8 +129,8 @@ class KokoroTTS:
         return SpeechAudio(pcm=float_to_pcm16(audio), sample_rate=int(rate))
 
     def stream(self, text: str, language: str) -> Iterator[SpeechAudio]:
-        if language != "en":
-            log.warning("Kokoro TTS speaks English only; got language=%r", language)
+        if language not in self.languages:
+            log.warning("Kokoro TTS speaks %s only; got language=%r", self.languages, language)
         for sentence in split_sentences(text):
             try:
                 clip = self._speak(sentence)

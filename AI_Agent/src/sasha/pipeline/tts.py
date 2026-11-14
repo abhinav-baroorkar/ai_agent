@@ -15,6 +15,9 @@ class SpeechAudio:
 
 
 class TextToSpeech(Protocol):
+    @property
+    def languages(self) -> tuple[str, ...]: ...
+
     def model_version(self) -> str: ...
 
     def synthesize(self, text: str, language: str) -> SpeechAudio: ...

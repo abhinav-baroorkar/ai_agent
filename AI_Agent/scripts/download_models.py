@@ -46,7 +46,7 @@ def download_voice(settings: Settings) -> int:
     download_model(stt.model, cache_dir=str(cache))
     tts = settings.profile.tts
     print(f"Kokoro {tts.model_repo}@{tts.revision[:8]} -> {cache}")
-    model_files(tts, settings.paths.root, download=True)
+    model_files(tts, settings.assistant.voice.en_voice, settings.paths.root, download=True)
     return 0
 
 
