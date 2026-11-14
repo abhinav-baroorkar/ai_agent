@@ -14,7 +14,7 @@ is in `manager-handoff.md`, not here.
 | **Jack of all tasks** | Flexible helper: research, side modules, voice stages | |
 | **Grunt work** | Small, cheap tasks: config, scaffolding, rewrites of plan/decisions/README | |
 | **Code review session** | Reviews a branch diff, reports findings | Edit code |
-| **Documentation engineer** | Keeps `manager-handoff.md`, today's devlog, `team.md` and `User_reference/` current from Primary's updates | Edit product code or files owned by another branch |
+| **Documentation engineer** | Keeps `manager-handoff.md`, today's devlog, `team.md`, `plan.md`, `decisions.md`, `linkedin-notes.md`, `README.md`, `.env.example` and the owner's notes in `User_reference/` current from Primary's updates. The owner allowed writing in `User_reference/` on 2026-11-14 for notes written for the owner; files the owner put there are still never edited. `CLAUDE.md` wording pending the owner's edit. | Edit product code or files owned by another branch |
 
 One role per session. Add or drop roles as the work needs.
 
@@ -36,8 +36,8 @@ One role per session. Add or drop roles as the work needs.
   git fetch origin
   git worktree add Dependencies/worktrees/<branch-name> -b <branch> origin/main
   ```
-- Python env per worktree: `source AI_Agent/scripts/env.sh` (bash only, not zsh), then
-  `cd <worktree>/AI_Agent && uv sync`. In a worktree the script keeps the worktree's
+- Python env per worktree: from the worktree root, `source AI_Agent/scripts/env.sh`
+  (bash only, not zsh), then `cd AI_Agent && uv sync`. In a worktree the script keeps the worktree's
   own `.venv` and sends caches to the main checkout's `Dependencies/`. Never set
   `UV_PROJECT_ENVIRONMENT` yourself. A branch made before the script was fixed
   needs `git merge origin/main` first.
@@ -61,8 +61,8 @@ One role per session. Add or drop roles as the work needs.
 6. **Fix.** Primary forwards findings; the worker fixes on the same branch and
    reports again. Repeat until the reviewer approves.
 7. **Merge.** Primary merges into `main` in dependency order, rebases and re-locks
-   if two branches touched `pyproject.toml` / `uv.lock`, runs all checks and a
-   privacy scan, then pushes once the owner has said go.
+   if two branches touched `pyproject.toml` / `uv.lock`, and runs all checks and a
+   privacy scan. Primary merges and pushes after the reviewer approves. The owner told Primary this directly on 2026-11-14; `CLAUDE.md` step 3 still says "once the owner says go" and is the owner's to update.
 
 ## Report format
 
@@ -101,14 +101,14 @@ One role per session. Add or drop roles as the work needs.
 
 ## Reusing code from an earlier project
 
-The owner allows reusing code from an earlier project of his. Rules for doing it are in the team rules.
+The owner allows reusing code from an earlier project of the owner's. Rules for doing it are in the team rules.
 
 ## Where documentation lives
 
 | Folder | Reader | Content |
 | --- | --- | --- |
 | `AI_reference/` (committed) | Team and Primary, to resume after a session loses context | `manager-handoff.md`, `plan.md`, `decisions.md`, `research-notes.md`, `team.md`, `devlog/YYYY-MM-DD.md` (one file per day) |
-| `User_reference/` (git-ignored, main checkout only) | The owner. Short plain English | `STATUS.md`, `HOW_TO_RUN.md`, `DECISIONS_FOR_YOU.md` |
+| `User_reference/` (git-ignored, main checkout only) | The owner. Short plain English | `STATUS.md`, `HOW_TO_RUN.md`, `DECISIONS_FOR_YOU.md`. The owner allowed a documentation session to write notes here on 2026-11-14; files the owner put there are still never edited. `CLAUDE.md` wording pending the owner's edit. |
 
 ## Recreate the team
 

@@ -21,7 +21,8 @@ Last updated: 2026-11-14, late evening.
   (git-ignored) and its own `.venv` there. The main checkout is Primary's.
 - Flow per task: brief → worker commits on its branch → Primary sends the branch
   to the reviewer → worker fixes findings → reviewer approves → Primary merges
-  and pushes. Nothing is posted on GitHub except the pushed commits.
+  and pushes. Primary merges and pushes after the reviewer approves. The owner told Primary this directly on 2026-11-14; `CLAUDE.md` step 3 still says "once the owner says go" and is the owner's to update.
+  Nothing is posted on GitHub except the pushed commits.
 - **Strict rule (owner, 2026-11-14):** no session changes anything outside the
   project folder. Reading elsewhere is fine. Caches and downloads go under
   `Dependencies/`, a browser profile under `Data/`. Details in `team.md`.
@@ -64,12 +65,12 @@ stages in after it lands), `docs/scope-refresh` any time. `pyproject.toml` and
 ## Agreed interfaces
 
 - **TTS stage:** `stream(text, language)` yields one audio chunk per sentence,
-  24 kHz output. Agreed by the voice and server sessions (2026-11-14). The server
+  24 kHz output. Agreed through Primary by the voice and server sessions (2026-11-14). The server
   resamples as needed for the WebSocket contract.
 
 ## Next after these land
 
-Our own design, with ideas and code from an earlier project of the owner's. In order:
+Our own design. In order:
 1. Wire real STT/TTS into the server; check the full voice loop in the window.
 2. MCP connectors, with an approval step before any tool that changes something.
 3. Per-bot avatar and tool groups.
@@ -79,21 +80,24 @@ Our own design, with ideas and code from an earlier project of the owner's. In o
 
 ## Pending doc follow-ups
 
-- After `feat/brain-server` is on `main`: update stale facts in `CLAUDE.md` (current
-  phase, profile list, `server/` package, commands) and `User_reference/HOW_TO_RUN.md`.
-  Leave the workflow and merge rules in `CLAUDE.md` as they are.
+- After `feat/brain-server` is on `main`: update stale facts in `CLAUDE.md` limited to
+  the hardware profile list, the code layout and the common commands, plus
+  `User_reference/HOW_TO_RUN.md`. Do not touch "Current phase" or the Rules section.
 
 ## Reuse of earlier code
 
-The owner allows reusing code from an earlier project of his. Rules for doing it are in the team rules. Copying happens only when a task brief says so. **Hold:** a reviewer has asked the owner whether that code is his to publish or is a client's work product. No task that copies from it is assigned until he answers.
+The owner allows reusing code from an earlier project of the owner's. Rules for doing it are in the team rules. Copying happens only when a task brief says so. **Hold:** a reviewer asked the owner to confirm that code is the owner's to publish; no copy task is assigned until the owner answers.
 
 ## Waiting on the owner
 
 - Docker install (sudo) for Home Assistant, then the HA account and `HA_TOKEN` in `.env`.
 - What "Grok-bot-like" should mean beyond "several bots with their own chats".
 - Whether Claude's memory folder for this project is allowed (see the folder rule).
-  Memory notes are paused until he says so.
-- Which Meta device he has; the TV model.
+  Memory notes are paused until the owner says so.
+- Which smart-display and TV devices to support.
+- `CLAUDE.md` "Current phase" says to stop and check with the owner before adding voice.
+  Only the owner changes that line. `CLAUDE.md` step 3 ("once the owner says go") also
+  differs from how merging works now; the owner updates it.
 - **GPL text-to-phoneme packages for the English voice.** The voice is Kokoro-82M via
   `kokoro-onnx` (weights Apache-2.0, `kokoro-onnx` MIT). It depends on two GPL-3.0
   packages, `phonemizer` and `espeakng-loader` (bundles espeak-ng). Tonight's
