@@ -1,10 +1,20 @@
 #!/usr/bin/env bash
-# Point uv and Hugging Face caches into Dependencies/ (git-ignored).
-# Ollama keeps its models in its own default location (it runs as a system service).
+# Keep the venv and caches inside the project's Dependencies/ folder (git-ignored).
+# Safe to source from the main checkout or from a worktree under
+# Dependencies/worktrees/<name>/. Ollama keeps its own model store.
 # Usage: source AI_Agent/scripts/env.sh
 _root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 export SASHA_ROOT="$_root"
-export UV_PROJECT_ENVIRONMENT="$_root/Dependencies/.venv"
-export HF_HOME="$_root/Dependencies/hf"
-mkdir -p "$HF_HOME" "$_root/Data/logs"
-unset _root
+case "$_root" in
+  */Dependencies/worktrees/*)
+    _main="${_root%%/Dependencies/worktrees/*}"  # worktree: own .venv, shared caches
+    unset UV_PROJECT_ENVIRONMENT ;;
+  *)
+    _main="$_root"
+    export UV_PROJECT_ENVIRONMENT="$_main/Dependencies/.venv" ;;
+esac
+export HF_HOME="$_main/Dependencies/hf"
+export UV_CACHE_DIR="$_main/Dependencies/uv-cache"
+export XDG_CACHE_HOME="$_main/Dependencies/cache"
+mkdir -p "$HF_HOME" "$UV_CACHE_DIR" "$XDG_CACHE_HOME" "$_main/Data/logs"
+unset _root _main
