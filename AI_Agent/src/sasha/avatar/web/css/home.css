@@ -1,0 +1,89 @@
+/* Home: the face fills the room; controls sit in a quiet dock at the bottom. */
+.home {
+  display: grid; grid-template-rows: auto 1fr auto auto;
+  padding: 18px max(20px, 2.5vw) 20px;
+  background: radial-gradient(90vmin 70vmin at 50% 42%, #152030 0%, var(--bg) 70%);
+}
+.home-top { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
+.who { display: flex; align-items: center; gap: .8rem; }
+.who-name { font-size: 1.15rem; font-weight: 600; letter-spacing: .01em; }
+.home-nav { display: flex; gap: .4rem; }
+
+.stage { min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; justify-items: center; gap: 3.5vh; padding-top: 2vh; }
+
+/* ---------- The face ---------- */
+.face { --glow: var(--lamp); --lvl: 0; height: 100%; aspect-ratio: 1; max-width: 100%; min-height: 0; }
+.face svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.face[data-state="listening"] { --glow: var(--listen); }
+.face[data-state="thinking"] { --glow: var(--think); }
+.face * { transform-box: fill-box; transform-origin: center; }
+
+.halo { animation: breathe 5.5s ease-in-out infinite; transition: opacity .4s; }
+.head { animation: bob 5.5s ease-in-out infinite; }
+.skull { stroke: var(--glow); stroke-opacity: .34; stroke-width: 1.5; transition: stroke .4s; }
+.cheek { fill: var(--glow); opacity: .13; transition: fill .4s; }
+.eye { fill: var(--glow); transition: fill .4s; filter: drop-shadow(0 0 7px color-mix(in srgb, var(--glow) 60%, transparent)); }
+.eyes { transition: transform .45s var(--ease); }
+.eyes.blink .eye { transform: scaleY(.08); transition: transform .07s; }
+.mouth { fill: #0a0e13; stroke: var(--glow); stroke-width: 5; stroke-linejoin: round; stroke-linecap: round; transition: stroke .4s; }
+
+@keyframes breathe { 50% { transform: scale(1.045); } }
+@keyframes bob { 50% { transform: translateY(-3px); } }
+
+/* listening: a ring that swells with the microphone level */
+.ring {
+  stroke: var(--listen); stroke-width: 4; opacity: 0;
+  transform: scale(calc(.94 + var(--lvl) * .07));
+  filter: drop-shadow(0 0 8px var(--listen)) drop-shadow(0 0 22px var(--listen));
+  transition: opacity .3s, transform .09s linear;
+}
+.face[data-state="listening"] .ring { opacity: .9; }
+.face[data-state="listening"] .eyes { transform: scale(1.1); }
+
+/* thinking: eyes drift up, three dots circle the head */
+.orbit { fill: var(--think); opacity: 0; transform-box: view-box; transform-origin: 200px 200px; transition: opacity .3s; }
+.face[data-state="thinking"] .orbit { opacity: 1; animation: orbit 2.6s linear infinite; }
+.face[data-state="thinking"] .eyes { transform: translate(9px, -12px) scale(.9); }
+@keyframes orbit { to { transform: rotate(360deg); } }
+
+/* speaking: the halo brightens with the voice */
+.face[data-state="speaking"] .halo { opacity: calc(1 + var(--lvl)); animation-duration: 3s; }
+
+/* ---------- Subtitles ---------- */
+.subtitles {
+  width: min(46rem, 100%); min-height: 6.6rem;
+  display: flex; flex-direction: column; justify-content: flex-start; gap: .3rem;
+  text-align: center; padding-bottom: 1rem;
+}
+.heard { color: var(--muted); font-size: 1rem; line-height: 1.6; min-height: 1.6em; }
+.heard:not(:empty)::before { content: "“"; }
+.heard:not(:empty)::after { content: "”"; }
+.heard.partial { opacity: .65; }
+.said {
+  font-size: clamp(1.15rem, 2.3vh, 1.6rem); line-height: 1.55; font-weight: 500; text-wrap: balance;
+  max-height: 4.65em; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end;
+}
+.notice { color: var(--warn); font-size: .9rem; }
+
+/* ---------- Dock ---------- */
+.dock { display: flex; align-items: center; justify-content: center; gap: .7rem; flex-wrap: wrap; }
+.mic {
+  display: inline-flex; align-items: center; gap: .6em;
+  height: 52px; padding: 0 1.5em 0 1.2em; border-radius: 99px; cursor: pointer;
+  background: var(--lamp); border: 0; color: #1b1408; font-weight: 600; font-size: 1.02rem;
+  transition: background .2s, box-shadow .2s;
+}
+.mic .ico { width: 1.35em; height: 1.35em; }
+.mic:hover { background: #f8d7a6; }
+.mic[aria-pressed="true"] { background: var(--listen); box-shadow: 0 0 0 6px color-mix(in srgb, var(--listen) 22%, transparent); }
+.say { display: flex; gap: .4rem; width: min(26rem, 100%); }
+.say input { height: 42px; border-radius: 99px; padding-inline: 1.1em; background: rgb(17 24 34 / .8); }
+.say .btn { border-radius: 50%; width: 42px; min-height: 42px; }
+.dock .danger { border-radius: 99px; min-height: 42px; }
+.voice-hint { margin-top: .7rem; text-align: center; color: var(--muted); font-size: .85rem; }
+
+@media (max-height: 560px) { .subtitles { min-height: 4.4rem; } .said { max-height: 3.1em; } }
+@media (prefers-reduced-motion: reduce) {
+  .face[data-state="thinking"] .orbit { animation: none !important; }
+  .ring { transform: none; }
+}

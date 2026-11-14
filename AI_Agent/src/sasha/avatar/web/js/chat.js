@@ -1,0 +1,154 @@
+// One open chat with one bot: transcript, tool chips, composer.
+import { h, icon, setText } from './dom.js';
+import { Conversation } from './socket.js';
+
+function chip(tool) {
+  return h('span', { class: `chip ${tool.ok ? 'ok' : 'bad'}`, title: tool.ok ? 'Tool ran' : 'Tool failed' },
+    icon(tool.ok ? 'check' : 'x'), tool.name);
+}
+
+export class ChatView {
+  constructor(bot, { onBusy, onEdit }) {
+    this.bot = bot;
+    this.onBusy = onBusy;
+    this.busy = false;
+    this.pending = null; // the assistant message being streamed
+    this.conv = new Conversation(bot.id);
+
+    this.title = h('span', { class: 'title' });
+    this.meta = h('span', { class: 'meta' });
+    this.avatar = h('span', { class: 'avatar', 'aria-hidden': 'true' });
+    this.offline = h('span', { class: 'pill', dataset: { tone: 'offline' }, hidden: true }, 'Offline');
+    this.log = h('div', { class: 'log', role: 'log', 'aria-live': 'polite', tabIndex: 0 });
+    this.input = h('textarea', { rows: 1, 'aria-label': 'Message', maxLength: 8000,
+      onkeydown: (ev) => { if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); this.submit(); } },
+      oninput: () => this.grow() });
+    this.sendBtn = h('button', { class: 'btn primary', type: 'submit' }, 'Send');
+    this.stopBtn = h('button', { class: 'btn danger', type: 'button', hidden: true,
+      onclick: () => this.conv.cancel() }, icon('stop'), 'Stop');
+
+    this.el = h('section', { class: 'chat', role: 'tabpanel' },
+      h('header', { class: 'chat-head' }, this.avatar,
+        h('div', {}, this.title, h('div', {}, this.meta)),
+        h('span', { class: 'grow' }), this.offline,
+        h('button', { class: 'btn small quiet', type: 'button', onclick: () => this.restart() }, 'Clear chat'),
+        h('button', { class: 'btn small', type: 'button', onclick: () => onEdit(this.bot) }, 'Edit bot')),
+      this.log,
+      h('form', { class: 'composer', onsubmit: (ev) => { ev.preventDefault(); this.submit(); } },
+        this.input, this.stopBtn, this.sendBtn));
+
+    this.update(bot);
+    this.showEmpty();
+    this.conv
+      .on('online', () => this.setOnline(true))
+      .on('offline', () => this.setOnline(false))
+      .on('state', (m) => this.setBusy(m.state !== 'idle'))
+      .on('tool', (m) => this.reply().chips.append(chip(m)))
+      .on('reply_delta', (m) => { const r = this.reply(); r.text += m.text; this.paint(r); })
+      .on('reply', (m) => this.finish(m))
+      .on('error', (m) => { this.add(h('div', { class: 'msg error', role: 'alert' }, m.message)); this.pending = null; });
+    this.setOnline(false);
+  }
+
+  update(bot) {
+    this.bot = bot;
+    this.title.textContent = bot.name;
+    this.avatar.textContent = bot.name.trim().charAt(0).toUpperCase();
+    const n = bot.connectors.length;
+    this.meta.textContent = `${bot.model} · ${n === 0 ? 'no connectors' : n === 1 ? '1 connector' : `${n} connectors`}`;
+    this.input.placeholder = `Message ${bot.name}`;
+  }
+
+  setOnline(on) {
+    this.offline.hidden = on;
+    this.sendBtn.disabled = !on;
+    if (!on) this.setBusy(false);
+  }
+
+  setBusy(busy) {
+    if (busy && !this.pending && !this.done) this.reply();
+    if (!busy) this.done = false;
+    if (!busy && this.pending) {
+      // Stopped or dropped before a final reply: keep what arrived.
+      if (!this.pending.text && !this.pending.chips.childElementCount) this.pending.el.remove();
+      else this.pending.dots.remove();
+      this.pending = null;
+    }
+    this.busy = busy;
+    this.stopBtn.hidden = !busy;
+    this.onBusy(this);
+  }
+
+  showEmpty() {
+    this.log.replaceChildren(h('p', { class: 'log-empty' }, 'Nothing here yet. Say what you need.'));
+  }
+
+  add(node) {
+    const empty = this.log.querySelector('.log-empty');
+    if (empty) empty.remove();
+    this.log.append(node);
+    this.log.scrollTop = this.log.scrollHeight;
+    return node;
+  }
+
+  // The assistant message currently being built (created on first use).
+  reply() {
+    if (this.pending) return this.pending;
+    const body = h('div', { class: 'body' });
+    const chips = h('div', { class: 'chips' });
+    const dots = h('span', { class: 'typing', 'aria-label': 'Thinking' }, h('i'), h('i'), h('i'));
+    const el = h('div', { class: 'msg bot' }, h('span', { class: 'from' }, this.bot.name), chips, body, dots);
+    this.pending = { el, body, chips, dots, text: '' };
+    this.add(el);
+    return this.pending;
+  }
+
+  paint(r) {
+    setText(r.body, r.text);
+    this.log.scrollTop = this.log.scrollHeight;
+  }
+
+  finish(m) {
+    const r = this.reply();
+    r.text = m.text;
+    if (Array.isArray(m.tool_calls)) r.chips.replaceChildren(...m.tool_calls.map(chip));
+    r.dots.remove();
+    if (m.timing && m.timing.total_ms != null) {
+      const speed = m.timing.tokens_per_s ? ` · ${Math.round(m.timing.tokens_per_s)} tokens/s` : '';
+      r.el.append(h('span', { class: 'timing' }, `${(m.timing.total_ms / 1000).toFixed(1)} s${speed}`));
+    }
+    this.paint(r);
+    this.pending = null;
+    this.done = true; // a "speaking" state may still follow; it must not open a new bubble
+  }
+
+  submit() {
+    const text = this.input.value.trim();
+    if (!text) return;
+    if (!this.conv.online) return;
+    if (this.busy) this.conv.cancel();
+    const body = h('div', { class: 'body' });
+    setText(body, text);
+    this.add(h('div', { class: 'msg user' }, body));
+    this.conv.sendText(text);
+    this.input.value = '';
+    this.grow();
+  }
+
+  restart() {
+    this.conv.reset();
+    this.pending = null;
+    this.showEmpty();
+    this.input.focus();
+  }
+
+  grow() {
+    this.input.style.height = 'auto';
+    this.input.style.height = `${Math.min(this.input.scrollHeight + 2, 144)}px`;
+  }
+
+  close() {
+    this.conv.close();
+    this.el.remove();
+  }
+}

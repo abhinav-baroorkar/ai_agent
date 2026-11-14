@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Assistant</title>
+<link rel="icon" href="assets/icon.svg">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/home.css">
+<link rel="stylesheet" href="css/work.css">
+<link rel="stylesheet" href="css/chat.css">
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H6M11 6l-6 6 6 6"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4A2.5 2.5 0 0 1 4 13.5z"/></symbol>
+    <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3v5M15 3v5M6.5 8h11v3.5a5.5 5.5 0 0 1-11 0zM12 17v4"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  </defs>
+</svg>
+
+<div id="offline" class="banner" role="status" hidden>
+  <span class="dot"></span><span id="offline-text">Offline. Trying to reconnect…</span>
+</div>
+
+<main id="home" class="view home">
+  <header class="home-top">
+    <div class="who">
+      <span class="who-name" data-assistant-name>&nbsp;</span>
+      <span id="home-status" class="pill" data-tone="idle">Starting</span>
+    </div>
+    <nav class="home-nav" aria-label="Sections">
+      <a class="btn" href="#bots"><svg class="ico"><use href="#i-chat"/></svg>Bots and chats</a>
+      <a class="btn quiet" href="#settings"><svg class="ico"><use href="#i-plug"/></svg>Settings</a>
+    </nav>
+  </header>
+
+  <div class="stage">
+    <div id="face" class="face" data-state="idle" role="img" aria-label="Assistant face">
+      <svg viewBox="36 36 328 328" aria-hidden="true">
+        <defs>
+          <radialGradient id="g-halo"><stop offset="0" stop-color="var(--glow)" stop-opacity=".2"/><stop offset=".6" stop-color="var(--glow)" stop-opacity=".05"/><stop offset="1" stop-color="var(--glow)" stop-opacity="0"/></radialGradient>
+          <linearGradient id="g-head" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--head-top)"/><stop offset="1" stop-color="var(--head-low)"/></linearGradient>
+        </defs>
+        <circle class="halo" cx="200" cy="200" r="198" fill="url(#g-halo)"/>
+        <circle class="ring" cx="200" cy="200" r="166" fill="none"/>
+        <g class="orbit"><circle cx="200" cy="24" r="6"/><circle cx="222" cy="26" r="4.5"/><circle cx="242" cy="31" r="3"/></g>
+        <g class="head">
+          <rect class="skull" x="78" y="66" width="244" height="262" rx="112" fill="url(#g-head)"/>
+          <ellipse class="cheek" cx="128" cy="236" rx="20" ry="11"/>
+          <ellipse class="cheek" cx="272" cy="236" rx="20" ry="11"/>
+          <g class="eyes">
+            <rect class="eye" x="138" y="158" width="26" height="50" rx="13"/>
+            <rect class="eye" x="236" y="158" width="26" height="50" rx="13"/>
+          </g>
+          <path class="mouth" d="M168 262Q200 274 232 262Q200 274 168 262Z"/>
+        </g>
+      </svg>
+    </div>
+    <div class="subtitles" aria-live="polite">
+      <p id="heard" class="heard" lang=""></p>
+      <p id="said" class="said" lang=""></p>
+      <p id="notice" class="notice" hidden></p>
+    </div>
+  </div>
+
+  <footer class="dock">
+    <button id="mic" class="mic" type="button" aria-pressed="false" hidden>
+      <svg class="ico"><use href="#i-mic"/></svg><span id="mic-label">Talk</span>
+    </button>
+    <form id="say-form" class="say" autocomplete="off">
+      <label class="sr" for="say-text">Type a message</label>
+      <input id="say-text" type="text" placeholder="Or type here" maxlength="2000">
+      <button class="btn icon" type="submit" aria-label="Say it"><svg class="ico"><use href="#i-send"/></svg></button>
+    </form>
+    <button id="cancel" class="btn danger" type="button" hidden><svg class="ico"><use href="#i-stop"/></svg>Stop</button>
+  </footer>
+  <p id="voice-hint" class="voice-hint" hidden>Voice isn't set up on this machine yet, so the microphone is hidden. Typing works.</p>
+</main>
+
+<div id="work" class="view work" hidden>
+  <aside class="rail">
+    <a class="rail-home" href="#home"><svg class="ico"><use href="#i-back"/></svg><span>Back to <span data-assistant-name>the face</span></span></a>
+    <nav aria-label="Workspace">
+      <a class="rail-link" href="#bots" data-nav="bots"><svg class="ico"><use href="#i-chat"/></svg>Bots</a>
+      <a class="rail-link" href="#settings" data-nav="settings"><svg class="ico"><use href="#i-plug"/></svg>Settings</a>
+    </nav>
+    <div id="bot-list" class="bot-list" hidden>
+      <h2 class="eyebrow">Your bots</h2>
+      <ul id="bot-items"></ul>
+      <button id="new-bot" class="btn wide" type="button"><svg class="ico"><use href="#i-plus"/></svg>New bot</button>
+    </div>
+    <p class="rail-foot">Everything here runs on this computer.</p>
+  </aside>
+
+  <section id="bots" class="pane bots" aria-label="Bot chats" hidden>
+    <div id="tabs" class="tabs" role="tablist" aria-label="Open chats"></div>
+    <div id="chats" class="chats"></div>
+    <div id="bots-empty" class="empty" hidden>
+      <h1>Pick a bot to start a chat</h1>
+      <p>Each bot has its own model, instructions and connectors. You can keep several chats open and switch between them.</p>
+    </div>
+  </section>
+
+  <section id="settings" class="pane settings" aria-label="Settings" hidden>
+    <h1>Settings</h1>
+    <h2 class="eyebrow">Main assistant</h2>
+    <dl id="assistant-facts" class="facts"></dl>
+    <h2 class="eyebrow">Connectors</h2>
+    <p class="lede">Connectors let the assistant and your bots act outside the chat. Each bot only gets the connectors you tick for it.</p>
+    <div id="connector-grid" class="cards"></div>
+  </section>
+</div>
+
+<dialog id="bot-dialog" aria-labelledby="bot-dialog-title">
+  <form id="bot-form" method="dialog" autocomplete="off">
+    <h2 id="bot-dialog-title">New bot</h2>
+    <label for="bot-name">Name</label>
+    <input id="bot-name" type="text" required maxlength="40" placeholder="Recipe helper">
+    <label for="bot-model">Model</label>
+    <select id="bot-model" required></select>
+    <label for="bot-prompt">Instructions</label>
+    <textarea id="bot-prompt" rows="5" placeholder="What this bot is for and how it should answer."></textarea>
+    <fieldset id="bot-connectors"><legend>Connectors it may use</legend></fieldset>
+    <p id="bot-error" class="form-error" role="alert" hidden></p>
+    <div class="dialog-actions">
+      <button id="bot-delete" class="btn danger" type="button" hidden>Delete bot</button>
+      <span class="grow"></span>
+      <button id="bot-cancel" class="btn quiet" type="button">Cancel</button>
+      <button id="bot-save" class="btn primary" type="submit">Create bot</button>
+    </div>
+  </form>
+</dialog>
+
+<p id="file-warning" class="file-warning" hidden>This page needs to be served over http. From this folder run <code>python3 -m http.server 8799</code> and open <code>http://localhost:8799/?mock=1</code>.</p>
+<script>if (location.protocol === 'file:') document.getElementById('file-warning').hidden = false;</script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
