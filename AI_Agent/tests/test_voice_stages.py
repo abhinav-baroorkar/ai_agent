@@ -14,6 +14,9 @@ from sasha.pipeline.tts import SpeechAudio, TextToSpeech, split_sentences
 from sasha.pipeline.voice import VoiceUnavailableError, build_stt, build_tts
 from tests.conftest import REPO_ROOT
 
+# Inside the project (git-ignored Data/), never the system temp dir. Never created.
+NO_CACHE = REPO_ROOT / "Data" / "test-no-such-hf-cache"
+
 
 def test_fakes_satisfy_protocols() -> None:
     stt: SpeechToText = FakeSTT()
@@ -74,27 +77,27 @@ def test_voice_config_defaults_keep_old_profiles_valid() -> None:
     assert TTSConfig().revision  # pinned, so a moved upstream file can't change the voice
 
 
-def test_hf_cache_dir_stays_in_project(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_hf_cache_dir_stays_in_project(monkeypatch: pytest.MonkeyPatch) -> None:
+    root = Path("/project")  # pure path arithmetic, nothing is written
     monkeypatch.delenv("HF_HOME", raising=False)
     monkeypatch.delenv("HF_HUB_CACHE", raising=False)
-    assert hf_cache_dir(tmp_path) == tmp_path / "Dependencies" / "hf" / "hub"
-    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
-    assert hf_cache_dir(tmp_path) == tmp_path / "hf" / "hub"
-    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "hub2"))
-    assert hf_cache_dir(tmp_path) == tmp_path / "hub2"
+    assert hf_cache_dir(root) == root / "Dependencies" / "hf" / "hub"
+    monkeypatch.setenv("HF_HOME", "/project/Dependencies/hf2")
+    assert hf_cache_dir(root) == Path("/project/Dependencies/hf2/hub")
+    monkeypatch.setenv("HF_HUB_CACHE", "/project/hub3")
+    assert hf_cache_dir(root) == Path("/project/hub3")
 
 
-def test_build_stages_fail_cleanly_without_models(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_build_stages_fail_cleanly_without_models(monkeypatch: pytest.MonkeyPatch) -> None:
     """Without the extra (CI) or without downloaded weights: a clear error, no download."""
-    monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "empty"))
+    monkeypatch.setenv("HF_HUB_CACHE", str(NO_CACHE))
     monkeypatch.setenv("HF_HUB_OFFLINE", "1")
     settings = load_settings(root=REPO_ROOT, load_env_file=False)
     settings.profile.stt.device = "cpu"
     for build in (build_stt, build_tts):
         with pytest.raises(VoiceUnavailableError, match=r"voice"):
             build(settings)
+    assert not NO_CACHE.exists()
 
 
 def test_pcm_conversions_round_trip() -> None:

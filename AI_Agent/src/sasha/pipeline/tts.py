@@ -19,9 +19,8 @@ class TextToSpeech(Protocol):
 
     def synthesize(self, text: str, language: str) -> SpeechAudio: ...
 
-    def stream(self, text: str, language: str) -> Iterator[SpeechAudio]:
-        """One SpeechAudio per sentence, in order, so playback can start early."""
-        ...
+    # stream(): one SpeechAudio per sentence, in order, so playback can start early.
+    def stream(self, text: str, language: str) -> Iterator[SpeechAudio]: ...
 
 
 _SENTENCE_END = re.compile(r"(?<=[.!?…।])\s+|\n+")  # . ! ? ellipsis, Devanagari danda
