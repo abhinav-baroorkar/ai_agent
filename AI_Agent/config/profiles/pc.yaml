@@ -1,0 +1,16 @@
+# Desktop dev box: WSL2 Ubuntu 22.04, RTX 5070 12 GB (Blackwell, needs torch cu128+).
+name: pc
+device: cuda
+llm:
+  backend: ollama
+  model: qwen3:8b          # ~6 GB at Q4 with 8k context
+  small_model: qwen3:4b    # Jetson-size baseline, run on the PC too for comparison
+  num_ctx: 8192
+  temperature: 0.3
+  think: false             # Qwen3 thinking mode off: lower latency for voice
+  keep_alive: 30m
+  timeout_s: 120
+  max_tool_rounds: 4
+telemetry:
+  enabled: true
+  log_text: false          # don't store user text unless explicitly enabled

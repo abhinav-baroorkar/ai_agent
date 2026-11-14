@@ -1,0 +1,16 @@
+# Which tools the LLM can see, and what they may touch.
+home_assistant:
+  enabled: true
+  timeout_s: 10
+  # Only these domains are listed or controllable. Code only accepts light, switch,
+  # fan, scene and media_player here; anything else (lock, valve, button...) fails at load.
+  allowed_services:
+    light: [turn_on, turn_off, toggle]
+    switch: [turn_on, turn_off, toggle]
+    fan: [turn_on, turn_off, toggle]
+    scene: [turn_on]
+    media_player: [media_play, media_pause, volume_set]
+  # Optional allowlist of entity_ids. Empty = every entity in allowed domains,
+  # except switch.*: switches are exposed only when listed here.
+  # A scene runs only if every device in it is exposed too (list them alongside it).
+  exposed_entities: []

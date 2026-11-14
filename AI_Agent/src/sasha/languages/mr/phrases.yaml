@@ -1,0 +1,13 @@
+# Marathi fast-path commands (Phase 2). Matched before translation + LLM.
+# Include code-mixed English device names: "bedroom चा light on कर".
+# Not used yet in Phase 0.
+commands:
+  - examples: ["बेडरूमचा दिवा चालू कर", "bedroom चा light on कर"]
+    service: light.turn_on
+    target: light.bedroom
+  - examples: ["सगळे दिवे बंद कर", "सगळे light off कर"]
+    service: light.turn_off
+    target: all
+  - examples: ["दिवा कमी कर"]
+    service: light.turn_on
+    data: {brightness_step_pct: -30}
