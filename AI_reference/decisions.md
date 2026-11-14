@@ -140,3 +140,40 @@ All of them are fixed in this branch.
   do, and nothing else is blocked by it.
 - **The Phase 0 real-light gate stays open** and must pass before the v0.1
   release. Phase 0 is "done except the real-light gate", not plain "done".
+
+## 2026-11-14 — Brain server design (`feat/brain-server`, not yet merged)
+
+- **FastAPI + uvicorn**, one assistant per WebSocket connection. Why: a connection is
+  one conversation, so history and cancel state can't leak between clients.
+- **Bots and connector settings are stored as JSON under `Data/state/`.** Why: simple,
+  local, git-ignored, and easy to inspect; a database can come later.
+- **The window is Chrome in app mode with its own profile under `Data/chrome-profile`.**
+  Why: a kiosk-like window with no extra dependency, and the stay-inside-the-folder
+  rule keeps the profile in the project.
+- **Voice plugs in through one function** that returns the speech-to-text and
+  text-to-speech stages, or nothing. Why: text chat keeps working when voice is not
+  installed, as the API contract requires.
+- **Wrong `Host` header and cross-site WebSocket origin both get HTTP 403** (checked by
+  the author). Why: a web page open in the browser must not be able to talk to the
+  local brain.
+
+## 2026-11-14 — Voice stages (`feat/voice-stages`, in review, not merged)
+
+- **Speech-to-text: faster-whisper `small`, GPU when CUDA libraries are present,
+  automatic fallback to CPU.** Why: the GPU is about 13 times faster (127 ms vs 1751 ms
+  for a 2 to 4 s command).
+- **Text-to-speech: Kokoro-82M through `kokoro-onnx` on CPU, 24 kHz, one audio clip per
+  sentence.** Why: speech starts before the answer is complete (457 ms to first audio).
+- **CPU threads: 8.** Why: faster than 16 or the default on this hybrid CPU, where the
+  efficiency cores slow it down.
+- **English voice only tonight.** A Marathi transcript is answered in English until the
+  Marathi voice (Phase 2) exists.
+- **GPL text-to-phoneme packages stay in the optional `voice` extra only,** imported
+  lazily, nothing GPL vendored or committed. A GPL-free path (lexicon-based G2P plus our
+  own small ONNX runner) exists at the cost of worse pronunciation for unknown words.
+  The owner decides whether to keep the optional install or spend time on that path.
+- **Kokoro weights currently come from a third-party re-upload pinned to a revision.**
+  Moving to the official Apache-2.0 repository is being looked at before merge.
+- **Model weights live inside the project, under `Dependencies/hf/`** (802 MB), per the
+  stay-inside-the-folder rule.
+

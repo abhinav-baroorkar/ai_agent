@@ -51,9 +51,9 @@ only for now; satellites on other devices come later.
 
 | Branch | Session | What | Status |
 | --- | --- | --- | --- |
-| `feat/brain-server` | Staff SDE | FastAPI brain server, WebSocket chat, bots store, connector registry, `serve` and `window` commands, laptop profile | assigned 2026-11-14 |
+| `feat/brain-server` | Staff SDE | FastAPI brain server, WebSocket chat, bots store, connector registry, `serve` and `window` commands, laptop profile | steps 1 to 7 built and run against the real model; 117 tests pass on the branch; final tests in progress; not reviewed or merged |
 | `feat/web-ui` | Design expert | Face + home screen, bots screen, settings/connectors, mock mode | assigned 2026-11-14 |
-| `feat/voice-stages` | Jack of all tasks | faster-whisper STT and Kokoro TTS stages, fakes, bench script | assigned 2026-11-14 |
+| `feat/voice-stages` | Jack of all tasks | faster-whisper STT and Kokoro TTS stages, fakes, bench script | English STT and streaming TTS work with real models; 103 tests pass; in review; not merged. Kokoro weights source (official repo) being checked before merge |
 | `docs/scope-refresh` | Grunt work | plan.md, decisions.md, linkedin-notes.md, README, .env.example for the new scope | merged and pushed (`6fbc60d`, 86 tests pass) |
 | `docs/handoff` | Documentation engineer | this file, `team.md`, devlog; owner notes in `User_reference/` | merged and pushed (`main` is `5bd49eb`); work continues on this branch with new commits. Also owns `plan.md`, `decisions.md`, `linkedin-notes.md`, `README.md`, `.env.example` |
 
@@ -70,6 +70,13 @@ stages in after it lands), `docs/scope-refresh` any time. `pyproject.toml` and
 - **TTS stage:** `stream(text, language)` yields one audio chunk per sentence,
   24 kHz output. Agreed through Primary by the voice and server sessions (2026-11-14). The server
   resamples as needed for the WebSocket contract.
+
+## Risks
+
+- **VRAM headroom on the 8 GB laptop card is about 1 GB** (LLM 5.2 GB at 8k context + STT
+  0.8 GB = 7.1 of 8.15 GB). A bigger context could push LLM layers to the CPU.
+- **Held doc follow-up:** the README model and licence table needs rows for the voice
+  dependencies once `feat/voice-stages` merges (prepared as its own commit on the local branch `docs/readme-licences`, held).
 
 ## Next after these land
 
