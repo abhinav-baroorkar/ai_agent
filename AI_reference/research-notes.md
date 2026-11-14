@@ -33,3 +33,18 @@ Laptop, RTX 5070 Laptop 8 GB, power profile "quiet" (so CPU numbers are pessimis
 - Not yet measured: the full round trip (hear, think, speak) end to end.
 - **Brain server, final:** short replies take 225 to 312 ms in total at 49 to 55 tokens/s
   (`qwen3.5:9b`, laptop, warm).
+
+## 2026-11-14 (evening): full spoken turn, and load order
+
+A full spoken turn works end to end on the laptop with synthetic speech streamed by a
+script. Not yet measured with a real microphone in the window.
+
+- Warm medians from the end of speech: transcript 126 ms, first reply text 254 ms, first
+  audio 956 ms, done in about 1.5 s.
+- Cold first turn after startup: first audio about 1.5 s (was 9.4 s before the warm-up).
+- **Finding: load order decides GPU placement.** With speech-to-text loaded on the GPU
+  first, the LLM spilled 17% onto the CPU and ran at 36 tokens/s. With the LLM loaded
+  first everything fits (7.35 of 8.15 GB) and it runs at 58 tokens/s.
+- A/B: starting the first piece of an answer early (first sentence as soon as it ends, or
+  a cut at a pause after 40 characters) took first audio from 1085 to 956 ms.
+
