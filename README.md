@@ -158,6 +158,17 @@ Model weights are downloaded by script and never committed.
 | Model | Used for | License |
 | --- | --- | --- |
 | Qwen3 8B / 4B (via Ollama) | LLM | Apache-2.0 |
+| `qwen3.5:9b` (via Ollama, the laptop default) | LLM | Apache-2.0 (as printed by `ollama show`) |
+
+Software the brain server depends on:
+
+| Package | Used for | License |
+| --- | --- | --- |
+| fastapi | Brain server | MIT |
+| uvicorn | Runs the server | BSD-3-Clause |
+| websockets | WebSocket support | BSD-3-Clause |
+| starlette (via fastapi) | Web framework under fastapi | BSD-3-Clause |
+| opentelemetry-api (via fastapi) | API only, no network | Apache-2.0 |
 
 More rows get added as models land (openWakeWord, faster-whisper,
 IndicConformer, IndicTrans2, Indic Parler-TTS).
