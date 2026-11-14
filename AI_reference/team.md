@@ -101,7 +101,7 @@ One role per session. Add or drop roles as the work needs.
 
 ## Reusing code from an earlier project
 
-The owner allows reusing code from an earlier project of the owner's. Rules for doing it are in the team rules.
+The owner allows reusing code from an earlier project of the owner's. Rules for doing it are in the team rules (on hold until the owner confirms the code is the owner's to publish; see `manager-handoff.md`).
 
 ## Where documentation lives
 
