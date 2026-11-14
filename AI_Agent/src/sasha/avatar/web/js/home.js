@@ -26,6 +26,9 @@ export async function initHome(health, onOnline) {
   const canListen = !!health.voice.stt && (MOCK || Mic.supported());
   let serverState = 'idle';
   let recording = false;
+  let starting = false; // Talk was pressed and the browser has not handed over the microphone yet
+  let attempt = 0; // bumped by every stop and every leave; a start that sees it change gives up
+  const onHome = () => ['', '#home'].includes(location.hash);
   let blocked = MOCK && params.get('mic') === 'blocked'; // ?mock=1&mic=blocked shows the blocked state
   let replyText = '';
   let refused = '';
@@ -52,12 +55,12 @@ export async function initHome(health, onOnline) {
     el.status.dataset.tone = conv.online ? shown : 'offline';
     el.status.textContent = conv.online ? LABEL[shown] : 'Offline';
     el.cancel.hidden = !(shown === 'thinking' || shown === 'speaking');
-    el.micOn.hidden = !recording; // the rule: the microphone is never open without this sign
+    el.micOn.hidden = !(recording || starting); // the rule: the microphone is never open, or opening, without this sign
     el.mic.setAttribute('aria-pressed', String(recording));
     el.mic.dataset.blocked = String(blocked);
-    el.micLabel.textContent = blocked ? 'Mic blocked' : recording ? 'Done talking' : 'Talk';
+    el.micLabel.textContent = blocked ? 'Mic blocked' : starting ? 'Starting…' : recording ? 'Done talking' : 'Talk';
     el.micIcon.setAttribute('href', recording ? '#i-stop' : '#i-mic');
-    el.mic.disabled = !conv.online;
+    el.mic.disabled = !conv.online || starting;
     readouts.link(conv.online);
   }
 
@@ -114,6 +117,10 @@ export async function initHome(health, onOnline) {
   }
 
   async function startMic() {
+    if (starting || recording) return; // one microphone at a time, however often Talk is pressed
+    const mine = ++attempt;
+    starting = true;
+    render();
     stopAnswer();
     player.unlock();
     // The server ignores sound that arrives before audio_start, and audio_start may
@@ -130,6 +137,8 @@ export async function initHome(health, onOnline) {
       if (blocked) throw Object.assign(new Error('blocked'), { name: 'NotAllowedError' });
       if (!MOCK) await mic.start(onFrame);
     } catch (err) {
+      if (mine !== attempt) return; // already stopped while starting; nothing to report
+      starting = false;
       mic.stop();
       blocked = err && (err.name === 'NotAllowedError' || err.name === 'SecurityError');
       notice(blocked ? MIC_BLOCKED_HELP : micErrorText(err));
@@ -137,12 +146,23 @@ export async function initHome(health, onOnline) {
       if (blocked) el.text.focus();
       return;
     }
+    // Stopped, left Home or hid the window while the browser was still opening
+    // the microphone: close it again at once and do nothing else.
+    if (mine !== attempt || !onHome() || document.hidden) {
+      if (mine === attempt) {
+        starting = false;
+        mic.stop();
+        render();
+      }
+      return;
+    }
+    starting = false;
     blocked = false;
     recording = true;
     setText(el.heard, '');
     notice('');
     conv.whenIdle(() => {
-      if (!recording) return; // stopped before the server was ready
+      if (mine !== attempt) return; // stopped before the server was ready
       conv.startAudio();
       held.splice(0).forEach((frame) => conv.sendAudio(frame));
       started = true;
@@ -151,19 +171,26 @@ export async function initHome(health, onOnline) {
   }
 
   function stopMic(tellServer = true) {
-    if (!recording) return;
-    recording = false;
+    if (!recording && !starting) return;
+    attempt++;
+    const wasRecording = recording;
+    recording = starting = false;
     mic.stop();
+    if (!wasRecording) return render(); // it never got as far as telling the server
     if (tellServer) conv.stopAudio();
     render();
   }
 
-  el.mic.addEventListener('click', () => (recording ? stopMic() : startMic()));
+  el.mic.addEventListener('click', () => {
+    if (starting) return;
+    if (recording) stopMic(); else startMic();
+  });
   el.micOn.addEventListener('click', () => stopMic());
 
   // Leaving Home, hiding the window or closing the page always closes the
   // microphone and silences the answer. What was being recorded is discarded.
   function leave() {
+    if (starting) stopMic(false);
     if (recording) {
       stopMic(false);
       conv.waiting = null;
@@ -213,7 +240,10 @@ export async function initHome(health, onOnline) {
     if ($('#home').hidden || ev.target.closest('dialog') || history.isOpen) return;
     if (ev.key === 'Escape' && !el.cancel.hidden) return el.cancel.click();
     if (ev.target.closest('input, textarea, select, button, a')) return;
-    if (ev.code === 'Space' && canListen && conv.online) { ev.preventDefault(); el.mic.click(); }
+    if (ev.code === 'Space' && canListen && conv.online) {
+      ev.preventDefault();
+      if (!ev.repeat) el.mic.click(); // a held key must not press Talk again and again
+    }
   });
 
   if (blocked) notice(MIC_BLOCKED_HELP);

@@ -23,7 +23,7 @@ export function cleanConnector(c) {
 export function cleanModel(m) {
   const model = m && typeof m === 'object' ? m : {};
   const size = Number(model.size_gb);
-  return { name: str(model.name), size_gb: Number.isFinite(size) ? size : 0, tools: model.tools !== false };
+  return { name: str(model.name), size_gb: Number.isFinite(size) ? size : 0, tools: model.tools === true };
 }
 
 export function cleanHealth(hl) {
