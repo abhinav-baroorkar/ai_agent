@@ -43,9 +43,9 @@ export class Mood {
   step(now) {
     const dt = clamp((now - this.last) / 1000, 0, 0.05);
     this.last = now;
-    this.dt = dt;
     this.calm = reducedMotion();
-    if (!this.calm) this.t += dt;
+    this.dt = this.calm ? 0 : dt; // reduced motion: nothing drifts, spins or flows
+    this.t += this.dt;
     const color = [0, 0, 0];
     for (const s of STATES) {
       this.w[s] += ((s === this.state ? 1 : 0) - this.w[s]) * Math.min(1, dt * 4.5);

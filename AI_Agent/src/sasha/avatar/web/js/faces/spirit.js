@@ -1,11 +1,11 @@
-// The being of light. sphere.js draws its body and ribbons.js its flair;
+// The being of light. sphere.js draws its body and mist.js its breath;
 // this module is its behaviour: how it floats, wanders, leans in, hops,
 // settles, and what its small companion motes do. With `eyes` it also gets
 // two eyes of light.
 import { Stage, Blinker, mix, rand, clamp } from './stage.js';
 import { WHITE, glow, lightEye, Spring } from './parts.js';
 import { Sphere } from './sphere.js';
-import { Ribbons } from './ribbons.js';
+import { Mist } from './mist.js';
 
 const SHADOW = [8, 10, 18];
 
@@ -14,7 +14,7 @@ class Spirit extends Stage {
     super(root, 2.1);
     this.eyes = eyes;
     this.sphere = new Sphere();
-    this.ribbons = new Ribbons();
+    this.mist = new Mist();
     this.blinker = new Blinker();
     this.x = new Spring(0, 16, 5);
     this.y = new Spring(0, 16, 5);
@@ -34,7 +34,7 @@ class Spirit extends Stage {
     const from = this.state;
     super.setState(state);
     if (this.state === from) return;
-    this.ribbons.sweep(this.state);
+    this.mist.kick();
     if (this.calm) return;
     if (this.state === 'listening') this.size.vel += 0.9; // perks up
     if (this.state === 'thinking') this.size.vel -= 0.7; // draws inward
@@ -90,8 +90,9 @@ class Spirit extends Stage {
 
     ctx.save();
     ctx.scale(R, R);
+    this.mist.step(this);
+    this.mist.draw(ctx, this, false);
     this.companions(ctx, false);
-    this.ribbons.draw(ctx, this);
     ctx.restore();
 
     // stretch a little along the direction of travel
@@ -105,6 +106,7 @@ class Spirit extends Stage {
 
     ctx.save();
     ctx.scale(R, R);
+    this.mist.draw(ctx, this, true);
     if (this.eyes) this.face(ctx, R, now, away);
     this.companions(ctx, true);
     ctx.restore();
