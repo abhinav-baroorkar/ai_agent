@@ -77,6 +77,14 @@ One role per session. Add or drop roles as the work needs.
 - Max 400 lines per file; the persona name never appears in `AI_Agent/src/`; no send
   function for email anywhere; type hints and mypy strict; a fake for every stage so
   tests need no GPU; timeouts on every network call; secrets only in `.env`.
+- Secrets (owner, 2026-11-14, this project only): the owner allowed sessions to access
+  this project's secrets file for now, because it holds nothing sensitive yet. Team
+  practice is narrower: code and tests may load the file at run time (`load_dotenv`,
+  `reload_secrets`) and may add or check variable names. Sessions don't open, print,
+  search, copy or paste the file or any secret value, because anything a session reads
+  lands in its transcript; tool output, logs, telemetry, commits and reports never contain
+  one. If a permission rule or safety hook blocks a read or a tool, stop and tell Primary;
+  don't work around it. Only the owner widens or withdraws this.
 - New dependency: check its licence fits Apache-2.0 and say so in the report.
 - Ask Primary before: `sudo`, system packages, deleting files outside your
   worktree, anything that costs money, any network call to a service other than

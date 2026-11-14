@@ -140,3 +140,151 @@ All of them are fixed in this branch.
   do, and nothing else is blocked by it.
 - **The Phase 0 real-light gate stays open** and must pass before the v0.1
   release. Phase 0 is "done except the real-light gate", not plain "done".
+
+## 2026-11-14 — Brain server design (`feat/brain-server`, not yet merged)
+
+- **FastAPI + uvicorn**, one assistant per WebSocket connection. Why: a connection is
+  one conversation, so history and cancel state can't leak between clients.
+- **Bots and connector settings are stored as JSON under `Data/state/`.** Why: simple,
+  local, git-ignored, and easy to inspect; a database can come later.
+- **The window is Chrome in app mode with its own profile under `Data/chrome-profile`.**
+  Why: a kiosk-like window with no extra dependency, and the stay-inside-the-folder
+  rule keeps the profile in the project.
+- **Voice plugs in through one function** that returns the speech-to-text and
+  text-to-speech stages, or nothing. Why: text chat keeps working when voice is not
+  installed, as the API contract requires.
+- **Wrong `Host` header and cross-site WebSocket origin both get HTTP 403** (checked by
+  the author). Why: a web page open in the browser must not be able to talk to the
+  local brain.
+
+## 2026-11-14 — Voice stages (`feat/voice-stages`, in review, not merged)
+
+- **Speech-to-text: faster-whisper `small`, GPU when CUDA libraries are present,
+  automatic fallback to CPU.** Why: the GPU is about 13 times faster (127 ms vs 1751 ms
+  for a 2 to 4 s command).
+- **Text-to-speech: Kokoro-82M through `kokoro-onnx` on CPU, 24 kHz, one audio clip per
+  sentence.** Why: speech starts before the answer is complete (457 ms to first audio).
+- **CPU threads: 8.** Why: faster than 16 or the default on this hybrid CPU, where the
+  efficiency cores slow it down.
+- **English voice only tonight.** A Marathi transcript is answered in English until the
+  Marathi voice (Phase 2) exists.
+- **GPL text-to-phoneme packages stay in the optional `voice` extra only,** imported
+  lazily, nothing GPL vendored or committed. A GPL-free path (lexicon-based G2P plus our
+  own small ONNX runner) exists at the cost of worse pronunciation for unknown words.
+  The owner decides whether to keep the optional install or spend time on that path.
+- **Kokoro weights currently come from a third-party re-upload pinned to a revision.**
+  Moving to the official Apache-2.0 repository is being looked at before merge.
+- **Model weights live inside the project, under `Dependencies/hf/`** (802 MB), per the
+  stay-inside-the-folder rule.
+
+## 2026-11-14 — Brain server, final design (`feat/brain-server`, in review)
+
+- **Binds to this computer only and refuses any other host.** Why: single device for now.
+- **Checks the `Host` header and the browser `Origin` on every request and WebSocket.**
+  Why: a web page open in the browser must not be able to drive the assistant.
+- **Cancel is silent, and a cancelled turn is not added to history.** Why: the user
+  stopped it; a half answer would confuse the next turn.
+- **A second message while busy gets an error, not a queue.** Why: simple and
+  predictable; the UI cancels first.
+- **The main bot gets all connectors; a new bot starts with none.** Why: least access by
+  default.
+- **A user-made bot always gets the safety note appended to its instructions.** Why: a
+  custom prompt must not remove the safety rules.
+- **Connector status "ok" means set up and not failing; only Test pings.** Why: status
+  checks must not call out to services on every page load.
+- **The secrets file is re-read on each connector check.** Why: a secret can be added
+  without restarting the server.
+- **Message text is never logged.** Why: privacy; telemetry keeps timings only.
+- **`sasha window` starts Chrome in app mode with its own profile and its own home
+  directory under `Data/chrome-profile`, and does not fall back to the default browser.**
+  Why: the stay-inside-the-folder rule, and no mixing with the owner's browser.
+- **New packages:** fastapi (MIT), uvicorn (BSD-3), websockets (BSD-3), which pull in
+  starlette (BSD-3) and opentelemetry-api (Apache-2.0, API only, no network). All fit
+  Apache-2.0.
+
+## 2026-11-14 — Web UI design (`feat/web-ui`, mock version at `15a81d7`)
+
+- **Original character:** soft rounded head, capsule eyes. No film-style HUD.
+- **Colour means state:** amber is the assistant, teal listening, violet thinking. Every
+  state also has a word, so colour is never the only signal.
+- **Dark theme only.** System fonts, with Noto Sans Devanagari for Marathi.
+- **All server text is inserted as plain text, and replies are not rendered as
+  markdown.** Why: server and tool output is untrusted data, and this blocks script
+  injection through the page.
+- **No dependencies; works with no server through `?mock=1`.** Why: the UI can be built
+  and tested before the server is ready.
+
+## 2026-11-14 — API contract v0.1
+
+- **`speak=0|1` on the WebSocket.** Home speaks every answer; bot chat tabs are silent.
+- **One conversation per socket; `PUT` connector returns the Connector; `pronouns` is an
+  object; `voice.tts_languages` added.** v0.2 will add adding and removing MCP
+  connectors.
+
+## 2026-11-14 — Brain server hardening (merged, `main` at `c6e8b1e`)
+
+Review took two rounds and fixed 16 findings. 170 tests pass on `main`. A live run on the
+laptop showed the window loading its page from the local server, with zero network
+connections outside this computer and nothing written outside the project folder.
+
+- **The window's Chrome gets no route out:** a dead local proxy plus resolver rules.
+  Why: privacy flags alone still let a fresh profile contact Google four times.
+- **The window's temp folder is inside the profile under `Data/`.** Why: the
+  stay-inside-the-folder rule.
+- **Settings can only narrow which devices are exposed, never widen.** Switches and the
+  device list are widened only by editing `tools.yaml`. Why: a page or a bot must not be
+  able to grant itself more control.
+- **The main bot starts with Home Assistant only; every later connector is opt-in per
+  bot.** Why: least access by default.
+- **At most 4 WebSockets at once and 1 MB per message.** Why: bounds resource use from a
+  misbehaving or hostile local page.
+- **A bot's model must be an installed one.** Why: a bad choice fails when saved, not in
+  the middle of a conversation.
+- **The process environment wins over the secrets file, at startup and on reload.** Why:
+  a value set on purpose for one run must not be silently overridden by the file.
+- **Speech starts before a long answer ends** by cutting at a comma or space after 200
+  characters. Why: first audio sooner on long answers.
+
+## 2026-11-14 — Face design direction (`feat/web-ui`)
+
+- **The owner rejected the first face and any human character.** No human faces.
+- **New direction:** the owner asked for a friendly living ball of light with elemental
+  brush-art flair. An orb of light developed into a character, with a brush-art flourish
+  per state (water when listening, wind when thinking, flame when speaking), drawn from
+  scratch in the woodblock-print tradition. Two variants are with the owner: without
+  eyes, and with two eyes of light. It runs at 60 fps in a real window. Why: an original
+  character that is friendly without looking like a person or like another product.
+- **Supersedes** the 2026-11-14 entry "Web UI design" on the character (soft rounded
+  head, capsule eyes). The colour, dark-theme, font and plain-text decisions there still
+  stand.
+
+## 2026-11-14 — Secrets handling
+
+- **Sessions may work with this project's own secrets-file handling** (the owner's
+  permission, 2026-11-14, this project only). Secret values are never printed, logged or
+  committed. Why: connector setup needs it; the values themselves stay out of every
+  transcript.
+
+## 2026-11-14 — Corrections and supersessions (appended)
+
+- **Supersedes the wording of the "Secrets handling" entry above.** Owner, 2026-11-14, this project only: the owner allowed sessions to access this project's secrets file for now, because it holds nothing sensitive yet. Team practice is narrower: code and tests may load the file at run time (`load_dotenv`, `reload_secrets`) and may add or check variable names. Sessions don't open, print, search, copy or paste the file or any secret value, because anything a session reads lands in its transcript; tool output, logs, telemetry, commits and reports never contain one. If a permission rule or safety hook blocks a read or a tool, stop and tell Primary; don't work around it. Only the owner widens or withdraws this.
+- **Supersedes** the line "The main bot gets all connectors; a new bot starts with none"
+  in "Brain server, final design". The hardening entry is current: the main bot starts with
+  Home Assistant only, and every later connector is opt-in per bot.
+- **Correction to the hardening entry, live-run check.** "Nothing written outside the project
+  folder" meant: after a live run there were no new entries in `/tmp` (browser), `~/.config`,
+  `~/.cache`, `~/.pki` or the desktop keyring folder, and zero TCP peers outside this
+  computer.
+- **Correction to the "4 WebSockets, 1 MB" reason:** it bounds resource use from a
+  misbehaving local client. A hostile web page can't connect at all, because the Origin check
+  stops it.
+- **Kokoro weights, on the voice branch (not merged yet):** they now come from the official
+  `onnx-community/Kokoro-82M-v1.0-ONNX` repository, pinned to a full commit hash, with one
+  voice packed into a small derived file. This replaces the third-party re-upload noted in
+  "Voice stages".
+- **Face direction update.** The owner found the painted ribbons wrong and asked for
+  particles. The flair is now flowing particles in the orb's own style: mist that breathes at
+  idle, particles drawn in when listening, currents when thinking, rising embers when
+  speaking. The default is without eyes; eyes stay as a switch. This supersedes the
+  brush-art flourish and the two-variant choice in "Face design direction".
+
