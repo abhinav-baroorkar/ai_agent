@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -16,3 +17,4 @@ class TextToSpeech(Protocol):
     def model_version(self) -> str: ...
 
     def synthesize(self, text: str, language: str) -> SpeechAudio: ...
+    def stream(self, text: str, language: str) -> Iterator[SpeechAudio]: ...
