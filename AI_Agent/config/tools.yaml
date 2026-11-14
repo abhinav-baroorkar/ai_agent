@@ -12,4 +12,5 @@ home_assistant:
     media_player: [media_play, media_pause, volume_set]
   # Optional allowlist of entity_ids. Empty = every entity in allowed domains,
   # except switch.*: switches are exposed only when listed here.
+  # A scene runs only if every device in it is exposed too (list them alongside it).
   exposed_entities: []
