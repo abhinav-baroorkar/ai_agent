@@ -30,11 +30,18 @@ log = logging.getLogger(__name__)
 
 WARMUP_TIMEOUT_S = 45.0  # a cold 9B load from disk takes ~8 s on the laptop
 PS_TIMEOUT_S = 5.0
+CONNECT_TIMEOUT_S = 3.0  # an Ollama address that doesn't answer fails fast
 FULL_GPU = 0.995  # rounding in Ollama's byte counts
 
 
-def _client(host: str, client: httpx.Client | None, timeout: float) -> httpx.Client:
-    return client or httpx.Client(base_url=host, timeout=httpx.Timeout(timeout, connect=3.0))
+def _timeout(seconds: float) -> httpx.Timeout:
+    """`seconds` for reading the answer, but only CONNECT_TIMEOUT_S to connect. (A bare
+    float passed per request would apply to every phase, connect included.)"""
+    return httpx.Timeout(seconds, connect=CONNECT_TIMEOUT_S)
+
+
+def _client(host: str, client: httpx.Client | None, seconds: float) -> httpx.Client:
+    return client or httpx.Client(base_url=host, timeout=_timeout(seconds))
 
 
 def warm_up_llm(
@@ -50,8 +57,10 @@ def warm_up_llm(
         payload["keep_alive"] = config.keep_alive
     http = _client(host, client, WARMUP_TIMEOUT_S)
     try:
-        resp = http.post("/api/generate", json=payload, timeout=WARMUP_TIMEOUT_S)
+        resp = http.post("/api/generate", json=payload, timeout=_timeout(WARMUP_TIMEOUT_S))
         resp.raise_for_status()
+    except httpx.ConnectTimeout:  # before TimeoutException: it is a subclass
+        return f"LLM warm-up: Ollama not reachable (no answer within {CONNECT_TIMEOUT_S:.0f} s)"
     except httpx.TimeoutException:
         return f"LLM warm-up: Ollama did not load {model} within {WARMUP_TIMEOUT_S:.0f} s"
     except httpx.HTTPStatusError as e:
@@ -68,7 +77,7 @@ def gpu_share(host: str, model: str, client: httpx.Client | None = None) -> floa
     """Fraction of `model` in GPU memory per Ollama's process list; None if unknown."""
     http = _client(host, client, PS_TIMEOUT_S)
     try:
-        resp = http.get("/api/ps", timeout=PS_TIMEOUT_S)
+        resp = http.get("/api/ps", timeout=_timeout(PS_TIMEOUT_S))
         resp.raise_for_status()
         running = resp.json().get("models", [])
     except (httpx.HTTPError, ValueError, AttributeError):
@@ -110,11 +119,15 @@ class LLMPlacement:
 
 
 class PlacementTelemetry(TelemetryWriter):
-    """A TelemetryWriter that adds the LLM's GPU share at startup to every request's
-    `models` (key `llm_gpu_share_at_start`), so a CPU split shows up in research data.
-    It is a startup snapshot: a later reload by Ollama is not re-measured."""
+    """A TelemetryWriter that adds server-wide model facts to each request's `models`:
+    - `llm_gpu_share_at_start` on every request, so a CPU split shows up in research
+      data. A startup snapshot: a later reload by Ollama is not re-measured.
+    - `voice_models` (`stt`, `tts` model versions) on voice turns (`input_mode ==
+      "voice"`). `tts` names the server's loaded stage; whether that socket spoke the
+      reply (`speak=1`) is not recorded here."""
 
     placement: LLMPlacement | None = None
+    voice_models: dict[str, str] | None = None
 
     def start(self, input_mode: str = "text") -> RequestTrace:
         trace = super().start(input_mode)
@@ -122,4 +135,6 @@ class PlacementTelemetry(TelemetryWriter):
             trace.models["llm_gpu_share_at_start"] = (
                 f"{self.placement.model}:{share_label(self.placement.gpu_share)}"
             )
+        if input_mode == "voice" and self.voice_models:
+            trace.models.update(self.voice_models)
         return trace
