@@ -158,6 +158,7 @@ Model weights are downloaded by script and never committed.
 | Model | Used for | License |
 | --- | --- | --- |
 | Qwen3 8B / 4B (via Ollama) | LLM | Apache-2.0 |
+| `qwen3.5:9b` (via Ollama, the laptop default) | LLM | Apache-2.0 (as printed by `ollama show`) |
 
 Software the brain server depends on:
 
