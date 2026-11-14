@@ -65,10 +65,18 @@ function pick(text, sock) {
 }
 
 export class MockSocket {
+  static open = 0;
+
   constructor(botId, speak = false) {
     this.botId = botId;
     this.speaks = speak;
     this.turn = 0;
+    if (MockSocket.open >= 4) { // same cap as the real server
+      setTimeout(() => this.onclose && this.onclose({ code: 1013 }), 100);
+      return;
+    }
+    MockSocket.open++;
+    this.counted = true;
     this.timers = new Set();
     this.heardTimer = null;
     this.run = 0;
@@ -103,6 +111,8 @@ export class MockSocket {
   }
 
   close() {
+    if (this.counted) MockSocket.open--;
+    this.counted = false;
     this.stopAll();
     setTimeout(() => this.onclose && this.onclose(), 0);
   }

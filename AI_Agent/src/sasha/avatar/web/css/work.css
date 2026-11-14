@@ -9,10 +9,10 @@
 .mini-face { width: 30px; height: 30px; flex: none; --glow: var(--lamp); }
 .mini-face[data-state="listening"] { --glow: var(--listen); }
 .mini-face[data-state="thinking"] { --glow: var(--think); }
-.mf-head { fill: var(--head-top); stroke: var(--glow); stroke-opacity: .5; stroke-width: 2; }
-.mf-eye { fill: var(--glow); transition: fill .4s; }
-.mf-mouth { fill: none; stroke: var(--glow); stroke-width: 3; stroke-linecap: round; transition: stroke .4s; }
-.mini-face[data-state="speaking"] .mf-mouth { animation: pulse .5s infinite; }
+.mf-glow { fill: var(--glow); opacity: .14; transition: fill .4s; }
+.mf-body { fill: var(--head-top); stroke: var(--glow); stroke-opacity: .6; stroke-width: 1.5; stroke-dasharray: 1.5 3; transition: stroke .4s; }
+.mf-core { fill: var(--glow); opacity: .85; transition: fill .4s; }
+.mini-face:not([data-state="idle"]) .mf-core { animation: pulse 1.2s infinite; }
 .rail nav { display: grid; gap: 2px; }
 .rail-link { display: flex; align-items: center; gap: .7em; padding: .5em .7em; border-radius: var(--r); color: var(--muted); }
 .rail-link:hover { background: var(--surface); color: var(--text); }

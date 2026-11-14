@@ -9,6 +9,7 @@
 .tab-open .busy { width: 7px; height: 7px; border-radius: 50%; background: var(--think); animation: pulse 1.2s infinite; }
 .tab-close { display: grid; place-items: center; width: 26px; height: 26px; margin-right: .3em; border-radius: 6px; }
 .tab-close:hover { background: var(--surface-2); }
+.tab-note { align-self: center; margin-left: auto; padding: .2rem .8rem; color: var(--warn); font-size: .87rem; white-space: nowrap; }
 
 .chats { flex: 1; min-height: 0; }
 .chat { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; background: var(--surface); }

@@ -26,6 +26,7 @@ export class ChatView {
     this.sendBtn = h('button', { class: 'btn primary', type: 'submit' }, 'Send');
     this.stopBtn = h('button', { class: 'btn danger', type: 'button', hidden: true,
       onclick: () => this.conv.cancel() }, icon('stop'), 'Stop');
+    this.refused = false;
 
     this.el = h('section', { class: 'chat', role: 'tabpanel' },
       h('header', { class: 'chat-head' }, this.avatar,
@@ -42,6 +43,11 @@ export class ChatView {
     this.conv
       .on('online', () => this.setOnline(true))
       .on('offline', () => this.setOnline(false))
+      .on('refused', (m) => {
+        this.refused = true;
+        this.offline.hidden = true;
+        this.add(h('div', { class: 'msg error', role: 'alert' }, m.message));
+      })
       .on('state', (m) => this.setBusy(m.state !== 'idle'))
       .on('tool', (m) => this.reply().chips.append(chip(m)))
       .on('reply_delta', (m) => { const r = this.reply(); r.text += m.text; this.paint(r); })
@@ -71,7 +77,7 @@ export class ChatView {
     if (!busy && this.pending) {
       // Stopped or dropped before a final reply: keep what arrived.
       if (!this.pending.text && !this.pending.chips.childElementCount) this.pending.el.remove();
-      else this.pending.dots.remove();
+      else this.pending.dots.replaceWith(h('span', { class: 'timing' }, 'Stopped'));
       this.pending = null;
     }
     this.busy = busy;
@@ -126,17 +132,20 @@ export class ChatView {
     const text = this.input.value.trim();
     if (!text) return;
     if (!this.conv.online) return;
-    if (this.busy) this.conv.cancel();
-    const body = h('div', { class: 'body' });
-    setText(body, text);
-    this.add(h('div', { class: 'msg user' }, body));
-    this.conv.sendText(text);
+    // If an answer is still running it is stopped first; the message goes out once the server is idle.
+    this.conv.whenIdle(() => {
+      const body = h('div', { class: 'body' });
+      setText(body, text);
+      this.add(h('div', { class: 'msg user' }, body));
+      this.conv.sendText(text);
+    });
     this.input.value = '';
     this.grow();
   }
 
   restart() {
     this.conv.reset();
+    this.conv.waiting = null;
     this.pending = null;
     this.showEmpty();
     this.input.focus();

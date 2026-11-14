@@ -2,7 +2,8 @@
 import { api } from './api.js';
 import { $, h, clear } from './dom.js';
 
-export function openBotForm({ bot, models, connectors }) {
+// preferModel: what a new bot starts on (the main assistant's model, which is already loaded).
+export function openBotForm({ bot, models, connectors, preferModel }) {
   const dlg = $('#bot-dialog');
   const form = $('#bot-form');
   const f = {
@@ -29,7 +30,7 @@ export function openBotForm({ bot, models, connectors }) {
   clear(f.model).append(...names.map((name) => {
     const m = models.find((x) => x.name === name);
     const label = m ? `${name}  (${Number(m.size_gb).toFixed(1)} GB)` : `${name}  (not installed)`;
-    return h('option', { value: name, selected: bot ? bot.model === name : false }, label);
+    return h('option', { value: name, selected: name === (bot ? bot.model : preferModel) }, label);
   }));
   if (!names.length) f.model.append(h('option', { value: '', disabled: true, selected: true }, 'No local models found'));
 

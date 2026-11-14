@@ -81,7 +81,7 @@ export function initSettings(health, botsApi) {
         h('ol', {},
           h('li', {}, 'Open the ', h('code', {}, SECRETS_FILE), ' file in the project folder.'),
           h('li', {}, 'Fill in ', ...codeList(secrets), '.'),
-          h('li', {}, 'Restart the assistant, then press Test.'))),
+          h('li', {}, 'Press Test. No restart is needed.'))),
       settings.length > 0 && h('p', { class: 'detail' },
         ...settings.flatMap(([k, v]) => [`${k}: `, h('code', {}, String(v)), ' '])),
       tools.length > 0 && h('div', { class: 'tools', 'aria-label': 'Tools this connector gives' },
@@ -102,8 +102,8 @@ export function initSettings(health, botsApi) {
     }
     clear(grid).append(...connectors.map(card),
       h('article', { class: 'card note' },
-        h('strong', {}, 'Adding more connectors'),
-        `More kinds (MCP servers, Gmail, Calendar) show up here as cards once the server supports them. Secrets always go in the ${SECRETS_FILE} file, never in this window.`));
+        h('strong', {}, 'Adding your own connectors (MCP) is coming next'),
+        `Until then, the connectors above are the ones built in. Secrets always go in the ${SECRETS_FILE} file, never in this window.`));
   }
 
   botsApi.onChange(renderFacts);

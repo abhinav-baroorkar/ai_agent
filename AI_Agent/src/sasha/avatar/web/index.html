@@ -37,14 +37,14 @@
       <span id="home-status" class="pill" data-tone="idle">Starting</span>
     </div>
     <nav class="home-nav" aria-label="Sections">
-      <button id="history-open" class="btn quiet" type="button" hidden aria-expanded="false" aria-controls="history"><svg class="ico"><use href="#i-list"/></svg>History</button>
+      <button id="history-open" class="btn quiet" type="button" aria-expanded="false" aria-controls="history"><svg class="ico"><use href="#i-list"/></svg>History</button>
       <a class="btn" href="#bots"><svg class="ico"><use href="#i-chat"/></svg>Bots and chats</a>
       <a class="btn quiet" href="#settings"><svg class="ico"><use href="#i-plug"/></svg>Settings</a>
     </nav>
   </header>
 
   <div class="stage">
-    <div id="face" class="face" data-state="idle" role="img" aria-label="Assistant face">
+    <div id="face" class="face" data-state="idle" role="img" aria-label="Assistant">
     </div>
     <div class="subtitles" aria-live="polite">
       <p id="heard" class="heard" lang=""></p>
@@ -54,7 +54,7 @@
   </div>
 
   <div class="base">
-  <dl class="readout" aria-label="Where this runs" hidden>
+  <dl class="readout" aria-label="Where this runs">
     <div><dt>Time</dt><dd id="r-time">&nbsp;</dd></div>
     <div><dt>Runs</dt><dd>On this computer</dd></div>
   </dl>
@@ -69,7 +69,7 @@
     </form>
     <button id="cancel" class="btn danger" type="button" hidden><svg class="ico"><use href="#i-stop"/></svg>Stop</button>
   </footer>
-  <dl class="readout right" aria-label="Assistant status" hidden>
+  <dl class="readout right" aria-label="Assistant status">
     <div><dt>Model</dt><dd id="r-model">&nbsp;</dd></div>
     <div><dt>Link</dt><dd id="r-link">Connecting</dd></div>
     <div><dt>Last answer</dt><dd id="r-last">None yet</dd></div>
@@ -86,7 +86,7 @@
 <div id="work" class="view work" hidden>
   <aside class="rail">
     <a class="rail-home" href="#home"><svg class="ico"><use href="#i-back"/></svg>
-      <svg id="mini-face" class="mini-face" data-state="idle" viewBox="0 0 64 64" aria-hidden="true"><rect class="mf-head" x="8" y="7" width="48" height="50" rx="22"/><rect class="mf-eye" x="21" y="24" width="6" height="11" rx="3"/><rect class="mf-eye" x="37" y="24" width="6" height="11" rx="3"/><path class="mf-mouth" d="M25 43q7 5 14 0"/></svg><span>Back to <span data-assistant-name>the face</span></span></a>
+      <svg id="mini-face" class="mini-face" data-state="idle" viewBox="0 0 64 64" aria-hidden="true"><circle class="mf-glow" cx="32" cy="32" r="30"/><circle class="mf-body" cx="32" cy="32" r="19"/><circle class="mf-core" cx="32" cy="32" r="8"/></svg><span>Back to <span data-assistant-name>the face</span></span></a>
     <nav aria-label="Workspace">
       <a class="rail-link" href="#bots" data-nav="bots"><svg class="ico"><use href="#i-chat"/></svg>Bots</a>
       <a class="rail-link" href="#settings" data-nav="settings"><svg class="ico"><use href="#i-plug"/></svg>Settings</a>

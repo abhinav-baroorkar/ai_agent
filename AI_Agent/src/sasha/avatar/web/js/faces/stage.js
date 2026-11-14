@@ -72,7 +72,8 @@ export class Stage extends Mood {
     this.resize();
     const frame = (now) => {
       this.step(now);
-      if (!document.hidden && this.unit > 4) {
+      // Only draw when it can be seen: not in a hidden window, not behind Bots or Settings.
+      if (!document.hidden && this.root.offsetParent !== null && this.unit > 4) {
         const { ctx, canvas } = this;
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -94,30 +95,4 @@ export class Stage extends Mood {
   }
 
   draw() {}
-}
-
-// Natural blinking: uneven gaps and now and then a double blink.
-// value() is 0 with eyes open and 1 fully closed.
-export class Blinker {
-  constructor() {
-    this.at = performance.now() + rand(1500, 4000);
-    this.len = 150;
-    this.again = false;
-  }
-
-  value(now, calm) {
-    if (calm) return 0;
-    const x = (now - this.at) / this.len;
-    if (x < 0) return 0;
-    if (x < 1) return Math.sin(x * Math.PI);
-    if (this.again) {
-      this.again = false;
-      this.at = now + rand(90, 160);
-    } else {
-      this.at = now + rand(2200, 6500);
-      this.again = Math.random() < 0.2;
-    }
-    this.len = rand(120, 190);
-    return 0;
-  }
 }

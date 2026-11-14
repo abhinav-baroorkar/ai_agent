@@ -30,7 +30,7 @@ const info = await health();
 document.title = info.assistant.name;
 document.querySelectorAll('[data-assistant-name]').forEach((el) => { el.textContent = info.assistant.name; });
 
-await initHome(info, (online) => setOffline(!online));
+await initHome(info, (online, why) => setOffline(!online, why || undefined));
 const bots = initBots();
 const settings = initSettings(info, bots);
 

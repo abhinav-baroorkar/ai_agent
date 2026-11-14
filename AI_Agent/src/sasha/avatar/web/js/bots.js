@@ -10,6 +10,9 @@ export function initBots() {
   const open = new Map(); // bot id -> ChatView
   let active = null;
   const listeners = new Set();
+  // The server allows four conversations at once: Home keeps one, so three chats here.
+  const MAX_OPEN = 3;
+  let note = '';
 
   async function load() {
     try {
@@ -39,6 +42,7 @@ export function initBots() {
         chat.busy && h('span', { class: 'busy', title: 'Answering' }), chat.bot.name),
       h('button', { class: 'tab-close', type: 'button', 'aria-label': `Close chat with ${chat.bot.name}`, onclick: () => closeChat(chat.bot.id) }, icon('x')))));
 
+    if (note) el.tabs.append(h('p', { class: 'tab-note', role: 'status' }, note));
     for (const chat of open.values()) chat.el.hidden = chat.bot.id !== active;
     el.empty.hidden = open.size > 0;
     el.chats.hidden = open.size === 0;
@@ -47,6 +51,12 @@ export function initBots() {
   function show(id) {
     const bot = bots.find((b) => b.id === id);
     if (!bot) return;
+    note = '';
+    if (!open.has(id) && open.size >= MAX_OPEN) {
+      note = `${MAX_OPEN} chats can be open at once. Close one to open ${bot.name}.`;
+      render();
+      return;
+    }
     if (!open.has(id)) {
       const chat = new ChatView(bot, { onBusy: render, onEdit: edit });
       open.set(id, chat);
@@ -60,6 +70,7 @@ export function initBots() {
   function closeChat(id) {
     const chat = open.get(id);
     if (!chat) return;
+    note = '';
     chat.close();
     open.delete(id);
     if (active === id) active = open.size ? [...open.keys()].pop() : null;
@@ -75,7 +86,8 @@ export function initBots() {
   }
 
   async function edit(bot) {
-    const result = await openBotForm({ bot, ...(await lists()) });
+    const main = bots.find((b) => b.builtin);
+    const result = await openBotForm({ bot, ...(await lists()), preferModel: main && main.model });
     if (!result) return;
     if (result.deleted) closeChat(result.deleted);
     await load();

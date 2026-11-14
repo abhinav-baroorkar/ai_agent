@@ -26,8 +26,7 @@ export class Sphere {
 
   // Draws around the origin. ctx is in real pixels; R is the radius.
   // shimmer: -1 for none, or 0..1 as a band of light crosses from top to bottom.
-  // core: how bright the centre is (the eyed variant dims it so the eyes read).
-  draw(ctx, R, mood, { shimmer = -1, core = 1 } = {}) {
+  draw(ctx, R, mood, { shimmer = -1 } = {}) {
     const { w, lvl, trail, t, color } = mood;
     const voice = lvl * (w.speaking + w.listening);
     this.spin += mood.dt * (0.16 + 1.5 * w.thinking + 0.25 * w.speaking);
@@ -38,8 +37,8 @@ export class Sphere {
     glow(ctx, 0, 0, R * 2.1, color, 0.2 + 0.2 * voice);
     const coreR = R * (0.55 + 0.25 * w.listening + 0.3 * trail - 0.15 * w.thinking);
     let g = ctx.createRadialGradient(0, 0, 0, 0, 0, coreR);
-    g.addColorStop(0, rgba(mix(color, WHITE, 0.6), (0.5 + 0.4 * voice + 0.2 * w.thinking) * core));
-    g.addColorStop(0.35, rgba(color, (0.22 + 0.25 * voice) * core));
+    g.addColorStop(0, rgba(mix(color, WHITE, 0.6), 0.5 + 0.4 * voice + 0.2 * w.thinking));
+    g.addColorStop(0.35, rgba(color, 0.22 + 0.25 * voice));
     g.addColorStop(1, rgba(color, 0));
     ctx.fillStyle = g;
     ctx.fillRect(-coreR, -coreR, coreR * 2, coreR * 2);

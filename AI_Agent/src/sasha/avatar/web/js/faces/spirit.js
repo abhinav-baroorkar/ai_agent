@@ -1,21 +1,16 @@
 // The being of light. sphere.js draws its body and mist.js its breath;
 // this module is its behaviour: how it floats, wanders, leans in, hops,
-// settles, and what its small companion motes do. With `eyes` it also gets
-// two eyes of light.
-import { Stage, Blinker, mix, rand, clamp } from './stage.js';
-import { WHITE, glow, lightEye, Spring } from './parts.js';
+// settles, and what its small companion motes do.
+import { Stage, mix, rand } from './stage.js';
+import { WHITE, glow, Spring } from './parts.js';
 import { Sphere } from './sphere.js';
 import { Mist } from './mist.js';
 
-const SHADOW = [8, 10, 18];
-
 class Spirit extends Stage {
-  constructor(root, { eyes }) {
+  constructor(root) {
     super(root, 2.1);
-    this.eyes = eyes;
     this.sphere = new Sphere();
     this.mist = new Mist();
-    this.blinker = new Blinker();
     this.x = new Spring(0, 16, 5);
     this.y = new Spring(0, 16, 5);
     this.size = new Spring(1, 70, 9);
@@ -101,13 +96,12 @@ class Spirit extends Stage {
     ctx.rotate(dir);
     ctx.scale(1 + Math.min(0.12, speed * 0.1), 1 - Math.min(0.08, speed * 0.07));
     ctx.rotate(-dir);
-    this.sphere.draw(ctx, R, this, { shimmer: this.shimmer.p, core: this.eyes ? 0.55 : 1 });
+    this.sphere.draw(ctx, R, this, { shimmer: this.shimmer.p });
     ctx.restore();
 
     ctx.save();
     ctx.scale(R, R);
     this.mist.draw(ctx, this, true);
-    if (this.eyes) this.face(ctx, R, now, away);
     this.companions(ctx, true);
     ctx.restore();
   }
@@ -135,30 +129,8 @@ class Spirit extends Stage {
     }
     ctx.restore();
   }
-
-  // Two eyes of light inside the glow: soft ovals at rest, wide and a little
-  // uneven when curious, narrowed and looking up when focused, crescents when pleased.
-  face(ctx, R, now, away) {
-    const { w, lvl, color } = this;
-    glow(ctx, 0, -0.04, 0.62, SHADOW, 0.5); // a pocket of shade so the eyes read against the core
-    const pleased = clamp(w.speaking + this.glee);
-    const calmW = Math.max(0, w.idle - this.glee);
-    const blink = 1 - 0.94 * this.blinker.value(now, this.calm);
-    const rx = 0.072 * calmW + 0.086 * w.listening + 0.082 * w.thinking + 0.09 * pleased;
-    const ry = (0.118 * calmW + 0.15 * w.listening + 0.056 * w.thinking + 0.13 * pleased) * blink;
-    const lower = calmW + w.listening + 0.8 * w.thinking - 0.5 * pleased;
-    const lookX = clamp((away ? this.goal.x - this.x.v : 0) * 0.35, -0.09, 0.09) + 0.06 * w.thinking;
-    const lookY = -0.06 - 0.03 * w.listening - 0.08 * w.thinking - 0.02 * lvl * w.speaking;
-    ctx.save();
-    ctx.rotate(-0.07 * w.listening + 0.05 * w.thinking);
-    for (const side of [-1, 1]) {
-      const k = 1 + 0.08 * side * w.listening;
-      lightEye(ctx, R, { x: side * 0.21 + lookX, y: lookY, rx: rx * k, ry: ry * k, lower, color, bright: lvl });
-    }
-    ctx.restore();
-  }
 }
 
-export function create(root, options) {
-  return new Spirit(root, options);
+export function create(root) {
+  return new Spirit(root);
 }

@@ -34,6 +34,7 @@
 }
 /* Long answers: the newest three lines stay, older text fades out at the top. */
 .said.long { -webkit-mask-image: linear-gradient(transparent, #000 55%); mask-image: linear-gradient(transparent, #000 55%); }
+.said[data-stopped]::after { content: "  (stopped)"; color: var(--muted); font-size: .8em; font-weight: 400; }
 .notice { align-self: center; max-width: 38rem; padding: .5rem .9rem; border-radius: var(--r); color: var(--warn); font-size: .9rem; line-height: 1.5;
   background: color-mix(in srgb, var(--warn) 9%, transparent); border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent); }
 
@@ -47,17 +48,18 @@
 .drawer ol { margin: 0; padding: 1.1rem 1.2rem; list-style: none; overflow-y: auto; display: grid; gap: 1.2rem; align-content: start; }
 .drawer li { display: grid; gap: .3rem; line-height: 1.6; overflow-wrap: anywhere; }
 .drawer .h-heard { color: var(--muted); }
+.drawer .h-said[data-stopped]::after { content: "  (stopped)"; color: var(--muted); font-size: .85em; }
 .drawer .h-chips { display: flex; flex-wrap: wrap; gap: .35rem; }
 .drawer-empty { padding: 1.2rem; color: var(--muted); }
 
 /* ---------- Dock ---------- */
-.base { display: grid; grid-template-columns: minmax(0, 1fr) minmax(auto, 46rem) minmax(0, 1fr); align-items: end; gap: 1rem; }
+.base { display: grid; grid-template-columns: minmax(0, 1fr) minmax(auto, 38rem) minmax(0, 1fr); align-items: end; gap: 1rem; }
 .dock { grid-column: 2; display: flex; align-items: center; justify-content: center; gap: .7rem; flex-wrap: wrap; }
 
 /* Instrument labels in the corners: small, dim, only facts. */
 .readout { display: grid; gap: .3rem; font-size: .78rem; color: var(--muted); }
 .readout > div { display: flex; gap: .7em; align-items: baseline; }
-.readout dt { width: 6.2em; flex: none; font-size: .66rem; letter-spacing: .1em; text-transform: uppercase; color: #5f6d7e; }
+.readout dt { width: 8.5em; flex: none; white-space: nowrap; font-size: .66rem; letter-spacing: .1em; text-transform: uppercase; color: #5f6d7e; }
 .readout dd { font-family: var(--mono); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .readout.right { justify-self: end; }
 .readout dd[data-tone="bad"] { color: var(--bad); }
