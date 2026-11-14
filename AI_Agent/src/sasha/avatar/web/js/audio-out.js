@@ -29,10 +29,15 @@ export class SpeechPlayer {
     }
   }
 
+  // Call when a new turn starts: speech is accepted again after a stop().
+  // (Not done in begin(): one answer can carry several tts_start, one per sentence.)
+  newTurn() {
+    this.dropping = false;
+  }
+
   begin(sampleRate) {
     this.rate = sampleRate || 16000;
     this.ended = false;
-    this.dropping = false;
   }
 
   push(buf) {

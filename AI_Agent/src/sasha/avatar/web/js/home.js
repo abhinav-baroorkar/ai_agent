@@ -87,7 +87,12 @@ export async function initHome(health, onOnline) {
     .on('online', () => { onOnline(true); render(); })
     .on('offline', () => { stopMic(false); player.stop(); onOnline(false, refused); render(); })
     .on('refused', (m) => { refused = m.message; onOnline(false, refused); })
-    .on('state', (m) => { serverState = m.state; render(); })
+    .on('state', (m) => {
+      // 'thinking' only ever starts a new turn, so speech stopped earlier may play again
+      if (m.state === 'thinking' || m.state === 'listening') player.newTurn();
+      serverState = m.state;
+      render();
+    })
     .on('transcript', (m) => newTurn(String(m.text ?? ''), !m.final))
     .on('tool', (m) => history.tool(m))
     .on('reply_delta', (m) => showSaid(replyText + String(m.text ?? '')))
