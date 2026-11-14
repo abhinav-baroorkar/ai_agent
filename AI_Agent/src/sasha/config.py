@@ -7,11 +7,12 @@ Selection order (highest first): explicit arguments, environment variables
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 import yaml
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 from pydantic import BaseModel, Field, SecretStr, field_validator
 
 # src/sasha/config.py -> sasha -> src -> AI_Agent -> repo root
@@ -182,13 +183,20 @@ def normalize_host(host: str) -> str:
     return f"{scheme}://{rest}"
 
 
-def load_secrets() -> Secrets:
-    token = os.environ.get("HA_TOKEN") or None
+def load_secrets(environ: Mapping[str, str] | None = None) -> Secrets:
+    env = os.environ if environ is None else environ
+    token = env.get("HA_TOKEN") or None
     return Secrets(
-        ollama_host=normalize_host(os.environ.get("OLLAMA_HOST") or "http://localhost:11434"),
-        ha_url=os.environ.get("HA_URL") or None,
+        ollama_host=normalize_host(env.get("OLLAMA_HOST") or "http://localhost:11434"),
+        ha_url=env.get("HA_URL") or None,
         ha_token=SecretStr(token) if token else None,
     )
+
+
+def reload_secrets(root: Path) -> Secrets:
+    """Re-read the root dotenv file so edits apply without a restart. Values there win."""
+    in_file = {k: v for k, v in dotenv_values(root / ".env").items() if v}
+    return load_secrets({**os.environ, **in_file})
 
 
 def load_settings(
