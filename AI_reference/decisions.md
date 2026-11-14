@@ -106,8 +106,12 @@ All of them are fixed in this branch.
   output.
 - **Own WebSocket protocol:** JSON events plus raw 16 kHz 16-bit mono PCM frames.
   Why: browsers speak it natively, so the TV and phones can be web satellites,
-  and it's simple to log. Home Assistant's Wyoming satellite project was archived
-  in early 2026, so building on it would mean maintaining it ourselves.
+  and it's simple to log. Home Assistant's Wyoming satellite project
+  (https://github.com/rhasspy/wyoming-satellite) was archived on 2026-01-27; its
+  README names OHF-Voice/linux-voice-assistant, which uses the ESPHome protocol,
+  as the replacement. We don't use that either: it needs Home Assistant in the
+  voice path and isn't browser-native, so the TV and phones couldn't be web
+  satellites.
 - **Wake-word arbitration:** when several devices hear the wake word, the brain
   waits 300 to 500 ms and picks the one with the best wake score and loudness.
   The decision is logged. Why: the wait is short enough to feel instant, and the
@@ -127,3 +131,12 @@ All of them are fixed in this branch.
   smaller models only in the Jetson profile.
 - **Phases renumbered** to put the brain server, window, bots and connectors in
   Phase 1, and satellites and the Jetson port in Phases 5 and 6. See `plan.md`.
+
+## 2026-11-14 — Phase 1 started before the Phase 0 gate
+
+- **Phase 1 started early on the owner's instruction.** The owner asked for the
+  window with face and voice to be built now. Why: the Phase 0 gate (a real light
+  turned on through Home Assistant) waits on a Docker install only the owner can
+  do, and nothing else is blocked by it.
+- **The Phase 0 real-light gate stays open** and must pass before the v0.1
+  release. Phase 0 is "done except the real-light gate", not plain "done".

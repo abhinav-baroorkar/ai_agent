@@ -10,7 +10,7 @@ wake word, voice and languages all come from
 [`AI_Agent/config/assistant.yaml`](AI_Agent/config/assistant.yaml). None of it
 is hard-coded.
 
-> **Status: Phase 0 done, Phase 1 in progress.** Today it is a text-only CLI with
+> **Status: Phase 0 done except the real-light gate; Phase 1 in progress.** Today it is a text-only CLI with
 > an Ollama LLM, Home Assistant tools and per-request telemetry. The real-light
 > test is still waiting for Home Assistant in Docker. There is no voice, face or
 > Marathi support yet; see the roadmap.
@@ -59,7 +59,9 @@ and success.
 
 ## Roadmap
 
-Each phase ends at a gate; the next one starts only when it passes.
+Each phase ends at a gate; the next one starts only when it passes, except
+Phase 1, which started early on the owner's instruction while the Phase 0
+real-light gate stays open (it must pass before the v0.1 release).
 
 | Phase | What | State |
 | --- | --- | --- |
@@ -78,13 +80,21 @@ through the vendor's cloud, so they are optional, later, and never part of the c
 
 ## Privacy
 
-- Everything AI runs locally. Audio is processed after the wake word and is not
-  saved by default.
-- **Voice ID is convenience, not security.** It can be fooled by a recording or a
-  similar voice. Don't rely on it to guard anything that matters; sensitive
-  actions need an explicit spoken confirmation.
-- Fetched content (email, web pages, device names) is treated as untrusted data.
+**Today:**
+
+- Everything runs locally on Ollama.
+- Only `light`, `switch`, `fan`, `scene` and `media_player` can be controlled.
+  Locks and alarms are refused in code.
+- Device names and other fetched text are wrapped as untrusted data.
 - Secrets live in `.env` and are never committed.
+
+**Planned:**
+
+- Audio is processed only after the wake word and is not saved by default.
+- Sensitive actions need a spoken confirmation.
+
+**Voice ID is convenience, not security.** It can be fooled by a recording or a
+similar voice. Don't rely on it to guard anything that matters.
 
 ## Limitations
 
@@ -95,7 +105,7 @@ through the vendor's cloud, so they are optional, later, and never part of the c
 
 ## Quick start (Phase 0)
 
-Requirements: Ubuntu 22.04 (or WSL2), Python 3.10, [uv](https://docs.astral.sh/uv/),
+Requirements: Ubuntu 22.04 or 24.04 (or WSL2), Python 3.10, [uv](https://docs.astral.sh/uv/),
 [Ollama](https://ollama.com/download/linux).
 
 ```bash

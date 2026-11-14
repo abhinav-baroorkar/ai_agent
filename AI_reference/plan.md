@@ -126,7 +126,8 @@ printed pan-tilt head (servos, ROS 2 Humble) come later. Original character only
 ## Roadmap and gates
 
 Each phase ends with a demo and a gate. Don't start the next phase until the
-gate passes.
+gate passes, except Phase 1, which started early on the owner's instruction;
+the Phase 0 real-light gate stays open and must pass before the v0.1 release.
 
 | Phase | Build | Research and publishing | Gate | Status |
 | --- | --- | --- | --- | --- |
@@ -142,9 +143,9 @@ gate passes.
 ## Research
 
 Telemetry: one JSON line per request in `Data/logs/telemetry/` with request id,
-timestamp, hashed speaker, language, per-stage latency, model names and
-versions, VRAM and RAM, tokens/s, fast-path hit, tool calls, success, error,
-profile and machine. `bench/` scripts rerun every experiment from config;
+timestamp, hashed speaker (planned), language, per-stage latency, model names and
+versions, VRAM and RAM, tokens/s, fast-path hit (planned), tool calls, success, error,
+profile and machine (planned). `bench/` scripts rerun every experiment from config;
 tables (no personal data) go to `research-notes.md`.
 
 Candidate studies (check existing papers before committing):
@@ -174,7 +175,7 @@ phase; keep a devlog entry per session; add a LinkedIn note per phase.
 
 Audio is processed only after the wake word and is not saved by default. A
 "forget the last 5 minutes" command. LAN-only APIs (a VPN for remote use).
-Tokens and voice embeddings stored encrypted. A hardware mute where possible.
+Tokens and voice embeddings stored encrypted (planned). A hardware mute where possible.
 Voice ID is convenience, not security.
 
 ## Workflow
