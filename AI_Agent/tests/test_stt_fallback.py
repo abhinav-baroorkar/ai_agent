@@ -155,3 +155,18 @@ def test_cpu_failure_after_fallback_is_a_clean_error(monkeypatch: pytest.MonkeyP
     stt = _stt(gpu, cpu, monkeypatch)
     with pytest.raises(TranscriptionError, match=r"STT failed \(RuntimeError\)"):
         stt.transcribe(AUDIO, 16000)
+
+
+def test_fallback_turn_is_recorded_in_telemetry(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    from sasha.server.warmup import PlacementTelemetry
+
+    gpu = FakeModel("gpu", fail=[RuntimeError(OOM)])
+    stt = _stt(gpu, FakeModel("cpu"), monkeypatch)
+    writer = PlacementTelemetry(tmp_path, "a", "p", enabled=False)
+    writer.voice_models = {"stt": stt.model_version}
+    stt.transcribe(AUDIO, 16000)  # the server transcribes before the trace starts
+    assert writer.start(input_mode="voice").models["stt"].endswith(":cpu:int8:fallback")
+    stt.transcribe(AUDIO, 16000)
+    assert writer.start(input_mode="voice").models["stt"].endswith(":cuda:float16")

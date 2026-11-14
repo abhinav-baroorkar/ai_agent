@@ -18,6 +18,7 @@ Nothing here raises or blocks startup for long: every failure becomes a plain wa
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -122,12 +123,14 @@ class PlacementTelemetry(TelemetryWriter):
     """A TelemetryWriter that adds server-wide model facts to each request's `models`:
     - `llm_gpu_share_at_start` on every request, so a CPU split shows up in research
       data. A startup snapshot: a later reload by Ollama is not re-measured.
-    - `voice_models` (`stt`, `tts` model versions) on voice turns (`input_mode ==
-      "voice"`). `tts` names the server's loaded stage; whether that socket spoke the
-      reply (`speak=1`) is not recorded here."""
+    - `stt`, `tts` model versions on voice turns (`input_mode == "voice"`), read from
+      the stages when the turn's trace starts. The server transcribes before that, so
+      `stt` shows the device this turn really used (e.g. `...:cpu:int8:fallback`).
+      `tts` names the server's loaded stage; whether that socket spoke the reply
+      (`speak=1`) is not recorded here."""
 
     placement: LLMPlacement | None = None
-    voice_models: dict[str, str] | None = None
+    voice_models: dict[str, Callable[[], str]] | None = None  # name -> model_version
 
     def start(self, input_mode: str = "text") -> RequestTrace:
         trace = super().start(input_mode)
@@ -136,5 +139,9 @@ class PlacementTelemetry(TelemetryWriter):
                 f"{self.placement.model}:{share_label(self.placement.gpu_share)}"
             )
         if input_mode == "voice" and self.voice_models:
-            trace.models.update(self.voice_models)
+            for name, version in self.voice_models.items():
+                try:
+                    trace.models[name] = version()
+                except Exception:  # telemetry must never break a turn
+                    trace.models[name] = "unknown"
         return trace
