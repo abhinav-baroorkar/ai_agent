@@ -8,7 +8,8 @@ import pytest
 from starlette.websockets import WebSocketDisconnect
 
 from sasha.config import Settings
-from sasha.server.voice import basic_split_sentences, sentence_splitter, tts_languages
+from sasha.pipeline.tts import split_sentences
+from sasha.server.voice import VoiceStages, tts_languages
 from tests.server_fakes import WS, FakeSTT, FakeTTS, Harness, resp
 from tests.test_server_ws import frames_until_idle, opened, types
 
@@ -25,12 +26,13 @@ def test_typed_text_is_spoken_on_speak_1(settings: Settings, tmp_path: Path) -> 
         opened(ws)
         ws.send_json({"type": "text", "text": "status?"})
         frames = frames_until_idle(ws, after_first=False)
-    # Sentences go to TTS as they complete; the tail is flushed at the end.
-    assert tts.spoken == [("The light is on.", "en"), ("The fan is off.", "en"), ("Done", "en")]
+    # Sentences go to TTS as they complete; the tail is flushed at the end. The stage's
+    # splitter joins a very short tail ("Done") onto the sentence before it.
+    assert tts.spoken == [("The light is on.", "en"), ("The fan is off. Done", "en")]
     t = types(frames)
     assert t.count("tts_start") == 1 and t.count("tts_end") == 1
     assert t.index("tts_start") < t.index("tts_end") < len(t) - 1
-    assert b"".join(f for f in frames if isinstance(f, bytes)) == b"\x01\x00" * 1440 * 3
+    assert b"".join(f for f in frames if isinstance(f, bytes)) == b"\x01\x00" * 1440 * 2
     assert {"type": "state", "state": "speaking"} in frames
     assert frames[-1] == {"type": "state", "state": "idle"}
 
@@ -95,10 +97,5 @@ def test_each_socket_has_its_own_history(settings: Settings, tmp_path: Path) -> 
 
 
 def test_splitter_and_languages_helpers() -> None:
-    assert basic_split_sentences("Hi there. How are you? Fine") == [
-        "Hi there.",
-        "How are you?",
-        "Fine",
-    ]
-    assert callable(sentence_splitter())
+    assert VoiceStages().split is split_sentences  # the TTS stage's own splitter
     assert tts_languages(None) == [] and tts_languages(FakeTTS(["en", "mr"])) == ["en", "mr"]

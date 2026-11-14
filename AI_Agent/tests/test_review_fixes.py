@@ -16,10 +16,10 @@ from sasha.config import HomeAssistantConfig, Settings
 from sasha.connectors import ConnectorError, ConnectorRegistry, HomeAssistantConnector
 from sasha.orchestrator import Assistant, RequestFailed, TurnHooks
 from sasha.pipeline.llm import LLMCancelled, ThinkFilter, ToolCall
+from sasha.pipeline.tts import split_sentences
 from sasha.server import speech
 from sasha.server.deps import make_telemetry
 from sasha.server.speech import Speaker
-from sasha.server.voice import basic_split_sentences
 from sasha.state import JsonStore
 from sasha.tools import ToolRegistry
 from tests.server_fakes import WS, FakeConnector, FakeLLM, FakeSTT, FakeTTS, Harness, resp
@@ -162,7 +162,7 @@ def test_audio_cap_overflow(
 
 
 def _speaker(tts: FakeTTS, frames: list[Any], stop: threading.Event) -> Speaker:
-    return Speaker(tts, "en", basic_split_sentences, asyncio.Lock(), frames.append, stop)
+    return Speaker(tts, "en", split_sentences, asyncio.Lock(), frames.append, stop)
 
 
 def test_long_text_without_sentence_end_is_spoken_early() -> None:

@@ -9,7 +9,7 @@ llm:
   num_ctx: 8192
   temperature: 0.3
   think: false             # thinking mode off: lower latency for voice
-  keep_alive: 30m
+  keep_alive: 24h         # long: a reload after expiry can split the LLM onto the CPU
   timeout_s: 120
   max_tool_rounds: 4
 telemetry:
@@ -19,3 +19,14 @@ server:
   host: 127.0.0.1          # v0 has no auth: loopback only
   port: 8765
   allowed_origins: []      # extra browser origins allowed besides the server's own
+stt:
+  backend: faster-whisper
+  model: small             # Whisper size; change `revision` with it
+  device: auto             # CUDA float16 (~135 ms/command, +785 MB VRAM); CPU int8 fallback
+  compute_type: auto
+  beam_size: 1
+  cpu_threads: 8           # the 8 P-cores; more threads land on E-cores and run slower
+tts:
+  backend: kokoro          # Kokoro-82M via onnxruntime
+  device: cpu
+  threads: 8               # ~460 ms to first audio with 8 threads

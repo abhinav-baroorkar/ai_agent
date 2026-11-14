@@ -1,49 +1,35 @@
 """Voice stages for the server, and helpers to frame audio for the WebSocket.
 
-`load_voice_stages` is the one seam the voice branch fills in: it builds the real
-STT/TTS from the profile. Until then it returns `None` for both, so `/api/health`
-reports `voice: {stt: false, tts: false}` and `audio_start` gets an `error` frame.
+`load_voice_stages` builds the real STT/TTS from the profile once at startup. A stage
+that can't load (the `voice` extra isn't installed, weights aren't downloaded, a cache
+path is outside the project) is `None` with a plain warning, so `/api/health` reports
+it off and text chat keeps working.
 """
 
 from __future__ import annotations
 
 import asyncio
-import re
+import logging
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
+from typing import TypeVar
 
-import sasha.pipeline.tts as tts_module
 from sasha.config import Settings
 from sasha.pipeline.stt import SpeechToText
-from sasha.pipeline.tts import TextToSpeech
+from sasha.pipeline.tts import TextToSpeech, split_sentences
+from sasha.pipeline.voice import VoiceUnavailableError, build_stt, build_tts
+
+log = logging.getLogger(__name__)
 
 MIC_SAMPLE_RATE = 16000  # contract: 16 kHz mono s16le from the client
 BYTES_PER_SAMPLE = 2
 FRAME_MS = 20
 MAX_RECORDING_S = 60  # cap one utterance so a client can't fill memory
-_SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
-
-
-def basic_split_sentences(text: str) -> list[str]:
-    """Fallback splitter, used until `pipeline.tts.split_sentences` exists."""
-    return [p.strip() for p in _SENTENCE_END.split(text) if p.strip()]
-
-
-def sentence_splitter() -> Callable[[str], list[str]]:
-    """The TTS stage's `split_sentences` (voice branch) if present, else the fallback.
-
-    TODO(after the voice branch merges): import `split_sentences` directly and drop
-    this lookup and `basic_split_sentences`; the fallback splits differently.
-    """
-    found = getattr(tts_module, "split_sentences", None)
-    return found if callable(found) else basic_split_sentences
 
 
 def tts_languages(tts: TextToSpeech | None) -> list[str]:
-    """Language codes the TTS stage can speak (its `languages` property); [] without one."""
-    if tts is None:
-        return []
-    return [str(code) for code in getattr(tts, "languages", None) or []]
+    """Language codes the TTS stage can speak; [] without one."""
+    return [] if tts is None else list(tts.languages)
 
 
 @dataclass
@@ -52,7 +38,7 @@ class VoiceStages:
 
     stt: SpeechToText | None = None
     tts: TextToSpeech | None = None
-    split: Callable[[str], list[str]] = field(default_factory=sentence_splitter)
+    split: Callable[[str], list[str]] = split_sentences
     stt_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     tts_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
@@ -61,11 +47,33 @@ class VoiceStages:
         return tts_languages(self.tts)
 
 
+T = TypeVar("T")
+
+
+def _try_build(
+    name: str, build: Callable[[Settings], T], settings: Settings, warnings: list[str]
+) -> T | None:
+    """Build one stage; on any failure return None and add a plain warning."""
+    try:
+        return build(settings)
+    except VoiceUnavailableError as e:
+        why = str(e)
+    except Exception as e:  # never let a voice stage stop the server
+        why = f"failed to load ({type(e).__name__})"
+    message = f"Voice {name} is off: {why}"
+    log.warning(message)
+    warnings.append(message)
+    return None
+
+
 def load_voice_stages(
     settings: Settings,
 ) -> tuple[SpeechToText | None, TextToSpeech | None, list[str]]:
-    """Return (stt, tts, warnings). v0: no voice stages configured."""
-    return None, None, []
+    """Return (stt, tts, warnings). Never raises: a stage that can't load is None."""
+    warnings: list[str] = []
+    stt = _try_build("speech-to-text", build_stt, settings, warnings)
+    tts = _try_build("text-to-speech", build_tts, settings, warnings)
+    return stt, tts, warnings
 
 
 def max_recording_bytes(sample_rate: int = MIC_SAMPLE_RATE) -> int:

@@ -6,6 +6,13 @@ past `MAX_BUFFER_CHARS` with no sentence end is cut at a comma or space, so a lo
 answer without full stops still starts speaking (and re-splitting stays cheap).
 `finish()` flushes the rest.
 
+First audio sooner: until the first piece of an answer is queued, the speaker queues
+its first sentence as soon as it ends (if at least `FIRST_PIECE_MIN` characters),
+without waiting for the splitter to see a long enough next sentence; and once the
+buffer reaches `FIRST_PIECE_CHARS` with no sentence end, it cuts at the earliest pause
+(comma, semicolon, colon, dash) that leaves at least `FIRST_PIECE_MIN` characters.
+Later pieces keep the sentence rule.
+
 One worker task per answer synthesises the queue in order, in a thread, holding the
 stage's lock so two sockets never run the TTS model at once. `stop` (the
 conversation's cancel event) drops queued pieces and ends speech in flight at its
@@ -31,8 +38,31 @@ from sasha.server.voice import pcm_frames
 log = logging.getLogger(__name__)
 Frame = dict[str, Any] | bytes
 MAX_BUFFER_CHARS = 200
+FIRST_PIECE_CHARS = 40  # first piece: cut at a pause once the buffer is this long
+FIRST_PIECE_MIN = 20  # ...but never into a clip shorter than this ("Sure," alone)
+_SENTENCE_ENDS = (". ", "! ", "? ")
+_PAUSES = (", ", "; ", ": ", " - ", " \u2013 ", " \u2014 ", *_SENTENCE_ENDS)  # en/em dash
 CHUNK_TIMEOUT_S = 30.0
 _SOFT_BREAKS = (", ", "; ", ": ", " ")
+
+
+def cut_first(
+    text: str, min_len: int = FIRST_PIECE_MIN, marks: tuple[str, ...] = _PAUSES
+) -> tuple[str, str] | None:
+    """Split at the earliest of `marks` that leaves a head of at least `min_len`
+    characters, or None if there is no such mark yet."""
+    best: int | None = None
+    for mark in marks:
+        start = 0
+        while (at := text.find(mark, start)) >= 0:
+            end = at + len(mark)
+            if len(text[:end].strip()) >= min_len:
+                best = end if best is None else min(best, end)
+                break
+            start = at + 1
+    if best is None:
+        return None
+    return text[:best].strip(), text[best:]
 
 
 def cut_long(text: str, limit: int = MAX_BUFFER_CHARS) -> tuple[str, str]:
@@ -64,6 +94,7 @@ class Speaker:
         self.buffer = ""
         self.started = False
         self.failed = False
+        self.queued_any = False  # has the first piece of this answer been queued?
         self.queue: asyncio.Queue[str | None] = asyncio.Queue()
         self.task = asyncio.create_task(self._work())
 
@@ -75,12 +106,23 @@ class Speaker:
         pieces = self.split(self.buffer)
         if len(pieces) > 1:
             for piece in pieces[:-1]:
-                self.queue.put_nowait(piece)
+                self._queue(piece)
             self.buffer = pieces[-1]
+        if not self.queued_any:  # first piece: don't wait for a long next sentence
+            cut = cut_first(self.buffer, marks=_SENTENCE_ENDS)
+            if cut is None and len(self.buffer) >= FIRST_PIECE_CHARS:
+                cut = cut_first(self.buffer)
+            if cut is not None:
+                head, self.buffer = cut
+                self._queue(head)
         while len(self.buffer) > MAX_BUFFER_CHARS:
             head, self.buffer = cut_long(self.buffer)
             if head:
-                self.queue.put_nowait(head)
+                self._queue(head)
+
+    def _queue(self, piece: str) -> None:
+        self.queued_any = True
+        self.queue.put_nowait(piece)
 
     async def finish(self) -> None:
         """Speak what is left in the buffer and wait until speech is done (or stopped)."""
