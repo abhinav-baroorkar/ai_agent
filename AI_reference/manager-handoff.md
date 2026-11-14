@@ -47,11 +47,13 @@ only for now; satellites on other devices come later.
 
 ## State of `main`
 
-- `main` is `b53a118` (2026-11-14). 250 tests pass with the voice extras installed.
+- `main` is `5aa4ee5` (2026-11-14). 250 tests passed with the voice extras installed at
+  `b53a118`.
   Merged today: Phase 0 skeleton (PR #1), the brain server, the docs batches,
   `fix/server-followups` (`99ae0ac`: the window blocks WebRTC UDP, checks its dead-proxy
   port, works on the IPv6 loopback; Home Assistant errors shown to the model never contain
-  its address) and `feat/voice-stages` (`b53a118`).
+  its address) `feat/voice-stages` (`b53a118`) and `chore/env-tmpdir` (`5aa4ee5`: temp files inside the
+  project).
 - A full spoken turn works end to end on the laptop with synthetic speech streamed by a
   script. Not yet checked with a real microphone in the window. Numbers in
   `research-notes.md`.
@@ -66,8 +68,9 @@ only for now; satellites on other devices come later.
 | `feat/web-ui` | Design expert | Face + home screen, bots screen, settings/connectors, mock mode | in progress; face approved by the owner (the particle orb); review found the mic stayed open after leaving Home, being fixed. Rule recorded: the mic is never open without a visible sign |
 | `feat/voice-stages` | Jack of all tasks | faster-whisper STT and Kokoro TTS stages, fakes, bench script | merged and pushed (`b53a118`); wired into the server |
 | `fix/server-followups` | Staff SDE | window and Home Assistant error hardening | merged and pushed (`99ae0ac`) |
-| `fix/server-followups-2` | Staff SDE | chat-capable models only; invalid Home Assistant address is a warning; socket limit in health; contract v0.1.1 | in progress, not merged |
-| `chore/env-tmpdir` | | temp files inside the project | in progress, not merged |
+| `fix/server-followups-2` | Staff SDE | chat-capable models only; invalid Home Assistant address is a warning; socket limit in health; contract v0.1.1 | approved; two more commits coming; not merged |
+| `chore/env-tmpdir` | | temp files inside the project | merged and pushed (`5aa4ee5`) |
+| `chore/env-tmpdir-notes` | | the temp folder self-cleans entries older than 7 days | in review |
 | `fix/warmup-timeouts` | | warm-up timeouts | in progress, not merged |
 | `docs/scope-refresh` | Grunt work | plan.md, decisions.md, linkedin-notes.md, README, .env.example for the new scope | merged and pushed (`6fbc60d`, 86 tests pass) |
 | `docs/handoff` | Documentation engineer | this file, `team.md`, devlog; owner notes in `User_reference/` | merged and pushed (`main` is `5bd49eb`); work continues on this branch with new commits. Also owns `plan.md`, `decisions.md`, `linkedin-notes.md`, `README.md`, `.env.example` |

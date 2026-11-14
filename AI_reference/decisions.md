@@ -306,3 +306,5 @@ connections outside this computer and nothing written outside the project folder
   the mic stayed open after leaving Home (fix in progress on `feat/web-ui`).
 - **Face direction: the owner approved the particle orb.**
 
+- **Correction:** the heading "Voice wiring and server follow-ups" above says `main` at
+  `b53a118`, which was true when it merged. `main` is `5aa4ee5` after `chore/env-tmpdir`.
