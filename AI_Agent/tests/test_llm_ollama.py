@@ -87,3 +87,16 @@ def test_model_version_uses_digest() -> None:
 
 def test_model_version_falls_back_to_name() -> None:
     assert _llm(lambda r: httpx.Response(500)).model_version() == "qwen3:8b"
+
+
+def test_dropped_connection_is_ollama_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadError("connection reset", request=request)
+
+    with pytest.raises(OllamaError, match="ReadError"):
+        _llm(handler).chat([{"role": "user", "content": "hi"}])
+
+
+def test_non_json_body_is_ollama_error() -> None:
+    with pytest.raises(OllamaError, match="not JSON"):
+        _llm(lambda r: httpx.Response(200, text="<html>")).chat([])

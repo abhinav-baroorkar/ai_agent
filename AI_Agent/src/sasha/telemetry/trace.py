@@ -73,8 +73,15 @@ class RequestTrace:
         if self._log_text:
             self.text[key] = value
 
+    def elapsed_ms(self) -> float:
+        return round((time.perf_counter() - self._t0) * 1000, 2)
+
     def to_dict(
-        self, success: bool, error: str | None, resources: ResourceSnapshot | None
+        self,
+        success: bool,
+        error: str | None,
+        resources: ResourceSnapshot | None,
+        total_ms: float | None = None,
     ) -> dict[str, Any]:
         out: dict[str, Any] = {
             "schema": SCHEMA_VERSION,
@@ -86,7 +93,7 @@ class RequestTrace:
             "language": self.language,
             "models": self.models,
             "stages": [asdict(s) for s in self.stages],
-            "total_ms": round((time.perf_counter() - self._t0) * 1000, 2),
+            "total_ms": self.elapsed_ms() if total_ms is None else total_ms,
             "resources": resources.to_dict() if resources else None,
             "success": success,
             "error": error,
@@ -99,7 +106,8 @@ class RequestTrace:
         if self._finished:
             raise RuntimeError("trace already finished")
         self._finished = True
-        record = self.to_dict(success, error, snapshot_resources())
+        total_ms = self.elapsed_ms()  # before the snapshot, so sampling isn't counted as latency
+        record = self.to_dict(success, error, snapshot_resources(), total_ms=total_ms)
         if self._on_finish:
             self._on_finish(record)
         return record

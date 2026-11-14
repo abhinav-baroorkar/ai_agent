@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -16,6 +17,26 @@ class Reply:
     text: str
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     telemetry: dict[str, Any] = field(default_factory=dict)
+
+
+class RequestFailed(Exception):
+    """A request failed. `tool_calls` lists tools that already ran (they may have acted).
+
+    The original exception (including KeyboardInterrupt) is the `__cause__`.
+    """
+
+    def __init__(self, tool_calls: list[dict[str, Any]]) -> None:
+        super().__init__("request failed")
+        self.tool_calls = tool_calls
+
+
+def wrap_untrusted(source: str, content: str) -> str:
+    """Label tool output as data so the model never treats it as instructions."""
+    try:
+        data: Any = json.loads(content)
+    except ValueError:
+        data = content
+    return json.dumps({"source": source, "untrusted_data": data}, ensure_ascii=False)
 
 
 class Assistant:
@@ -54,11 +75,14 @@ class Assistant:
         trace = self.telemetry.start(input_mode="text")
         trace.models["llm"] = self.llm.model_version()
         trace.record_text("user", text)
+        calls_made: list[dict[str, Any]] = []
         try:
-            reply = self._run(text, trace)
-        except Exception as exc:
+            reply = self._run(text, trace, calls_made)
+        except BaseException as exc:  # includes Ctrl-C: still write the telemetry line
             trace.finish(success=False, error=f"{type(exc).__name__}: {exc}")
-            raise
+            if isinstance(exc, (Exception, KeyboardInterrupt)):
+                raise RequestFailed(calls_made) from exc
+            raise  # SystemExit etc. pass through unchanged
         trace.record_text("assistant", reply.text)
         reply.telemetry = trace.finish(success=True)
         self._history += [
@@ -67,10 +91,9 @@ class Assistant:
         ]
         return reply
 
-    def _run(self, text: str, trace: RequestTrace) -> Reply:
+    def _run(self, text: str, trace: RequestTrace, calls_made: list[dict[str, Any]]) -> Reply:
         messages = self._messages(text)
         max_rounds = self.settings.profile.llm.max_tool_rounds
-        calls_made: list[dict[str, Any]] = []
         specs = self.tools.specs() if len(self.tools) else None
 
         for round_no in range(max_rounds + 1):
@@ -90,6 +113,7 @@ class Assistant:
                     result = self.tools.call(call.name, call.arguments)
                     meta["ok"] = result.ok
                 calls_made.append({"name": call.name, "arguments": call.arguments, "ok": result.ok})
-                messages.append({"role": "tool", "tool_name": call.name, "content": result.content})
+                content = wrap_untrusted(call.name, result.content)
+                messages.append({"role": "tool", "tool_name": call.name, "content": content})
 
         return Reply(text="", tool_calls=calls_made)  # unreachable: last round has no tools

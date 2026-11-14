@@ -12,11 +12,27 @@ from typing import Any
 
 import yaml
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr, field_validator
 
 # src/sasha/config.py -> sasha -> src -> AI_Agent -> repo root
 _DEFAULT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_PROFILE = "pc"
+
+# Domains the assistant may never control, whatever tools.yaml says. Unlocking,
+# disarming or opening things needs owner voice confirmation (a later phase).
+DENIED_DOMAINS = frozenset(
+    {
+        "lock",
+        "alarm_control_panel",
+        "cover",
+        "camera",
+        "script",
+        "automation",
+        "shell_command",
+        "rest_command",
+        "homeassistant",
+    }
+)
 
 
 class Pronouns(BaseModel):
@@ -55,12 +71,17 @@ class AssistantConfig(BaseModel):
     system_prompt: str
 
     def render_system_prompt(self) -> str:
-        return self.system_prompt.format(
-            name=self.name,
-            subject=self.pronouns.subject,
-            object=self.pronouns.object,
-            possessive=self.pronouns.possessive,
-        ).strip()
+        # str.replace, not str.format: a literal { or } in the prompt must not crash.
+        values = {
+            "{name}": self.name,
+            "{subject}": self.pronouns.subject,
+            "{object}": self.pronouns.object,
+            "{possessive}": self.pronouns.possessive,
+        }
+        text = self.system_prompt
+        for placeholder, value in values.items():
+            text = text.replace(placeholder, value)
+        return text.strip()
 
 
 class LLMConfig(BaseModel):
@@ -93,6 +114,14 @@ class HomeAssistantConfig(BaseModel):
     allowed_services: dict[str, list[str]] = Field(default_factory=dict)
     exposed_entities: list[str] = Field(default_factory=list)
 
+    @field_validator("allowed_services")
+    @classmethod
+    def _no_denied_domains(cls, value: dict[str, list[str]]) -> dict[str, list[str]]:
+        denied = sorted(set(value) & DENIED_DOMAINS)
+        if denied:
+            raise ValueError(f"These domains can never be allowed: {', '.join(denied)}")
+        return value
+
 
 class ToolsConfig(BaseModel):
     home_assistant: HomeAssistantConfig = Field(default_factory=HomeAssistantConfig)
@@ -103,7 +132,7 @@ class Secrets(BaseModel):
 
     ollama_host: str = "http://localhost:11434"
     ha_url: str | None = None
-    ha_token: str | None = None
+    ha_token: SecretStr | None = None
 
 
 class Paths(BaseModel):
@@ -138,11 +167,23 @@ def available_profiles(config_dir: Path) -> list[str]:
     return sorted(p.stem for p in (config_dir / "profiles").glob("*.yaml"))
 
 
+def normalize_host(host: str) -> str:
+    """Accept Ollama's own `OLLAMA_HOST` forms (`0.0.0.0`, `127.0.0.1:11434`) as client URLs."""
+    host = host.strip().rstrip("/")
+    if "://" not in host:  # bare host[:port], as `ollama serve` accepts it
+        host = f"http://{host}" if ":" in host else f"http://{host}:11434"
+    scheme, rest = host.split("://", 1)
+    if rest == "0.0.0.0" or rest.startswith("0.0.0.0:"):  # bind address, not a target
+        rest = "127.0.0.1" + rest[len("0.0.0.0") :]
+    return f"{scheme}://{rest}"
+
+
 def load_secrets() -> Secrets:
+    token = os.environ.get("HA_TOKEN") or None
     return Secrets(
-        ollama_host=os.environ.get("OLLAMA_HOST") or "http://localhost:11434",
+        ollama_host=normalize_host(os.environ.get("OLLAMA_HOST") or "http://localhost:11434"),
         ha_url=os.environ.get("HA_URL") or None,
-        ha_token=os.environ.get("HA_TOKEN") or None,
+        ha_token=SecretStr(token) if token else None,
     )
 
 

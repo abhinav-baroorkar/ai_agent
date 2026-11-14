@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from sasha.config import Settings, available_profiles, load_settings
+from sasha.config import Settings, available_profiles, load_settings, normalize_host
 from tests.conftest import REPO_ROOT
 
 
@@ -52,4 +52,21 @@ def test_secrets_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("HA_TOKEN", "abc")
     s = load_settings(root=REPO_ROOT, load_env_file=False)
     assert s.secrets.ha_url == "http://ha.test:8123"
-    assert s.secrets.ha_token == "abc"
+    assert s.secrets.ha_token is not None
+    assert s.secrets.ha_token.get_secret_value() == "abc"
+    assert "abc" not in repr(s) and "abc" not in str(s.model_dump())
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("http://localhost:11434", "http://localhost:11434"),
+        ("0.0.0.0", "http://127.0.0.1:11434"),
+        ("0.0.0.0:11500", "http://127.0.0.1:11500"),
+        ("127.0.0.1:11434", "http://127.0.0.1:11434"),
+        ("ollama.lan", "http://ollama.lan:11434"),
+        ("https://proxy.example/", "https://proxy.example"),
+    ],
+)
+def test_ollama_host_normalised(raw: str, expected: str) -> None:
+    assert normalize_host(raw) == expected

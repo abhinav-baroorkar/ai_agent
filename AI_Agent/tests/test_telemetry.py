@@ -69,3 +69,21 @@ def test_resource_snapshot_without_gpu() -> None:
     snap = snapshot_resources(include_gpu=False)
     assert snap.vram_used_mb is None
     assert snap.process_rss_mb > 0
+
+
+def test_total_ms_excludes_resource_sampling(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import time
+
+    import sasha.telemetry.trace as trace_mod
+
+    real = trace_mod.snapshot_resources
+
+    def slow() -> trace_mod.ResourceSnapshot:
+        time.sleep(0.3)
+        return real(include_gpu=False)
+
+    monkeypatch.setattr(trace_mod, "snapshot_resources", slow)
+    record = TelemetryWriter(tmp_path, "a", "p").start().finish(success=True)
+    assert record["total_ms"] < 200

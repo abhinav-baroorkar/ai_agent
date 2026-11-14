@@ -2,12 +2,14 @@
 home_assistant:
   enabled: true
   timeout_s: 10
-  # Only these domains are listed or controllable.
+  # Only these domains are listed or controllable. lock, alarm_control_panel, cover,
+  # camera, script, automation and similar are refused in code even if added here.
   allowed_services:
     light: [turn_on, turn_off, toggle]
     switch: [turn_on, turn_off, toggle]
     fan: [turn_on, turn_off, toggle]
     scene: [turn_on]
     media_player: [media_play, media_pause, volume_set]
-  # Optional allowlist of entity_ids. Empty = every entity in allowed domains.
+  # Optional allowlist of entity_ids. Empty = every entity in allowed domains,
+  # except switch.*: switches are exposed only when listed here.
   exposed_entities: []

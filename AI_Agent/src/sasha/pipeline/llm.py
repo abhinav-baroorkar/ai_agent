@@ -109,11 +109,16 @@ class OllamaLLM:
             ) from exc
         except httpx.TimeoutException as exc:
             raise OllamaError(f"Ollama timed out after {self.config.timeout_s}s") from exc
+        except httpx.HTTPError as exc:  # dropped connection, bad URL, protocol error...
+            raise OllamaError(f"Ollama request failed: {type(exc).__name__}: {exc}") from exc
         if resp.status_code == 404:
             raise OllamaError(f"Model '{self._model}' not found. Run: ollama pull {self._model}")
         if resp.is_error:
             raise OllamaError(f"Ollama error {resp.status_code}: {resp.text[:300]}")
-        body = resp.json()
+        try:
+            body = resp.json()
+        except ValueError as exc:
+            raise OllamaError("Ollama sent a response that is not JSON") from exc
         if not isinstance(body, dict):
             raise OllamaError("Unexpected response from Ollama")
         return body

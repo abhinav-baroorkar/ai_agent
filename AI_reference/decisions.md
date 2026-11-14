@@ -39,3 +39,43 @@ Append-only log. Newest at the bottom.
   through feature branches and PRs that the owner merges.
 - **Commits use the GitHub noreply email**, so no personal address ends up in
   public history.
+
+## 2026-11-14 — PR #1 review fixes
+
+A separate local Claude session reviewed PR #1 (1 high, 3 medium, 8 low findings).
+All of them are fixed in this branch.
+
+- **Entity ids are checked against `^[a-z0-9_]+\.[a-z0-9_]+$` before any request**,
+  and URL-quoted. Before this, `light.x/../lock.front_door` passed the domain check,
+  and httpx's dot-segment handling made it read the lock (or `/api/config`).
+- **Denied domains in code** (`lock`, `alarm_control_panel`, `cover`, `camera`,
+  `script`, `automation`, `shell_command`, `rest_command`, `homeassistant`). Config
+  validation fails if `tools.yaml` lists one. Owner voice confirmation can open
+  some of these later (Phase 3).
+- **Scenes:** one at a time (no `all`), and a scene is refused if it contains an
+  entity from a denied domain. **Switches are opt-in:** exposed only when listed
+  in `exposed_entities`, because garage relays and door strikes are often switches.
+- **Tool output is wrapped** as `{"source": ..., "untrusted_data": ...}`. Strings
+  coming from HA are stripped of control characters and capped at 64 characters.
+  HA error bodies are not passed to the LLM.
+- **`HA_TOKEN` is a pydantic `SecretStr`**, so it never shows up in reprs or dumps.
+- **`OLLAMA_HOST` is normalised** (`0.0.0.0`, bare `host:port`), and every httpx
+  error or non-JSON reply becomes a clear `OllamaError`.
+- **A failed request still reports which tools ran** (`RequestFailed.tool_calls`),
+  and Ctrl-C still writes a telemetry line.
+- **Telemetry `total_ms` is measured before the resource sample.** NVML is
+  initialised once per process. It used to add 11–90 ms to every request's latency.
+- **No-send test covers all of `src/`**, not only `gmail.py`.
+- **System prompt uses `str.replace`**, so a literal `{` in the persona prompt
+  doesn't crash startup. CI has `permissions: contents: read`.
+- **Ollama models stay in Ollama's default location** (it runs as a system
+  service). `env.sh` no longer sets `OLLAMA_MODELS`.
+
+## 2026-11-14 — Workflow and model policy
+
+- **No GitHub PR ceremony.** Solo project: feature branch → review by a separate
+  local Claude session (nothing posted on GitHub) → fix → merge to `main` locally
+  → push. Privacy scan before every push.
+- **Don't downgrade models on the dev machines.** Use the strongest local models
+  that fit (currently `qwen3.5:9b` on the 8 GB laptop GPU). Smaller models only for
+  the Jetson profile.

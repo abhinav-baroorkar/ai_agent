@@ -6,11 +6,14 @@ limited to the domains/services in config/tools.yaml (and optional entity allowl
 
 from __future__ import annotations
 
+import json
+import re
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
-from sasha.config import HomeAssistantConfig
+from sasha.config import DENIED_DOMAINS, HomeAssistantConfig
 from sasha.tools.base import Tool, ToolError
 
 # Service data keys the LLM may set. Anything else is dropped.
@@ -24,6 +27,23 @@ ALLOWED_DATA_KEYS = {
     "percentage",
     "volume_level",
 }
+# Domains whose entities are only exposed when listed in `exposed_entities`
+# (garage relays, door strikes and alarm toggles often show up as switches).
+OPT_IN_DOMAINS = {"switch"}
+# HA entity ids are lowercase `domain.object_id`. Anything else (`/`, `..`, `?`) is refused,
+# so a crafted id can't reach another entity or endpoint through the URL path.
+_ENTITY_ID_RE = re.compile(r"[a-z0-9_]+\.[a-z0-9_]+")
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]+")
+MAX_TEXT = 64
+
+
+def clean_text(value: Any) -> Any:
+    """Strip control characters/newlines from HA-supplied strings and cap their length."""
+    if not isinstance(value, str):
+        return value
+    return _CONTROL_RE.sub(" ", value).strip()[:MAX_TEXT]
+
+
 # Attributes worth showing the LLM from get_state (keeps prompts short).
 USEFUL_ATTRIBUTES = {
     "friendly_name",
@@ -67,8 +87,8 @@ class HomeAssistantClient:
             raise ToolError("Home Assistant rejected the token (401). Check HA_TOKEN.")
         if resp.status_code == 404:
             raise ToolError(f"Not found in Home Assistant: {path}")
-        if resp.is_error:
-            raise ToolError(f"Home Assistant error {resp.status_code}: {resp.text[:200]}")
+        if resp.is_error:  # body not passed on: it is untrusted text
+            raise ToolError(f"Home Assistant error {resp.status_code}")
         return resp.json() if resp.content else None
 
     def ping(self) -> str:
@@ -81,11 +101,13 @@ class HomeAssistantClient:
         if domain not in self.config.allowed_services:
             return False
         exposed = self.config.exposed_entities
+        if domain in OPT_IN_DOMAINS:
+            return entity_id in exposed
         return not exposed or entity_id in exposed
 
     def _check_entity(self, entity_id: str) -> None:
-        if "." not in entity_id:
-            raise ToolError(f"'{entity_id}' is not an entity_id (expected domain.name)")
+        if not isinstance(entity_id, str) or not _ENTITY_ID_RE.fullmatch(entity_id):
+            raise ToolError(f"'{entity_id}' is not a valid entity_id (expected domain.name)")
         if not self._is_exposed(entity_id):
             raise ToolError(f"'{entity_id}' is not exposed to the assistant")
 
@@ -106,28 +128,36 @@ class HomeAssistantClient:
             devices.append(
                 {
                     "entity_id": entity_id,
-                    "name": attrs.get("friendly_name", entity_id),
-                    "state": s.get("state"),
+                    "name": clean_text(attrs.get("friendly_name", entity_id)),
+                    "state": clean_text(s.get("state")),
                 }
             )
         return devices
 
     def get_state(self, entity_id: str) -> dict[str, Any]:
         self._check_entity(entity_id)
-        s = self._request("GET", f"/api/states/{entity_id}") or {}
+        s = self._request("GET", f"/api/states/{quote(entity_id, safe='.')}") or {}
         attrs = s.get("attributes") or {}
         return {
             "entity_id": entity_id,
-            "state": s.get("state"),
-            "attributes": {k: v for k, v in attrs.items() if k in USEFUL_ATTRIBUTES},
+            "state": clean_text(s.get("state")),
+            "attributes": {k: clean_text(v) for k, v in attrs.items() if k in USEFUL_ATTRIBUTES},
         }
+
+    def _check_scene(self, scene_id: str) -> None:
+        """Refuse a scene that would touch a denied domain (e.g. unlock a door)."""
+        s = self._request("GET", f"/api/states/{quote(scene_id, safe='.')}") or {}
+        members = (s.get("attributes") or {}).get("entity_id") or []
+        denied = [m for m in members if str(m).split(".", 1)[0] in DENIED_DOMAINS]
+        if denied:
+            raise ToolError(f"Scene '{scene_id}' controls protected devices; refused")
 
     def call_service(
         self,
         domain: str,
         service: str,
         entity_id: str | list[str],
-        data: dict[str, Any] | None = None,
+        data: dict[str, Any] | str | None = None,
     ) -> dict[str, Any]:
         allowed = self.config.allowed_services.get(domain)
         if allowed is None:
@@ -135,6 +165,8 @@ class HomeAssistantClient:
         if service not in allowed:
             raise ToolError(f"Service '{domain}.{service}' is not allowed. Allowed: {allowed}")
 
+        if entity_id == "all" and domain == "scene":
+            raise ToolError("Activate one scene at a time, not 'all'")
         if entity_id == "all":
             targets = [d["entity_id"] for d in self.list_devices(domain)]
             if not targets:
@@ -145,7 +177,16 @@ class HomeAssistantClient:
             self._check_entity(t)
             if not t.startswith(f"{domain}."):
                 raise ToolError(f"'{t}' is not in domain '{domain}'")
+            if domain == "scene":
+                self._check_scene(t)
 
+        if isinstance(data, str):  # small models often send the object as JSON text
+            try:
+                data = json.loads(data) if data.strip() else None
+            except ValueError as exc:
+                raise ToolError("data must be a JSON object") from exc
+        if data is not None and not isinstance(data, dict):
+            raise ToolError("data must be a JSON object")
         clean = {k: v for k, v in (data or {}).items() if k in ALLOWED_DATA_KEYS}
         changed = self._request(
             "POST", f"/api/services/{domain}/{service}", json={"entity_id": targets, **clean}
@@ -201,7 +242,13 @@ def build_home_assistant_tools(client: HomeAssistantClient) -> list[Tool]:
                 "properties": {
                     "domain": {"type": "string", "enum": domains},
                     "service": {"type": "string", "description": "e.g. turn_on, turn_off"},
-                    "entity_id": {"type": "string", "description": "entity_id or 'all'"},
+                    "entity_id": {
+                        "anyOf": [
+                            {"type": "string"},
+                            {"type": "array", "items": {"type": "string"}},
+                        ],
+                        "description": "entity_id, a list of entity_ids, or 'all'",
+                    },
                     "data": {
                         "type": "object",
                         "description": "Optional: " + ", ".join(sorted(ALLOWED_DATA_KEYS)),

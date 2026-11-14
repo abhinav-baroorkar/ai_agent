@@ -39,7 +39,19 @@ def test_persona_name_not_hardcoded_in_source() -> None:
     assert not offenders, f"Persona name hard-coded in: {offenders}"
 
 
-def test_gmail_has_no_send_function() -> None:
-    src = (REPO_ROOT / "AI_Agent/src/sasha/tools/gmail.py").read_text(encoding="utf-8")
-    assert not re.search(r"def\s+\w*send\w*\s*\(", src)
-    assert ".send(" not in src
+SEND_PATTERNS = [
+    re.compile(r"def\s+\w*send\w*\s*\("),  # def send_message(...
+    re.compile(r"\.send\s*\("),  # messages().send(...) / drafts().send(...)
+    re.compile(r"""["']send["']"""),  # getattr(x, "send"), tool name "send"
+]
+
+
+def test_no_send_function_anywhere() -> None:
+    """Drafts only: no code path may send email (or anything else) on the owner's behalf."""
+    offenders = [
+        f"{p.relative_to(REPO_ROOT)}: {pat.pattern}"
+        for p in (REPO_ROOT / "AI_Agent/src").rglob("*.py")
+        for pat in SEND_PATTERNS
+        if pat.search(p.read_text(encoding="utf-8"))
+    ]
+    assert not offenders, f"Send-like code found: {offenders}"

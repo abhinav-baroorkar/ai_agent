@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import atexit
 import os
 from dataclasses import asdict, dataclass
 from typing import Any
@@ -23,17 +24,35 @@ class ResourceSnapshot:
         return asdict(self)
 
 
+_nvml_handle: Any = None
+_nvml_failed = False
+
+
+def _gpu_handle() -> Any:
+    """Init NVML once per process (each init costs ~10-90 ms). None if there's no NVML."""
+    global _nvml_handle, _nvml_failed
+    if _nvml_handle is None and not _nvml_failed:
+        try:
+            import pynvml
+
+            pynvml.nvmlInit()
+            _nvml_handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+            atexit.register(pynvml.nvmlShutdown)
+        except Exception:
+            _nvml_failed = True
+    return _nvml_handle
+
+
 def _vram_mb() -> tuple[float | None, float | None]:
     """GPU 0 memory via NVML. Jetson has no NVML (shared RAM), so this returns None there."""
+    handle = _gpu_handle()
+    if handle is None:
+        return None, None
     try:
         import pynvml
 
-        pynvml.nvmlInit()
-        try:
-            info = pynvml.nvmlDeviceGetMemoryInfo(pynvml.nvmlDeviceGetHandleByIndex(0))
-            return float(info.used) / _MB, float(info.total) / _MB
-        finally:
-            pynvml.nvmlShutdown()
+        info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+        return float(info.used) / _MB, float(info.total) / _MB
     except Exception:
         return None, None
 

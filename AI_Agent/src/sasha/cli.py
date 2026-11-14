@@ -5,10 +5,13 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Callable, Sequence
+from typing import Any
+
+import yaml
 
 from sasha import __version__
 from sasha.config import Settings, load_settings
-from sasha.orchestrator import Assistant, Reply
+from sasha.orchestrator import Assistant, Reply, RequestFailed
 from sasha.pipeline.llm import OllamaError, OllamaLLM
 from sasha.telemetry import TelemetryWriter, snapshot_resources
 from sasha.tools import build_tools
@@ -71,15 +74,27 @@ def run_chat(
             continue
         try:
             reply = assistant.handle_text(text)
-        except OllamaError as exc:
-            write(f"[error] {exc}")
+        except RequestFailed as failed:
+            # Tools may already have changed something; say so before the error.
+            _write_tool_calls(failed.tool_calls, write)
+            cause = failed.__cause__
+            if isinstance(cause, KeyboardInterrupt):
+                write("(interrupted)")
+            elif isinstance(cause, OllamaError):
+                write(f"[error] {cause}")
+            else:
+                write(f"[error] {type(cause).__name__}: {cause}")
             continue
-        for call in reply.tool_calls:
-            status = "ok" if call["ok"] else "failed"
-            write(f"  -> {call['name']}({call['arguments']}) {status}")
+        _write_tool_calls(reply.tool_calls, write)
         write(f"{name}> {reply.text}")
         if show_timing:
             write(format_timing(reply))
+
+
+def _write_tool_calls(calls: list[dict[str, Any]], write: Callable[[str], None]) -> None:
+    for call in calls:
+        status = "ok" if call["ok"] else "failed"
+        write(f"  -> {call['name']}({call['arguments']}) {status}")
 
 
 def run_doctor(settings: Settings) -> int:
@@ -111,7 +126,7 @@ def run_doctor(settings: Settings) -> int:
         print("[skip] Home Assistant: set HA_URL and HA_TOKEN in .env")
     else:
         try:
-            ha = HomeAssistantClient(secrets.ha_url, secrets.ha_token, ha_cfg)
+            ha = HomeAssistantClient(secrets.ha_url, secrets.ha_token.get_secret_value(), ha_cfg)
             msg = ha.ping()
             n = len(ha.list_devices())
             print(f"[ok]   Home Assistant at {secrets.ha_url}: {msg} ({n} exposed devices)")
@@ -137,7 +152,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         settings = load_settings(profile=args.profile)
-    except (FileNotFoundError, ValueError) as exc:
+    except (FileNotFoundError, ValueError, yaml.YAMLError) as exc:
         print(f"[config error] {exc}", file=sys.stderr)
         return 2
     if args.command == "doctor":

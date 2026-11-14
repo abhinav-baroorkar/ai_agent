@@ -17,7 +17,8 @@ def build_tools(settings: Settings) -> tuple[ToolRegistry, list[str]]:
     if ha.enabled:
         url, token = settings.secrets.ha_url, settings.secrets.ha_token
         if url and token:
-            for tool in build_home_assistant_tools(HomeAssistantClient(url, token, ha)):
+            client = HomeAssistantClient(url, token.get_secret_value(), ha)
+            for tool in build_home_assistant_tools(client):
                 registry.register(tool)
         else:
             warnings.append("Home Assistant tools disabled: set HA_URL and HA_TOKEN in .env")

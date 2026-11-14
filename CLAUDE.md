@@ -13,7 +13,7 @@ that is the project name, not the persona.
 | `AI_Agent/` | All code: `src/sasha/`, `tests/`, `config/`, `bench/`, `docker/`, `scripts/` | Yes |
 | `AI_reference/` | Markdown Claude maintains: `plan.md`, `decisions.md`, `devlog/YYYY-MM-DD.md`, `research-notes.md` | Yes |
 | `User_reference/` | The owner's documents. **Read them, never edit them.** | No (git-ignored) |
-| `Dependencies/` | `.venv` (`UV_PROJECT_ENVIRONMENT`), `HF_HOME`, `OLLAMA_MODELS` | No (git-ignored) |
+| `Dependencies/` | `.venv` (`UV_PROJECT_ENVIRONMENT`), `HF_HOME` | No (git-ignored) |
 | `Data/` | Recordings, logs, telemetry, raw benchmark results | No (git-ignored) |
 
 Nothing else belongs at the root except repo metadata (`README.md`, `LICENSE`,
@@ -50,9 +50,13 @@ Hardware profiles: `AI_Agent/config/profiles/pc.yaml` and `jetson-orin-nano.yaml
 - Type hints everywhere; `ruff check`, `ruff format`, `mypy` and `pytest` must pass.
 - Conventional commits (`feat:`, `fix:`, `docs:`, `chore:`, `test:`, `refactor:`).
 - Git root is the repo root; origin `https://github.com/abhinav-baroorkar/ai_agent.git`
-  (public), default branch `main`. Work on feature branches (`feat/...`, `fix/...`)
-  and open a PR into `main`; **the owner reviews and merges**. Never push to
-  `main` directly. Show the file list before any push that adds new files.
+  (public), default branch `main`. Solo project, so no GitHub PR ceremony:
+  1. Work on a feature branch (`feat/...`, `fix/...`).
+  2. A separate local Claude code-review session reviews the branch diff and
+     reports back. Nothing is posted on GitHub.
+  3. Apply the fixes, run all checks, merge into `main` locally, push.
+  Run a privacy scan (names, emails, IPs, tokens, serials) on everything before
+  each push.
 - Secrets live in `.env` at the repo root (copy `.env.example`). Never commit `.env`.
 - Model weights are downloaded by script (`AI_Agent/scripts/download_models.py`),
   never committed.
@@ -65,8 +69,8 @@ Hardware profiles: `AI_Agent/config/profiles/pc.yaml` and `jetson-orin-nano.yaml
 - WSL2 Ubuntu 22.04, Python 3.10, `uv`. Dev GPU: RTX 5070 (Blackwell) — any
   PyTorch must be a cu128+ build (torch ≥ 2.7). Later target: Jetson Orin Nano,
   JetPack 6 (ARM64, Ubuntu 22.04) — use NVIDIA's Jetson torch wheels there.
-- `source AI_Agent/scripts/env.sh` sets `UV_PROJECT_ENVIRONMENT`, `HF_HOME` and
-  `OLLAMA_MODELS` to point into `Dependencies/`.
+- `source AI_Agent/scripts/env.sh` points `UV_PROJECT_ENVIRONMENT` and `HF_HOME`
+  into `Dependencies/`. Ollama keeps its models in its own default location.
 - Common commands (run from `AI_Agent/`):
   - `uv sync` — install
   - `uv run pytest` / `uv run ruff check .` / `uv run mypy src`

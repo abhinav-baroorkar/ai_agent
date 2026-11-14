@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from sasha.config import Settings
-from sasha.orchestrator import Assistant
+from sasha.orchestrator import Assistant, RequestFailed
 from sasha.pipeline.llm import LLMResponse, Message, ToolCall
 from sasha.telemetry import TelemetryWriter
 from sasha.tools import Tool, ToolRegistry
@@ -74,7 +74,9 @@ def test_tool_call_round_trip_and_telemetry(settings: Settings, tmp_path: Path) 
         {"name": "get_state", "arguments": {"entity_id": "light.a"}, "ok": True}
     ]
     tool_msg = llm.calls[1][0][-1]
-    assert tool_msg["role"] == "tool" and json.loads(tool_msg["content"])["state"] == "on"
+    wrapped = json.loads(tool_msg["content"])
+    assert tool_msg["role"] == "tool" and wrapped["source"] == "get_state"
+    assert wrapped["untrusted_data"]["state"] == "on"
 
     names = [s["name"] for s in reply.telemetry["stages"]]
     assert names == ["llm", "tool:get_state", "llm"]
@@ -108,7 +110,42 @@ def test_llm_failure_logged(settings: Settings, tmp_path: Path) -> None:
             raise RuntimeError("down")
 
     a = _assistant(settings, Boom([]), tmp_path)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RequestFailed) as info:
         a.handle_text("x")
+    assert isinstance(info.value.__cause__, RuntimeError)
     log = json.loads(a.telemetry.path_for_today().read_text())
     assert log["success"] is False and "down" in log["error"]
+
+
+def test_failure_after_tool_reports_calls_made(settings: Settings, tmp_path: Path) -> None:
+    class FailSecond(ScriptedLLM):
+        def chat(self, messages: Sequence[Message], tools: Any = None) -> LLMResponse:
+            if self.responses:
+                return super().chat(messages, tools)
+            raise RuntimeError("gpu oom")
+
+    llm = FailSecond([_resp(calls=[ToolCall("get_state", {"entity_id": "light.a"})])])
+    with pytest.raises(RequestFailed) as info:
+        _assistant(settings, llm, tmp_path).handle_text("x")
+    assert [c["name"] for c in info.value.tool_calls] == ["get_state"]
+
+
+def test_ctrl_c_still_writes_telemetry(settings: Settings, tmp_path: Path) -> None:
+    class Interrupted(ScriptedLLM):
+        def chat(self, messages: Sequence[Message], tools: Any = None) -> LLMResponse:
+            raise KeyboardInterrupt
+
+    a = _assistant(settings, Interrupted([]), tmp_path)
+    with pytest.raises(RequestFailed) as info:
+        a.handle_text("x")
+    assert isinstance(info.value.__cause__, KeyboardInterrupt)
+    assert json.loads(a.telemetry.path_for_today().read_text())["success"] is False
+
+
+def test_system_prompt_with_braces_does_not_crash(settings: Settings) -> None:
+    assistant = settings.assistant.model_copy(
+        update={"system_prompt": 'I am {name}. Reply like {"ok": true}.'}
+    )
+    assert assistant.render_system_prompt() == (
+        f'I am {settings.assistant.name}. Reply like {{"ok": true}}.'
+    )
