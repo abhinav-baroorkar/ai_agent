@@ -265,3 +265,26 @@ connections outside this computer and nothing written outside the project folder
   committed. Why: connector setup needs it; the values themselves stay out of every
   transcript.
 
+## 2026-11-14 — Corrections and supersessions (appended)
+
+- **Supersedes the wording of the "Secrets handling" entry above.** Owner, 2026-11-14, this project only: the owner allowed sessions to access this project's secrets file for now, because it holds nothing sensitive yet. Team practice is narrower: code and tests may load the file at run time (`load_dotenv`, `reload_secrets`) and may add or check variable names. Sessions don't open, print, search, copy or paste the file or any secret value, because anything a session reads lands in its transcript; tool output, logs, telemetry, commits and reports never contain one. If a permission rule or safety hook blocks a read or a tool, stop and tell Primary; don't work around it. Only the owner widens or withdraws this.
+- **Supersedes** the line "The main bot gets all connectors; a new bot starts with none"
+  in "Brain server, final design". The hardening entry is current: the main bot starts with
+  Home Assistant only, and every later connector is opt-in per bot.
+- **Correction to the hardening entry, live-run check.** "Nothing written outside the project
+  folder" meant: after a live run there were no new entries in `/tmp` (browser), `~/.config`,
+  `~/.cache`, `~/.pki` or the desktop keyring folder, and zero TCP peers outside this
+  computer.
+- **Correction to the "4 WebSockets, 1 MB" reason:** it bounds resource use from a
+  misbehaving local client. A hostile web page can't connect at all, because the Origin check
+  stops it.
+- **Kokoro weights, on the voice branch (not merged yet):** they now come from the official
+  `onnx-community/Kokoro-82M-v1.0-ONNX` repository, pinned to a full commit hash, with one
+  voice packed into a small derived file. This replaces the third-party re-upload noted in
+  "Voice stages".
+- **Face direction update.** The owner found the painted ribbons wrong and asked for
+  particles. The flair is now flowing particles in the orb's own style: mist that breathes at
+  idle, particles drawn in when listening, currents when thinking, rising embers when
+  speaking. The default is without eyes; eyes stay as a switch. This supersedes the
+  brush-art flourish and the two-variant choice in "Face design direction".
+

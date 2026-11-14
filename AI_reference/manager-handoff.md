@@ -28,8 +28,11 @@ Last updated: 2026-11-14, late evening.
   `Dependencies/`, a browser profile under `Data/`. Details in `team.md`.
   Before this rule, some sessions wrote to the default uv cache in the home directory
   and to Claude's own memory folder for this project. Nothing was deleted.
-- **Secrets (owner, 2026-11-14):** sessions may work with this project's own secrets-file
-  handling. Secret values are never printed, logged or committed.
+- **Secrets (owner, 2026-11-14, this project only):** sessions are allowed to access the
+  project's secrets file for now, because it holds nothing sensitive yet. Team practice is
+  narrower: code and tests load it at run time; sessions don't open, print, search, copy
+  or paste the file or any secret value. If a rule or hook blocks a read, stop and tell
+  Primary. Full text in `team.md`.
 - Shared team files (git-ignored, local): `Dependencies/team/team-rules.md` and
   `Dependencies/team/api-contract.md`. The contract is also committed as
   `AI_reference/api-contract.md` once the server branch lands.
@@ -83,8 +86,13 @@ stages in after it lands), `docs/scope-refresh` any time. `pyproject.toml` and
 The owner rejected the first face and any human character. The owner asked for a friendly
 living ball of light with elemental brush-art flair: an orb of light developed into a
 character, with a brush-art flourish per state (water listening, wind thinking, flame
-speaking), drawn from scratch. Two variants are with the owner: without eyes, and with
+speaking), drawn from scratch. Two variants were with the owner: without eyes, and with
 two eyes of light.
+
+Update: the owner found the painted ribbons wrong and asked for particles. The flair is now
+flowing particles in the orb's own style: mist that breathes at idle, particles drawn in
+when listening, currents when thinking, rising embers when speaking. Default is without
+eyes; eyes stay as a switch.
 
 ## Risks
 
@@ -117,7 +125,7 @@ Ideas from an earlier project of the owner's: read-only, no copying (owner's dec
 - Whether Claude's memory folder for this project is allowed (see the folder rule).
   Memory notes are paused until the owner says so.
 - Which smart-display and TV devices to support.
-- Which face variant to keep (without eyes, or with two eyes of light).
+- Whether to keep eyes as a switch on the face (the default is without eyes).
 - `CLAUDE.md` "Current phase" says to stop and check with the owner before adding voice.
   Only the owner changes that line. `CLAUDE.md` step 3 ("once the owner says go") also
   differs from how merging works now; the owner updates it.

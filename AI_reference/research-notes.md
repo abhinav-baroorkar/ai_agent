@@ -22,8 +22,7 @@ Laptop, RTX 5070 Laptop 8 GB, power profile "quiet" (so CPU numbers are pessimis
 | STT Whisper small int8 | CPU | 0.56 | 1751 | 0.65 | 465 | 0 |
 
 - **Brain server with `qwen3.5:9b`:** first streamed text 6.1 s cold (model load), 150 to
-  170 ms warm; 49 to 55 tokens/s; cancel returns to idle in 23 ms. (Measured by the
-  author on the branch, not yet reviewed.)
+  170 ms warm; 49 to 55 tokens/s; cancel returns to idle in 23 ms.
 - **VRAM budget on the 8 GB card:** LLM 5.2 GB at 8k context (fully on GPU) + STT 0.8 GB
   = 7.1 of 8.15 GB used. About 1 GB headroom. Risk: a bigger context could push LLM
   layers to the CPU.
