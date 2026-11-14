@@ -28,6 +28,8 @@ Last updated: 2026-11-14, late evening.
   `Dependencies/`, a browser profile under `Data/`. Details in `team.md`.
   Before this rule, some sessions wrote to the default uv cache in the home directory
   and to Claude's own memory folder for this project. Nothing was deleted.
+- **Secrets (owner, 2026-11-14):** sessions may work with this project's own secrets-file
+  handling. Secret values are never printed, logged or committed.
 - Shared team files (git-ignored, local): `Dependencies/team/team-rules.md` and
   `Dependencies/team/api-contract.md`. The contract is also committed as
   `AI_reference/api-contract.md` once the server branch lands.
@@ -51,9 +53,9 @@ only for now; satellites on other devices come later.
 
 | Branch | Session | What | Status |
 | --- | --- | --- | --- |
-| `feat/brain-server` | Staff SDE | FastAPI brain server, WebSocket chat, bots store, connector registry, `serve` and `window` commands, laptop profile | final at `a7d7ef6`; 145 tests pass; in review |
-| `feat/web-ui` | Design expert | Face + home screen, bots screen, settings/connectors, mock mode | mock version done at `15a81d7` (20 files, no dependencies, `?mock=1`); approved as the base; second pass requested (sound-reactive ring, facts strip, more expression per state, streamed subtitles, history drawer, clear microphone-blocked message) |
-| `feat/voice-stages` | Jack of all tasks | faster-whisper STT and Kokoro TTS stages, fakes, bench script | English STT and streaming TTS work with real models; 103 tests pass; in review; not merged. Kokoro weights source (official repo) being checked before merge |
+| `feat/brain-server` | Staff SDE | FastAPI brain server, WebSocket chat, bots store, connector registry, `serve` and `window` commands, laptop profile | merged and pushed after two review rounds (16 findings fixed); `main` is `c6e8b1e`, 170 tests pass; `sasha serve` and `sasha window` exist |
+| `feat/web-ui` | Design expert | Face + home screen, bots screen, settings/connectors, mock mode | mock version done at `15a81d7`; face direction changed (see below); runs at 60 fps in a real window; two variants with the owner |
+| `feat/voice-stages` | Jack of all tasks | faster-whisper STT and Kokoro TTS stages, fakes, bench script | passed review (LGTM at `59a9612`); being brought up to `main` and wired into the server; not merged yet |
 | `docs/scope-refresh` | Grunt work | plan.md, decisions.md, linkedin-notes.md, README, .env.example for the new scope | merged and pushed (`6fbc60d`, 86 tests pass) |
 | `docs/handoff` | Documentation engineer | this file, `team.md`, devlog; owner notes in `User_reference/` | merged and pushed (`main` is `5bd49eb`); work continues on this branch with new commits. Also owns `plan.md`, `decisions.md`, `linkedin-notes.md`, `README.md`, `.env.example` |
 
@@ -76,12 +78,18 @@ stages in after it lands), `docs/scope-refresh` any time. `pyproject.toml` and
   24 kHz output. Agreed through Primary by the voice and server sessions (2026-11-14). The server
   resamples as needed for the WebSocket contract.
 
+## Face direction (2026-11-14)
+
+The owner rejected the first face and any human character. The owner asked for a friendly
+living ball of light with elemental brush-art flair: an orb of light developed into a
+character, with a brush-art flourish per state (water listening, wind thinking, flame
+speaking), drawn from scratch. Two variants are with the owner: without eyes, and with
+two eyes of light.
+
 ## Risks
 
 - **VRAM headroom on the 8 GB laptop card is about 1 GB** (LLM 5.2 GB at 8k context + STT
   0.8 GB = 7.1 of 8.15 GB). A bigger context could push LLM layers to the CPU.
-- **Held doc follow-up:** the README model and licence table needs rows for the voice
-  dependencies once `feat/voice-stages` merges (prepared as its own commit on the local branch `docs/readme-licences`, held).
 
 ## Next after these land
 
@@ -95,9 +103,8 @@ Our own design. In order:
 
 ## Pending doc follow-ups
 
-- After `feat/brain-server` is on `main`: update stale facts in `CLAUDE.md` limited to
-  the hardware profile list, the code layout and the common commands, plus
-  `User_reference/HOW_TO_RUN.md`. Do not touch "Current phase" or the Rules section.
+- When `feat/voice-stages` merges: the README voice licence rows (held as `efa3cc4` on the
+  local branch `docs/readme-licences`) and the voice commands in `HOW_TO_RUN.md`.
 
 ## Ideas from an earlier project
 
@@ -110,6 +117,7 @@ Ideas from an earlier project of the owner's: read-only, no copying (owner's dec
 - Whether Claude's memory folder for this project is allowed (see the folder rule).
   Memory notes are paused until the owner says so.
 - Which smart-display and TV devices to support.
+- Which face variant to keep (without eyes, or with two eyes of light).
 - `CLAUDE.md` "Current phase" says to stop and check with the owner before adding voice.
   Only the owner changes that line. `CLAUDE.md` step 3 ("once the owner says go") also
   differs from how merging works now; the owner updates it.

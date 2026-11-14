@@ -221,3 +221,47 @@ All of them are fixed in this branch.
   object; `voice.tts_languages` added.** v0.2 will add adding and removing MCP
   connectors.
 
+## 2026-11-14 — Brain server hardening (merged, `main` at `c6e8b1e`)
+
+Review took two rounds and fixed 16 findings. 170 tests pass on `main`. A live run on the
+laptop showed the window loading its page from the local server, with zero network
+connections outside this computer and nothing written outside the project folder.
+
+- **The window's Chrome gets no route out:** a dead local proxy plus resolver rules.
+  Why: privacy flags alone still let a fresh profile contact Google four times.
+- **The window's temp folder is inside the profile under `Data/`.** Why: the
+  stay-inside-the-folder rule.
+- **Settings can only narrow which devices are exposed, never widen.** Switches and the
+  device list are widened only by editing `tools.yaml`. Why: a page or a bot must not be
+  able to grant itself more control.
+- **The main bot starts with Home Assistant only; every later connector is opt-in per
+  bot.** Why: least access by default.
+- **At most 4 WebSockets at once and 1 MB per message.** Why: bounds resource use from a
+  misbehaving or hostile local page.
+- **A bot's model must be an installed one.** Why: a bad choice fails when saved, not in
+  the middle of a conversation.
+- **The process environment wins over the secrets file, at startup and on reload.** Why:
+  a value set on purpose for one run must not be silently overridden by the file.
+- **Speech starts before a long answer ends** by cutting at a comma or space after 200
+  characters. Why: first audio sooner on long answers.
+
+## 2026-11-14 — Face design direction (`feat/web-ui`)
+
+- **The owner rejected the first face and any human character.** No human faces.
+- **New direction:** the owner asked for a friendly living ball of light with elemental
+  brush-art flair. An orb of light developed into a character, with a brush-art flourish
+  per state (water when listening, wind when thinking, flame when speaking), drawn from
+  scratch in the woodblock-print tradition. Two variants are with the owner: without
+  eyes, and with two eyes of light. It runs at 60 fps in a real window. Why: an original
+  character that is friendly without looking like a person or like another product.
+- **Supersedes** the 2026-11-14 entry "Web UI design" on the character (soft rounded
+  head, capsule eyes). The colour, dark-theme, font and plain-text decisions there still
+  stand.
+
+## 2026-11-14 — Secrets handling
+
+- **Sessions may work with this project's own secrets-file handling** (the owner's
+  permission, 2026-11-14, this project only). Secret values are never printed, logged or
+  committed. Why: connector setup needs it; the values themselves stay out of every
+  transcript.
+

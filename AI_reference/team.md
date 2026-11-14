@@ -77,6 +77,9 @@ One role per session. Add or drop roles as the work needs.
 - Max 400 lines per file; the persona name never appears in `AI_Agent/src/`; no send
   function for email anywhere; type hints and mypy strict; a fake for every stage so
   tests need no GPU; timeouts on every network call; secrets only in `.env`.
+- Secrets: the owner allowed sessions to work with this project's own secrets-file
+  handling on 2026-11-14, for this project only. Secret values are never printed,
+  logged or committed.
 - New dependency: check its licence fits Apache-2.0 and say so in the report.
 - Ask Primary before: `sudo`, system packages, deleting files outside your
   worktree, anything that costs money, any network call to a service other than
