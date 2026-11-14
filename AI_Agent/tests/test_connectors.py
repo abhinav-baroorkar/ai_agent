@@ -113,9 +113,16 @@ def test_reload_secrets_reads_dotenv_file(tmp_path: Path, monkeypatch: pytest.Mo
     assert secrets.ha_token is not None  # a variable added to the file is picked up
 
 
-def test_build_deps_uses_state_dir(settings: Settings, tmp_path: Path) -> None:
+def test_build_deps_uses_state_dir(
+    settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sasha.server import deps as deps_module
     from sasha.server.deps import build_deps
 
+    # Unit test: never load real speech models, even where the voice extra is installed.
+    monkeypatch.setattr(deps_module, "load_voice_stages", lambda s: (None, None, []))
+    monkeypatch.setattr(deps_module, "warm_up_llm", lambda *a, **k: None)  # no real Ollama
+    monkeypatch.setattr(deps_module, "gpu_share", lambda *a, **k: None)
     paths = settings.paths.model_copy(update={"root": tmp_path, "data_dir": tmp_path / "Data"})
     deps = build_deps(settings.model_copy(update={"paths": paths}))
     assert deps.connectors.ids == ["home_assistant"]
