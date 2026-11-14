@@ -110,7 +110,7 @@ Requirements: Ubuntu 22.04 or 24.04 (or WSL2), Python 3.10, [uv](https://docs.as
 
 ```bash
 git clone https://github.com/abhinav-baroorkar/ai_agent.git && cd ai_agent
-source AI_Agent/scripts/env.sh   # keeps the venv, uv and Hugging Face caches in Dependencies/; Ollama keeps its own model store
+source AI_Agent/scripts/env.sh   # keeps the venv, uv and Hugging Face caches and temp files in Dependencies/; Ollama keeps its own model store
 cp .env.example .env              # add HA_URL / HA_TOKEN for Home Assistant
 cd AI_Agent
 uv sync
