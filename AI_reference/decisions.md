@@ -177,3 +177,47 @@ All of them are fixed in this branch.
 - **Model weights live inside the project, under `Dependencies/hf/`** (802 MB), per the
   stay-inside-the-folder rule.
 
+## 2026-11-14 — Brain server, final design (`feat/brain-server`, in review)
+
+- **Binds to this computer only and refuses any other host.** Why: single device for now.
+- **Checks the `Host` header and the browser `Origin` on every request and WebSocket.**
+  Why: a web page open in the browser must not be able to drive the assistant.
+- **Cancel is silent, and a cancelled turn is not added to history.** Why: the user
+  stopped it; a half answer would confuse the next turn.
+- **A second message while busy gets an error, not a queue.** Why: simple and
+  predictable; the UI cancels first.
+- **The main bot gets all connectors; a new bot starts with none.** Why: least access by
+  default.
+- **A user-made bot always gets the safety note appended to its instructions.** Why: a
+  custom prompt must not remove the safety rules.
+- **Connector status "ok" means set up and not failing; only Test pings.** Why: status
+  checks must not call out to services on every page load.
+- **The secrets file is re-read on each connector check.** Why: a secret can be added
+  without restarting the server.
+- **Message text is never logged.** Why: privacy; telemetry keeps timings only.
+- **`sasha window` starts Chrome in app mode with its own profile and its own home
+  directory under `Data/chrome-profile`, and does not fall back to the default browser.**
+  Why: the stay-inside-the-folder rule, and no mixing with the owner's browser.
+- **New packages:** fastapi (MIT), uvicorn (BSD-3), websockets (BSD-3), which pull in
+  starlette (BSD-3) and opentelemetry-api (Apache-2.0, API only, no network). All fit
+  Apache-2.0.
+
+## 2026-11-14 — Web UI design (`feat/web-ui`, mock version at `15a81d7`)
+
+- **Original character:** soft rounded head, capsule eyes. No film-style HUD.
+- **Colour means state:** amber is the assistant, teal listening, violet thinking. Every
+  state also has a word, so colour is never the only signal.
+- **Dark theme only.** System fonts, with Noto Sans Devanagari for Marathi.
+- **All server text is inserted as plain text, and replies are not rendered as
+  markdown.** Why: server and tool output is untrusted data, and this blocks script
+  injection through the page.
+- **No dependencies; works with no server through `?mock=1`.** Why: the UI can be built
+  and tested before the server is ready.
+
+## 2026-11-14 — API contract v0.1
+
+- **`speak=0|1` on the WebSocket.** Home speaks every answer; bot chat tabs are silent.
+- **One conversation per socket; `PUT` connector returns the Connector; `pronouns` is an
+  object; `voice.tts_languages` added.** v0.2 will add adding and removing MCP
+  connectors.
+

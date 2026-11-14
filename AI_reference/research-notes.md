@@ -32,4 +32,5 @@ Laptop, RTX 5070 Laptop 8 GB, power profile "quiet" (so CPU numbers are pessimis
 - **Surprise:** on this hybrid CPU, 8 threads beat 16 and the default for Kokoro; the
   efficiency cores slow it down.
 - Not yet measured: the full round trip (hear, think, speak) end to end.
-
+- **Brain server, final:** short replies take 225 to 312 ms in total at 49 to 55 tokens/s
+  (`qwen3.5:9b`, laptop, warm).
