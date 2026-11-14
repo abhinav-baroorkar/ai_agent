@@ -229,3 +229,40 @@ def test_window_refuses_remote_host_from_profile(settings: Settings, tmp_path: P
     server = s.profile.server.model_copy(update={"host": "example.com"})
     s = s.model_copy(update={"profile": s.profile.model_copy(update={"server": server})})
     assert launch.open_window(s, spawn=lambda c, **_: None) == 2  # type: ignore[arg-type,return-value]
+
+
+def test_start_wait_covers_the_llm_warmup() -> None:
+    from sasha.server.warmup import WARMUP_TIMEOUT_S
+
+    assert launch.START_TIMEOUT_S == WARMUP_TIMEOUT_S + launch.START_MARGIN_S
+    assert launch.START_TIMEOUT_S >= 90 and launch.START_MARGIN_S >= 30
+
+
+def test_wait_until_up_prints_progress_every_10_s(monkeypatch: pytest.MonkeyPatch) -> None:
+    now = [0.0]
+
+    def clock() -> float:
+        now[0] += 0.5  # half a second per loop turn
+        return now[0]
+
+    lines: list[str] = []
+    monkeypatch.setattr(launch, "is_running", lambda url, timeout_s=1.5: now[0] >= 25)
+    monkeypatch.setattr(launch.time, "sleep", lambda s: None)
+    up = launch.wait_until_up("http://x", FakeProc(), 90, say=lines.append, clock=clock)  # type: ignore[arg-type]
+    assert up is True
+    assert len(lines) == 2 and all("still starting" in line for line in lines)
+    assert "(10 s)" in lines[0] and "(20 s)" in lines[1]
+
+
+def test_wait_until_up_gives_up_at_the_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    now = [0.0]
+
+    def clock() -> float:
+        now[0] += 1.0
+        return now[0]
+
+    monkeypatch.setattr(launch, "is_running", lambda url, timeout_s=1.5: False)
+    monkeypatch.setattr(launch.time, "sleep", lambda s: None)
+    lines: list[str] = []
+    assert launch.wait_until_up("http://x", FakeProc(), 30, say=lines.append, clock=clock) is False  # type: ignore[arg-type]
+    assert len(lines) == 2  # at 10 s and 20 s, then it stops at 30 s

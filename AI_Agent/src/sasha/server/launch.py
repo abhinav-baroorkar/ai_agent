@@ -20,6 +20,7 @@ import httpx
 
 from sasha.config import Settings
 from sasha.server.security import is_loopback
+from sasha.server.warmup import WARMUP_TIMEOUT_S
 
 CHROMIUM_BROWSERS = ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser")
 # A fresh profile must not reach Google or the desktop keyring: no background
@@ -49,7 +50,11 @@ ISOLATION_FLAGS = (
     "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1, EXCLUDE ::1",
 )
 DEAD_PROXY_PORT = 9  # "discard"; normally nothing listens on it
-START_TIMEOUT_S = 60.0
+# Startup = imports + LLM warm-up (capped at WARMUP_TIMEOUT_S) + loading the voice
+# stages. The margin covers imports and the voice stages on a cold disk.
+START_MARGIN_S = 45.0
+START_TIMEOUT_S = WARMUP_TIMEOUT_S + START_MARGIN_S
+PROGRESS_EVERY_S = 10.0
 BROWSER_TMP = "tmp"  # under the profile dir; see browser_env
 WS_MAX_BYTES = 1 << 20  # largest WebSocket message accepted (a 20 ms frame is 640 bytes)
 
@@ -104,13 +109,25 @@ def is_running(url: str, timeout_s: float = 1.5) -> bool:
         return False
 
 
-def wait_until_up(url: str, proc: subprocess.Popen[bytes], timeout_s: float) -> bool:
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
+def wait_until_up(
+    url: str,
+    proc: subprocess.Popen[bytes],
+    timeout_s: float,
+    say: Callable[[str], None] = lambda line: print(line, flush=True),
+    every_s: float = PROGRESS_EVERY_S,
+    clock: Callable[[], float] = time.monotonic,
+) -> bool:
+    """Wait for the server's health check, printing a line every `every_s` seconds."""
+    start = clock()
+    next_note = start + every_s
+    while (now := clock()) < start + timeout_s:
         if proc.poll() is not None:
             return False
         if is_running(url):
             return True
+        if now >= next_note:
+            say(f"  still starting ({now - start:.0f} s): loading the language and voice models")
+            next_note += every_s
         time.sleep(0.3)
     return False
 
@@ -220,7 +237,11 @@ def open_window(
         ]
         server = spawn(cmd, env={**os.environ, "SASHA_ROOT": str(settings.paths.root)})
         if not wait_until_up(url, server, START_TIMEOUT_S):
-            print("[fail] The server did not start; run `sasha serve` to see why.", file=sys.stderr)
+            print(
+                f"[fail] The server did not start within {START_TIMEOUT_S:.0f} s; "
+                "run `sasha serve` to see why.",
+                file=sys.stderr,
+            )
             server.terminate()
             return 1
 
