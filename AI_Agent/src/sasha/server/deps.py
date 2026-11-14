@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -15,8 +16,18 @@ from sasha.pipeline.llm import LLM, OllamaLLM
 from sasha.pipeline.stt import SpeechToText
 from sasha.pipeline.tts import TextToSpeech
 from sasha.server.voice import load_voice_stages
+from sasha.server.warmup import (
+    LLMPlacement,
+    PlacementTelemetry,
+    gpu_share,
+    gpu_share_warning,
+    share_label,
+    warm_up_llm,
+)
 from sasha.state import JsonStore
 from sasha.telemetry import TelemetryWriter
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -44,8 +55,8 @@ class ServerDeps:
         return assistant, warnings
 
 
-def make_telemetry(settings: Settings) -> TelemetryWriter:
-    return TelemetryWriter(
+def make_telemetry(settings: Settings) -> PlacementTelemetry:
+    return PlacementTelemetry(
         settings.paths.telemetry_dir,
         assistant=settings.assistant.name,
         profile=settings.profile.name,
@@ -86,14 +97,28 @@ def build_deps(settings: Settings, reload_env: bool = True) -> ServerDeps:
         main_connectors=[HomeAssistantConnector.id],
         installed_models=lambda: [m["name"] for m in list_models()],
     )
-    stt, tts, warnings = load_voice_stages(settings)
+    # LLM first, then the voice stages: otherwise Ollama may put part of the LLM on the
+    # CPU because speech-to-text already holds GPU memory (see server/warmup.py).
+    warnings: list[str] = []
+    host, model = settings.secrets.ollama_host, bots.get("main").model
+    if warning := warm_up_llm(settings.profile.llm, host, model):
+        warnings.append(warning)
+    stt, tts, voice_warnings = load_voice_stages(settings)
+    warnings += voice_warnings
+    placement = LLMPlacement(model=model, gpu_share=gpu_share(host, model))
+    log.info("LLM %s on GPU: %s", model, share_label(placement.gpu_share))
+    if warning := gpu_share_warning(model, placement.gpu_share):
+        log.warning(warning)
+        warnings.append(warning)
+    telemetry = make_telemetry(settings)
+    telemetry.placement = placement
     return ServerDeps(
         settings=settings,
         bots=bots,
         connectors=connectors,
         make_llm=make_llm,
         list_models=list_models,
-        telemetry=make_telemetry(settings),
+        telemetry=telemetry,
         stt=stt,
         tts=tts,
         warnings=warnings,

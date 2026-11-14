@@ -121,6 +121,8 @@ def test_build_deps_uses_state_dir(
 
     # Unit test: never load real speech models, even where the voice extra is installed.
     monkeypatch.setattr(deps_module, "load_voice_stages", lambda s: (None, None, []))
+    monkeypatch.setattr(deps_module, "warm_up_llm", lambda *a, **k: None)  # no real Ollama
+    monkeypatch.setattr(deps_module, "gpu_share", lambda *a, **k: None)
     paths = settings.paths.model_copy(update={"root": tmp_path, "data_dir": tmp_path / "Data"})
     deps = build_deps(settings.model_copy(update={"paths": paths}))
     assert deps.connectors.ids == ["home_assistant"]
