@@ -121,3 +121,15 @@ def test_build_deps_uses_state_dir(settings: Settings, tmp_path: Path) -> None:
     assert deps.stt is None and deps.tts is None
     assert deps.bots.update("main", parse_fields({"model": "m2"})).model == "m2"
     assert (tmp_path / "Data" / "state" / "bots.json").is_file()
+
+
+def test_register_and_unregister_at_run_time(tmp_path: Path) -> None:
+    reg = _registry(tmp_path, _connector())
+    reg.update("home_assistant", False, None)
+    with pytest.raises(ValueError, match="Duplicate"):
+        reg.register(_connector())
+    reg.unregister("home_assistant")
+    assert reg.ids == []
+    assert json.loads((tmp_path / "connectors.json").read_text()) == {}
+    reg.register(_connector())
+    assert reg.view("home_assistant")["enabled"] is True  # old state is gone

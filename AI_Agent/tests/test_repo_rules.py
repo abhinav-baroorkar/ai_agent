@@ -10,13 +10,20 @@ from tests.conftest import REPO_ROOT
 
 MAX_LINES = 400
 CODE_DIRS = ["AI_Agent/src", "AI_Agent/tests", "AI_Agent/scripts", "AI_Agent/bench"]
+WEB_DIR = "AI_Agent/src/sasha/avatar/web"
+WEB_SUFFIXES = {".css", ".js", ".html"}
 
 
 def _code_files() -> list[Path]:
     files: list[Path] = []
     for d in CODE_DIRS:
         files += [p for p in (REPO_ROOT / d).rglob("*") if p.suffix in {".py", ".yaml", ".sh"}]
+    files += [p for p in (REPO_ROOT / WEB_DIR).rglob("*") if p.suffix in WEB_SUFFIXES]
     return files
+
+
+def test_web_files_are_covered_by_the_line_limit() -> None:
+    assert (REPO_ROOT / WEB_DIR / "index.html") in _code_files()
 
 
 def test_max_400_lines_per_file() -> None:
@@ -34,7 +41,8 @@ def test_persona_name_not_hardcoded_in_source() -> None:
     offenders = [
         str(p.relative_to(REPO_ROOT))
         for p in (REPO_ROOT / "AI_Agent/src").rglob("*")
-        if p.suffix in {".py", ".yaml", ".html", ".js"} and pattern.search(p.read_text("utf-8"))
+        if p.suffix in {".py", ".yaml", ".html", ".js", ".css"}
+        and pattern.search(p.read_text("utf-8"))
     ]
     assert not offenders, f"Persona name hard-coded in: {offenders}"
 

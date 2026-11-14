@@ -166,7 +166,7 @@ def test_voice_turn_with_fake_stt_and_tts(settings: Settings, tmp_path: Path) ->
     stt, tts = FakeSTT(), FakeTTS()
     h = Harness(settings, tmp_path, stt=stt, tts=tts)
     h.llm("big-model").responses = [resp("Light is on")]
-    with h.client().websocket_connect(f"{WS}/ws") as ws:
+    with h.client().websocket_connect(f"{WS}/ws?speak=1") as ws:
         opened(ws)
         ws.send_json({"type": "audio_start", "sample_rate": 16000})
         assert ws.receive_json() == {"type": "state", "state": "listening"}
@@ -187,14 +187,20 @@ def test_voice_turn_with_fake_stt_and_tts(settings: Settings, tmp_path: Path) ->
     assert frames[-1] == {"type": "state", "state": "idle"}
 
 
-def test_typed_text_is_not_spoken(settings: Settings, tmp_path: Path) -> None:
+def test_speak_0_never_speaks_even_for_voice(settings: Settings, tmp_path: Path) -> None:
     tts = FakeTTS()
     h = Harness(settings, tmp_path, stt=FakeSTT(), tts=tts)
-    with h.client().websocket_connect(f"{WS}/ws") as ws:
+    with h.client().websocket_connect(f"{WS}/ws") as ws:  # speak defaults to 0
         opened(ws)
         ws.send_json({"type": "text", "text": "hi"})
         frames = frames_until_idle(ws, after_first=False)
+        ws.send_json({"type": "audio_start", "sample_rate": 16000})
+        ws.receive_json()
+        ws.send_bytes(b"\x00\x00" * 320)
+        ws.send_json({"type": "audio_stop"})
+        frames += frames_until_idle(ws, after_first=False)
     assert "tts_start" not in types(frames) and tts.spoken == []
+    assert "transcript" in types(frames) and types(frames).count("reply") == 2
 
 
 def test_audio_rejects_wrong_rate_and_cancel_discards(settings: Settings, tmp_path: Path) -> None:

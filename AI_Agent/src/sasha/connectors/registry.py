@@ -20,12 +20,26 @@ log = logging.getLogger(__name__)
 class ConnectorRegistry:
     def __init__(self, connectors: Iterable[Connector], store: JsonStore) -> None:
         self._connectors: dict[str, Connector] = {}
-        for c in connectors:
-            if c.id in self._connectors:
-                raise ValueError(f"Duplicate connector id: {c.id}")
-            self._connectors[c.id] = c
         self.store = store
         self._last_test: dict[str, TestResult] = {}
+        for c in connectors:
+            self.register(c)
+
+    def register(self, connector: Connector) -> None:
+        """Add a connector at run time (v0.2: `POST /api/connectors` for MCP servers)."""
+        if connector.id in self._connectors:
+            raise ValueError(f"Duplicate connector id: {connector.id}")
+        self._connectors[connector.id] = connector
+
+    def unregister(self, connector_id: str) -> None:
+        """Remove a connector and its stored state (v0.2: `DELETE /api/connectors/{id}`)."""
+        self.get(connector_id)
+        del self._connectors[connector_id]
+        self._last_test.pop(connector_id, None)
+        with self.store.lock:
+            data = self.store.load()
+            if data.pop(connector_id, None) is not None:
+                self.store.save(data)
 
     @property
     def ids(self) -> list[str]:

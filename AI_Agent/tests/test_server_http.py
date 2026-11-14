@@ -27,12 +27,13 @@ def test_health_reports_persona_from_config_and_no_voice(h: Harness, client: Tes
     assert body["assistant"]["pronouns"]["subject"] == h.settings.assistant.pronouns.subject
     assert body["profile"] == h.settings.profile.name
     assert body["default_bot"] == "main"
-    assert body["voice"] == {"stt": False, "tts": False}
+    assert body["voice"] == {"stt": False, "tts": False, "tts_languages": []}
 
 
 def test_health_voice_true_when_stages_configured(settings: Settings, tmp_path: Path) -> None:
     client = Harness(settings, tmp_path, stt=FakeSTT(), tts=FakeTTS()).client()
-    assert client.get("/api/health").json()["voice"] == {"stt": True, "tts": True}
+    voice = client.get("/api/health").json()["voice"]
+    assert voice == {"stt": True, "tts": True, "tts_languages": ["en"]}
 
 
 def test_models(h: Harness, client: TestClient) -> None:

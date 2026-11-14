@@ -3,7 +3,11 @@
 The Assistant, STT and TTS all block, so they run in worker threads. Frames from
 those threads go through one outbox queue, and a single writer task writes them, so
 frames never interleave. `cancel` sets an event the worker checks between stream
-chunks, before every tool call and between speech sentences.
+chunks, before every tool call and between speech chunks.
+
+Each socket is its own conversation (own history), even for the same bot. With
+`speak=1` every answer is also spoken while it streams, whatever started the turn,
+if the TTS stage can speak the turn's language (see `speech.Speaker`).
 """
 
 from __future__ import annotations
@@ -13,16 +17,14 @@ import contextlib
 import json
 import logging
 import threading
-from collections.abc import Iterator
 from typing import Any
 
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from sasha.orchestrator import Assistant, Reply, RequestFailed, TurnHooks
 from sasha.pipeline.llm import LLMCancelled, OllamaError
-from sasha.pipeline.stt import SpeechToText
-from sasha.pipeline.tts import SpeechAudio, TextToSpeech
-from sasha.server.voice import MIC_SAMPLE_RATE, max_recording_bytes, pcm_frames
+from sasha.server.speech import Speaker
+from sasha.server.voice import MIC_SAMPLE_RATE, VoiceStages, max_recording_bytes
 
 log = logging.getLogger(__name__)
 MAX_TEXT_CHARS = 8000
@@ -50,13 +52,17 @@ class Conversation:
         self,
         ws: WebSocket,
         assistant: Assistant,
-        stt: SpeechToText | None,
-        tts: TextToSpeech | None,
+        voice: VoiceStages,
+        speak: bool = False,
+        language: str = "en",
     ) -> None:
         self.ws = ws
         self.assistant = assistant
-        self.stt = stt
-        self.tts = tts
+        self.voice = voice
+        self.stt = voice.stt
+        self.speak = speak
+        self.language = language  # for typed turns; voice turns use the transcript's
+        self.speaker: Speaker | None = None
         self.outbox: asyncio.Queue[Frame | None] = asyncio.Queue()
         self.stop = threading.Event()
         self.turn: asyncio.Task[None] | None = None
@@ -162,12 +168,27 @@ class Conversation:
         if len(text) > MAX_TEXT_CHARS:
             self.error(f"Message too long (max {MAX_TEXT_CHARS} characters)")
             return
-        self._start(self._turn(text.strip(), speak_language=None))
+        self._start(self._turn(text.strip(), self.language, "text"))
 
-    async def _turn(self, text: str, speak_language: str | None) -> None:
+    def _make_speaker(self, language: str) -> Speaker | None:
+        tts = self.voice.tts
+        if not self.speak or tts is None or language not in self.voice.languages:
+            return None  # text only: no speech requested, no TTS, or language not spoken
+        return Speaker(tts, language, self.voice.split, self.voice.tts_lock, self.emit, self.stop)
+
+    def _on_delta(self, piece: str) -> None:  # on the event loop
+        self.emit({"type": "reply_delta", "text": piece})
+        if self.speaker is not None:
+            self.speaker.feed(piece)
+
+    def _on_delta_threadsafe(self, piece: str) -> None:  # from the LLM worker thread
+        self.loop.call_soon_threadsafe(self._on_delta, piece)
+
+    async def _turn(self, text: str, language: str, input_mode: str) -> None:
+        self.speaker = self._make_speaker(language)
         try:
             self.state("thinking")
-            reply = await self._ask(text, "voice" if speak_language else "text")
+            reply = await self._ask(text, input_mode)
             if reply is not None:
                 calls = [{"name": c["name"], "ok": c["ok"]} for c in reply.tool_calls]
                 self.emit(
@@ -178,17 +199,22 @@ class Conversation:
                         "timing": _timing(reply),
                     }
                 )
-                if speak_language and self.tts and reply.text and not self.stop.is_set():
-                    await self._speak(reply.text, speak_language)
+            if self.speaker is not None:
+                speaker, self.speaker = self.speaker, None
+                await (speaker.finish() if reply is not None else speaker.abort())
         except Exception as exc:  # never let one turn kill the connection
             log.error("Turn failed: %s", type(exc).__name__)
             self.error(f"Something went wrong ({type(exc).__name__})")
         finally:
+            if self.speaker is not None:  # failed before speech was finished
+                speaker, self.speaker = self.speaker, None
+                self.stop.set()
+                await speaker.abort()
             self.state("idle")
 
     async def _ask(self, text: str, input_mode: str) -> Reply | None:
         hooks = TurnHooks(
-            on_delta=lambda piece: self.emit_threadsafe({"type": "reply_delta", "text": piece}),
+            on_delta=self._on_delta_threadsafe,
             on_tool=lambda name, ok: self.emit_threadsafe({"type": "tool", "name": name, "ok": ok}),
             should_stop=self.stop.is_set,
         )
@@ -235,7 +261,8 @@ class Conversation:
         assert self.stt is not None
         self.state("thinking")
         try:
-            heard = await asyncio.to_thread(self.stt.transcribe, audio, MIC_SAMPLE_RATE)
+            async with self.voice.stt_lock:
+                heard = await asyncio.to_thread(self.stt.transcribe, audio, MIC_SAMPLE_RATE)
         except Exception as exc:
             log.error("Speech recognition failed: %s", type(exc).__name__)
             self.error("Speech recognition failed")
@@ -245,27 +272,4 @@ class Conversation:
         if not heard.text.strip() or self.stop.is_set():
             self.state("idle")
             return
-        await self._turn(heard.text.strip(), speak_language=heard.language)
-
-    async def _speak(self, text: str, language: str) -> None:
-        assert self.tts is not None
-        self.state("speaking")
-        chunks: Iterator[SpeechAudio] = await asyncio.to_thread(self.tts.stream, text, language)
-        started = False
-        try:
-            while not self.stop.is_set():
-                chunk = await asyncio.to_thread(next, chunks, None)
-                if chunk is None or self.stop.is_set():
-                    break
-                if not started:
-                    self.emit({"type": "tts_start", "sample_rate": chunk.sample_rate})
-                    started = True
-                for frame in pcm_frames(chunk.pcm, chunk.sample_rate):
-                    self.emit(frame)
-        finally:
-            close = getattr(chunks, "close", None)
-            if callable(close):
-                with contextlib.suppress(Exception):
-                    await asyncio.to_thread(close)
-            if started:
-                self.emit({"type": "tts_end"})
+        await self._turn(heard.text.strip(), heard.language or self.language, "voice")

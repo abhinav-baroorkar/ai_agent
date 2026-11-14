@@ -140,8 +140,11 @@ class FakeSTT:
 class FakeTTS:
     sample_rate = 24000
 
-    def __init__(self) -> None:
+    def __init__(self, languages: list[str] | None = None) -> None:
         self.spoken: list[tuple[str, str]] = []
+        self.languages = ["en"] if languages is None else languages
+        self.hold = threading.Event()  # set to make stream() wait until stop/release
+        self.release = threading.Event()
 
     def model_version(self) -> str:
         return "tts@fake"
@@ -151,7 +154,9 @@ class FakeTTS:
 
     def stream(self, text: str, language: str) -> Iterator[SpeechAudio]:
         self.spoken.append((text, language))
-        for _ in range(2):  # two "sentences" of 30 ms each
+        for _ in range(2):  # two chunks of 30 ms each
+            if self.hold.is_set():
+                self.release.wait(5)
             yield SpeechAudio(b"\x01\x00" * 720, self.sample_rate)
 
 

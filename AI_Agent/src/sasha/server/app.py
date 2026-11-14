@@ -19,6 +19,7 @@ from sasha.connectors import ConnectorError
 from sasha.pipeline.llm import OllamaError
 from sasha.server.deps import ServerDeps
 from sasha.server.security import LocalOnlyMiddleware, allowed_hosts, allowed_origins
+from sasha.server.voice import VoiceStages
 from sasha.server.ws import Conversation
 
 log = logging.getLogger(__name__)
@@ -58,6 +59,7 @@ def create_app(deps: ServerDeps, web_dir: Path | None = WEB_DIR) -> FastAPI:
     settings = deps.settings
     server = settings.profile.server
     app = FastAPI(title="brain", version=__version__, docs_url=None, redoc_url=None)
+    voice = VoiceStages(stt=deps.stt, tts=deps.tts)  # shared by every socket
     app.add_middleware(
         LocalOnlyMiddleware,
         hosts=allowed_hosts(server.port),
@@ -103,7 +105,11 @@ def create_app(deps: ServerDeps, web_dir: Path | None = WEB_DIR) -> FastAPI:
             "assistant": {"name": settings.assistant.name, "pronouns": pronouns.model_dump()},
             "profile": settings.profile.name,
             "default_bot": "main",
-            "voice": {"stt": deps.stt is not None, "tts": deps.tts is not None},
+            "voice": {
+                "stt": voice.stt is not None,
+                "tts": voice.tts is not None,
+                "tts_languages": voice.languages,
+            },
         }
 
     @app.get("/api/models")
@@ -160,8 +166,13 @@ def create_app(deps: ServerDeps, web_dir: Path | None = WEB_DIR) -> FastAPI:
 
     # --- conversation ----------------------------------------------------------
     @app.websocket("/ws")
-    async def ws(websocket: WebSocket, bot: str = "main") -> None:
+    async def ws(websocket: WebSocket, bot: str = "main", speak: str = "0") -> None:
         await websocket.accept()
+        if speak not in ("0", "1"):
+            reason = "speak must be 0 or 1"
+            await websocket.send_json({"type": "error", "message": reason})
+            await websocket.close(code=1008, reason=reason)
+            return
         try:
             chosen = deps.bots.get(bot) if BOT_ID_RE.fullmatch(bot) else None
         except BotNotFound:
@@ -173,7 +184,8 @@ def create_app(deps: ServerDeps, web_dir: Path | None = WEB_DIR) -> FastAPI:
         assistant, warnings = await run_in_threadpool(deps.make_assistant, chosen)
         for warning in warnings:
             log.warning("Bot %s: %s", chosen.id, warning)
-        await Conversation(websocket, assistant, deps.stt, deps.tts).run()
+        language = settings.assistant.languages.default
+        await Conversation(websocket, assistant, voice, speak == "1", language).run()
 
     if web_dir is not None and web_dir.is_dir():
         app.mount("/", StaticFiles(directory=web_dir, html=True), name="web")

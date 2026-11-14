@@ -1,4 +1,4 @@
-# Brain API contract v0 (server and UI both build against this)
+# Brain API contract v0.1 (server and UI both build against this)
 
 Owner of this file: Primary. Staff SDE copies it to `AI_reference/api-contract.md`
 in the server branch. To change it, ask Primary; don't change it on your own.
@@ -12,14 +12,14 @@ per-device token; v0 has no auth because it only listens on localhost.
 
 | Method + path | Returns / does |
 | --- | --- |
-| `GET /api/health` | `{ok, assistant:{name, pronouns}, profile, default_bot, voice:{stt:bool, tts:bool}}` |
+| `GET /api/health` | `{ok, assistant:{name, pronouns:{subject, object, possessive}}, profile, default_bot, voice:{stt:bool, tts:bool, tts_languages:["en"]}}` |
 | `GET /api/models` | `{models:[{name, size_gb}]}` from Ollama |
 | `GET /api/bots` | `{bots:[Bot]}` |
 | `POST /api/bots` | create a Bot, returns it |
 | `PATCH /api/bots/{id}` | edit a Bot |
 | `DELETE /api/bots/{id}` | delete (the built-in main bot can't be deleted) |
 | `GET /api/connectors` | `{connectors:[Connector]}` |
-| `PUT /api/connectors/{id}` | `{enabled?, settings?}` ; secrets are never returned |
+| `PUT /api/connectors/{id}` | body `{enabled?, settings?}`; returns the updated Connector; secrets are never returned |
 | `POST /api/connectors/{id}/test` | `{ok, message}` connectivity check |
 
 `Bot` = `{id, name, model, system_prompt, connectors:[connector ids], builtin:bool}`.
@@ -33,7 +33,12 @@ server), `gmail`, `calendar`. A connector that needs a secret tells the UI which
 
 Errors: HTTP 4xx/5xx with `{error: "plain message"}`.
 
-## WebSocket `/ws?bot=<id>` (one conversation)
+## WebSocket `/ws?bot=<id>&speak=0|1` (one conversation)
+
+Each socket is its own conversation with its own history, even for the same bot.
+`speak=1` asks the server to also speak every answer (the Home face uses it);
+`speak=0`, the default, sends text only (bot chat tabs use it), so no speech is
+synthesised for nothing.
 
 Text frames are JSON with a `type`. Binary frames are raw audio:
 16 kHz, mono, signed 16-bit little-endian PCM, about 20 ms per frame.
@@ -55,6 +60,15 @@ Server → client:
 
 Rules:
 - The server always sends a `state` before and after each phase, ending in `idle`.
+- Speech is sent only on sockets opened with `speak=1`. If the answer's language is
+  not in `health.voice.tts_languages`, the server sends the text and no `tts_*` frames.
 - If voice is not available (`health.voice.stt` or `.tts` false), text still works:
   the server answers `audio_start` with an `error`, and sends no `tts_*` frames.
 - The UI draws the mouth from the loudness of the speech frames it plays.
+
+## Changes
+- v0.1 (2026-11-14): `speak` query parameter; one conversation per socket stated;
+  `PUT /api/connectors/{id}` returns the Connector; `pronouns` is an object;
+  `voice.tts_languages` added.
+- Planned for v0.2 (not built yet): `POST /api/connectors` and
+  `DELETE /api/connectors/{id}` to add and remove MCP connectors from Settings.

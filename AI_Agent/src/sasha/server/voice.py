@@ -7,8 +7,12 @@ reports `voice: {stt: false, tts: false}` and `audio_start` gets an `error` fram
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import asyncio
+import re
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass, field
 
+import sasha.pipeline.tts as tts_module
 from sasha.config import Settings
 from sasha.pipeline.stt import SpeechToText
 from sasha.pipeline.tts import TextToSpeech
@@ -17,6 +21,40 @@ MIC_SAMPLE_RATE = 16000  # contract: 16 kHz mono s16le from the client
 BYTES_PER_SAMPLE = 2
 FRAME_MS = 20
 MAX_RECORDING_S = 60  # cap one utterance so a client can't fill memory
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+
+
+def basic_split_sentences(text: str) -> list[str]:
+    """Fallback splitter, used until `pipeline.tts.split_sentences` exists."""
+    return [p.strip() for p in _SENTENCE_END.split(text) if p.strip()]
+
+
+def sentence_splitter() -> Callable[[str], list[str]]:
+    """The TTS stage's `split_sentences` (voice branch) if present, else the fallback."""
+    found = getattr(tts_module, "split_sentences", None)
+    return found if callable(found) else basic_split_sentences
+
+
+def tts_languages(tts: TextToSpeech | None) -> list[str]:
+    """Language codes the TTS stage can speak (its `languages` property); [] without one."""
+    if tts is None:
+        return []
+    return [str(code) for code in getattr(tts, "languages", None) or []]
+
+
+@dataclass
+class VoiceStages:
+    """The voice stages one server shares across sockets, each with its own lock."""
+
+    stt: SpeechToText | None = None
+    tts: TextToSpeech | None = None
+    split: Callable[[str], list[str]] = field(default_factory=sentence_splitter)
+    stt_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    tts_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+    @property
+    def languages(self) -> list[str]:
+        return tts_languages(self.tts)
 
 
 def load_voice_stages(
