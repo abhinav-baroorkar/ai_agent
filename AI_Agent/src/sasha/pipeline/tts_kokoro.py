@@ -76,9 +76,13 @@ class KokoroTTS:
         self.lang = kokoro_lang(self.voice_id)
         model_path, voices_path = model_files(config, root)
 
+        import onnxruntime as ort
         from kokoro_onnx import Kokoro  # lazy: pulls in GPL-3.0 phonemizer/espeak-ng
 
-        self._kokoro: Any = Kokoro(str(model_path), str(voices_path))
+        options = ort.SessionOptions()
+        options.intra_op_num_threads = config.threads
+        session = ort.InferenceSession(str(model_path), options, providers=["CPUExecutionProvider"])
+        self._kokoro: Any = Kokoro.from_session(session, str(voices_path))
         if self.voice_id not in self._kokoro.voices:
             known = ", ".join(sorted(self._kokoro.voices))
             raise ValueError(f"Unknown Kokoro voice {self.voice_id!r}. Known: {known}")

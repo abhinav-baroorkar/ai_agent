@@ -65,7 +65,7 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 # Optional `voice` extra: absent in CI, so mypy must not require it.
-module = ["faster_whisper", "faster_whisper.*", "kokoro_onnx", "huggingface_hub", "numpy", "numpy.*"]
+module = ["faster_whisper", "faster_whisper.*", "kokoro_onnx", "huggingface_hub", "numpy", "numpy.*", "onnxruntime"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

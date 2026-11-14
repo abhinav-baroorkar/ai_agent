@@ -110,6 +110,7 @@ class TTSConfig(BaseModel):
     revision: str = "8d07950c9b6c87ce6809e9bba7bd494336217c2a"
     model_file: str = "kokoro-v1.0.onnx"
     voices_file: str = "voices-v1.0.bin"
+    threads: int = 0  # onnxruntime intra-op threads; 0: library default
 
 
 class Profile(BaseModel):
