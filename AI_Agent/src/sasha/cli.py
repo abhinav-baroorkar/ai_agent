@@ -141,7 +141,7 @@ def run_doctor(settings: Settings) -> int:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="sasha", description="Local voice assistant (text mode).")
     p.add_argument("--version", action="version", version=__version__)
-    p.add_argument("--profile", help="Hardware profile name (default: $SASHA_PROFILE or pc)")
+    p.add_argument("--profile", help="Hardware profile name (default: $SASHA_PROFILE or laptop)")
     sub = p.add_subparsers(dest="command")
     chat = sub.add_parser("chat", help="Text-only conversation loop (default)")
     chat.add_argument("--timing", action="store_true", help="Print per-stage latency")

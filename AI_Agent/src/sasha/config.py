@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field, SecretStr, field_validator
 
 # src/sasha/config.py -> sasha -> src -> AI_Agent -> repo root
 _DEFAULT_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_PROFILE = "pc"
+DEFAULT_PROFILE = "laptop"
 
 # The only domains the assistant may ever control, whatever tools.yaml says. An allowlist,
 # not a denylist: HA adds domains every release, and button/valve/notify/remote/lock
@@ -91,11 +91,20 @@ class TelemetryConfig(BaseModel):
     log_text: bool = False
 
 
+class ServerConfig(BaseModel):
+    """The brain server (`sasha serve`). v0 has no auth, so it listens on loopback only."""
+
+    host: str = "127.0.0.1"
+    port: int = 8765
+    allowed_origins: list[str] = Field(default_factory=list)  # besides the server's own
+
+
 class Profile(BaseModel):
     name: str
     device: str = "cpu"
     llm: LLMConfig
     telemetry: TelemetryConfig = Field(default_factory=TelemetryConfig)
+    server: ServerConfig = Field(default_factory=ServerConfig)
 
 
 class HomeAssistantConfig(BaseModel):
@@ -134,6 +143,10 @@ class Paths(BaseModel):
     @property
     def telemetry_dir(self) -> Path:
         return self.data_dir / "logs" / "telemetry"
+
+    @property
+    def state_dir(self) -> Path:
+        return self.data_dir / "state"
 
 
 class Settings(BaseModel):
