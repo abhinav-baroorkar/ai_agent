@@ -7,6 +7,14 @@ import pytest
 from sasha.config import Settings, load_settings
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+# Temp dirs stay inside the project (owner's rule): never /tmp, whatever the runner.
+PYTEST_TMP = REPO_ROOT / "Data" / "pytest-tmp"
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    if not config.option.basetemp:
+        PYTEST_TMP.parent.mkdir(parents=True, exist_ok=True)
+        config.option.basetemp = PYTEST_TMP
 
 
 @pytest.fixture(autouse=True)

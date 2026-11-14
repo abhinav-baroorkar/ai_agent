@@ -93,6 +93,28 @@ def browser_command(url: str, profile_dir: Path) -> list[str] | None:
     return None
 
 
+def browser_env(profile_dir: Path) -> dict[str, str]:
+    """Environment for the window's browser: home and XDG dirs inside the project.
+
+    `--user-data-dir` alone still lets Chromium on Linux write `~/.pki` (NSS cert db),
+    `~/.cache` and `~/.config` bits, so HOME and the XDG dirs point under the profile.
+    The display variables (DISPLAY, WAYLAND_DISPLAY, XAUTHORITY, DBus) are kept.
+    """
+    env = dict(os.environ)
+    if "XAUTHORITY" not in env:  # X11 falls back to $HOME/.Xauthority; keep the real one
+        real = Path.home() / ".Xauthority"
+        if real.is_file():
+            env["XAUTHORITY"] = str(real)
+    home = profile_dir / "home"
+    env.update(
+        HOME=str(home),
+        XDG_CONFIG_HOME=str(home / ".config"),
+        XDG_CACHE_HOME=str(home / ".cache"),
+        XDG_DATA_HOME=str(home / ".local" / "share"),
+    )
+    return env
+
+
 def open_window(
     settings: Settings,
     host: str | None = None,
@@ -131,8 +153,9 @@ def open_window(
             f"use a separate profile inside the project. Open {url} yourself."
         )
     else:
-        profile_dir.mkdir(parents=True, exist_ok=True)
-        spawn(window, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        (profile_dir / "home").mkdir(parents=True, exist_ok=True)
+        env = browser_env(profile_dir)
+        spawn(window, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         print(f"Opened {url} in an app window.")
 
     if server is None:

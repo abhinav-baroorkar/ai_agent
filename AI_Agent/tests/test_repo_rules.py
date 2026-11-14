@@ -55,3 +55,8 @@ def test_no_send_function_anywhere() -> None:
         if pat.search(p.read_text(encoding="utf-8"))
     ]
     assert not offenders, f"Send-like code found: {offenders}"
+
+
+def test_tmp_path_stays_inside_the_checkout(tmp_path: Path) -> None:
+    """Owner's rule: nothing written outside the project folder, test temp dirs included."""
+    assert tmp_path.resolve().is_relative_to(REPO_ROOT.resolve())
