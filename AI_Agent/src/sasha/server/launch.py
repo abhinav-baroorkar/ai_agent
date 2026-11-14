@@ -35,8 +35,17 @@ ISOLATION_FLAGS = (
     "--disable-domain-reliability",
     "--metrics-recording-only",
     "--disable-features=MediaRouter,OptimizationHints",
+    # The flags above still left a fresh profile calling Google (network time, account
+    # list, Safe Browsing keys, www.google.com), measured with --log-net-log. So the
+    # window gets no route out at all: every non-loopback request goes to a dead proxy
+    # (Chromium always bypasses the proxy for localhost/127.0.0.1/[::1]) and every DNS
+    # lookup fails. The UI must therefore be self-contained (no CDN fonts or scripts).
+    "--proxy-server=http://127.0.0.1:9",
+    # `MAP *` also catches the 127.0.0.1 literal, so it must be excluded explicitly.
+    "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1",
 )
 START_TIMEOUT_S = 60.0
+BROWSER_TMP = "tmp"  # under the profile dir; see browser_env
 WS_MAX_BYTES = 1 << 20  # largest WebSocket message accepted (a 20 ms frame is 640 bytes)
 
 
@@ -130,7 +139,11 @@ def browser_env(profile_dir: Path) -> dict[str, str]:
         XDG_CONFIG_HOME=str(home / ".config"),
         XDG_CACHE_HOME=str(home / ".cache"),
         XDG_DATA_HOME=str(home / ".local" / "share"),
-        TMPDIR=str(profile_dir / "tmp"),
+        # Relative on purpose, and Chrome is started with cwd=profile_dir: its singleton
+        # socket lives in TMPDIR, and an absolute path this deep in the project can
+        # exceed the 108-byte Unix socket limit (Chrome then exits at once). The
+        # SingletonSocket symlink it leaves in the profile resolves the same way.
+        TMPDIR=BROWSER_TMP,
     )
     return env
 
@@ -179,7 +192,13 @@ def open_window(
         for sub in ("home", "tmp"):
             (profile_dir / sub).mkdir(parents=True, exist_ok=True)
         env = browser_env(profile_dir)
-        spawn(window, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        spawn(
+            window,
+            env=env,
+            cwd=profile_dir,  # TMPDIR is relative to this
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
         print(f"Opened {url} in an app window.")
 
     if server is None:

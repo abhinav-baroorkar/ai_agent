@@ -40,7 +40,16 @@ def test_browser_command_uses_isolated_profile(
     assert cmd is not None and cmd[0] == "/usr/bin/chromium"
     assert "--app=http://127.0.0.1:8765" in cmd
     assert f"--user-data-dir={tmp_path / 'chrome-profile'}" in cmd
-    for flag in ("--password-store=basic", "--disable-background-networking", "--no-pings"):
+    sealed = (
+        "--proxy-server=http://127.0.0.1:9",
+        "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1",
+    )
+    for flag in (
+        "--password-store=basic",
+        "--disable-background-networking",
+        "--no-pings",
+        *sealed,
+    ):
         assert flag in cmd
     monkeypatch.setattr(launch.shutil, "which", lambda n: None)
     assert launch.browser_command("http://x", tmp_path) is None
@@ -69,9 +78,11 @@ def test_window_reuses_running_server(
     settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     spawned: list[list[str]] = []
+    kwargs: list[dict[str, Any]] = []
 
-    def spawn(cmd: list[str], **_: Any) -> FakeProc:
+    def spawn(cmd: list[str], **kw: Any) -> FakeProc:
         spawned.append(cmd)
+        kwargs.append(kw)
         return FakeProc()
 
     monkeypatch.setattr(launch, "is_running", lambda url, timeout_s=1.5: True)
@@ -79,7 +90,10 @@ def test_window_reuses_running_server(
     s = _settings_in(settings, tmp_path)
     assert launch.open_window(s, spawn=spawn) == 0  # type: ignore[arg-type]
     assert len(spawned) == 1 and spawned[0][0] == "/usr/bin/google-chrome"
-    assert (tmp_path / "Data" / "chrome-profile" / "tmp").is_dir()
+    profile = tmp_path / "Data" / "chrome-profile"
+    assert (profile / "tmp").is_dir()
+    assert kwargs[0]["cwd"] == profile and kwargs[0]["env"]["TMPDIR"] == "tmp"
+    assert "--password-store=basic" in spawned[0]
 
 
 def test_window_starts_server_then_browser(
@@ -130,8 +144,11 @@ def test_browser_env_keeps_files_in_profile(
 ) -> None:
     monkeypatch.setenv("DISPLAY", ":0")
     env = launch.browser_env(tmp_path / "chrome-profile")
-    for key in ("HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "TMPDIR"):
+    for key in ("HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME"):
         assert Path(env[key]).is_relative_to(tmp_path / "chrome-profile")
+    # TMPDIR is relative to the browser's cwd (the profile), to keep the singleton
+    # socket path under the 108-byte Unix limit however deep the project lives.
+    assert env["TMPDIR"] == "tmp" and not Path(env["TMPDIR"]).is_absolute()
     assert env["DISPLAY"] == ":0"
 
 
