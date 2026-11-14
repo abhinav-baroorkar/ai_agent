@@ -70,19 +70,35 @@ export class Stage extends Mood {
     this.unit = 1; // half the face box, in canvas pixels
     new ResizeObserver(() => this.resize()).observe(root);
     this.resize();
-    const frame = (now) => {
+    // The frame loop stops completely while the face can't be seen (window
+    // hidden, or the Bots or Settings screen in front) and restarts when it can.
+    this.running = false;
+    this.frame = (now) => {
+      if (document.hidden || this.root.offsetParent === null) {
+        this.running = false;
+        return;
+      }
       this.step(now);
-      // Only draw when it can be seen: not in a hidden window, not behind Bots or Settings.
-      if (!document.hidden && this.root.offsetParent !== null && this.unit > 4) {
+      if (this.unit > 4) {
         const { ctx, canvas } = this;
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.translate(canvas.width / 2, canvas.height / 2);
         this.draw(ctx, this.unit);
       }
-      requestAnimationFrame(frame);
+      requestAnimationFrame(this.frame);
     };
-    requestAnimationFrame(frame);
+    const wake = () => this.wake();
+    document.addEventListener('visibilitychange', wake);
+    window.addEventListener('hashchange', wake);
+    this.wake();
+  }
+
+  wake() {
+    if (this.running) return;
+    this.running = true;
+    this.last = performance.now(); // don't count the time spent hidden as one long frame
+    requestAnimationFrame(this.frame);
   }
 
   resize() {

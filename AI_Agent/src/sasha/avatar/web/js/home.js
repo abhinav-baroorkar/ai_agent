@@ -9,12 +9,13 @@ import { initReadouts, initHistory, watchMicPermission, MIC_BLOCKED_HELP } from 
 
 const LABEL = { idle: 'Ready', listening: 'Listening', thinking: 'Thinking', speaking: 'Speaking' };
 const params = new URLSearchParams(location.search);
+const HELD_FRAMES = 100; // 100 frames of 20 ms
 
 export async function initHome(health, onOnline) {
   const el = {
     status: $('#home-status'), heard: $('#heard'), said: $('#said'), notice: $('#notice'),
     mic: $('#mic'), micLabel: $('#mic-label'), micIcon: $('#mic use'),
-    form: $('#say-form'), text: $('#say-text'), cancel: $('#cancel'), hint: $('#voice-hint'), mini: $('#mini-face'),
+    form: $('#say-form'), text: $('#say-text'), cancel: $('#cancel'), hint: $('#voice-hint'), mini: $('#mini-face'), micOn: $('#mic-on'),
   };
   const face = await createFace($('#face'));
   const conv = new Conversation(health.default_bot, { speak: true });
@@ -51,6 +52,7 @@ export async function initHome(health, onOnline) {
     el.status.dataset.tone = conv.online ? shown : 'offline';
     el.status.textContent = conv.online ? LABEL[shown] : 'Offline';
     el.cancel.hidden = !(shown === 'thinking' || shown === 'speaking');
+    el.micOn.hidden = !recording; // the rule: the microphone is never open without this sign
     el.mic.setAttribute('aria-pressed', String(recording));
     el.mic.dataset.blocked = String(blocked);
     el.micLabel.textContent = blocked ? 'Mic blocked' : recording ? 'Done talking' : 'Talk';
@@ -86,14 +88,14 @@ export async function initHome(health, onOnline) {
     .on('offline', () => { stopMic(false); player.stop(); onOnline(false, refused); render(); })
     .on('refused', (m) => { refused = m.message; onOnline(false, refused); })
     .on('state', (m) => { serverState = m.state; render(); })
-    .on('transcript', (m) => newTurn(m.text, !m.final))
+    .on('transcript', (m) => newTurn(String(m.text ?? ''), !m.final))
     .on('tool', (m) => history.tool(m))
-    .on('reply_delta', (m) => showSaid(replyText + m.text))
-    .on('reply', (m) => { showSaid(m.text); readouts.answered(m.timing); }) // the final text replaces what streamed
+    .on('reply_delta', (m) => showSaid(replyText + String(m.text ?? '')))
+    .on('reply', (m) => { showSaid(String(m.text ?? '')); readouts.answered(m.timing); }) // the final text replaces what streamed
     .on('tts_start', (m) => player.begin(m.sample_rate))
     .on('audio', (buf) => player.push(buf))
     .on('tts_end', () => player.end())
-    .on('error', (m) => { stopMic(false); notice(m.message); });
+    .on('error', (m) => { stopMic(false); notice(String(m.message ?? 'Something went wrong.')); });
 
   // Stops the current answer; what was already shown stays, marked as stopped.
   function stopAnswer() {
@@ -109,9 +111,19 @@ export async function initHome(health, onOnline) {
   async function startMic() {
     stopAnswer();
     player.unlock();
+    // The server ignores sound that arrives before audio_start, and audio_start may
+    // have to wait for a running answer to stop. Until it has gone out, frames are
+    // held here (at most about two seconds of them) so the first words aren't lost.
+    const held = [];
+    let started = false;
+    const onFrame = (frame) => {
+      if (started) return conv.sendAudio(frame);
+      held.push(frame);
+      if (held.length > HELD_FRAMES) held.shift();
+    };
     try {
       if (blocked) throw Object.assign(new Error('blocked'), { name: 'NotAllowedError' });
-      if (!MOCK) await mic.start((frame) => conv.sendAudio(frame));
+      if (!MOCK) await mic.start(onFrame);
     } catch (err) {
       mic.stop();
       blocked = err && (err.name === 'NotAllowedError' || err.name === 'SecurityError');
@@ -124,7 +136,12 @@ export async function initHome(health, onOnline) {
     recording = true;
     setText(el.heard, '');
     notice('');
-    conv.whenIdle(() => conv.startAudio());
+    conv.whenIdle(() => {
+      if (!recording) return; // stopped before the server was ready
+      conv.startAudio();
+      held.splice(0).forEach((frame) => conv.sendAudio(frame));
+      started = true;
+    });
     render();
   }
 
@@ -137,6 +154,25 @@ export async function initHome(health, onOnline) {
   }
 
   el.mic.addEventListener('click', () => (recording ? stopMic() : startMic()));
+  el.micOn.addEventListener('click', () => stopMic());
+
+  // Leaving Home, hiding the window or closing the page always closes the
+  // microphone and silences the answer. What was being recorded is discarded.
+  function leave() {
+    if (recording) {
+      stopMic(false);
+      conv.waiting = null;
+      conv.cancel();
+    }
+    if (player.active) {
+      stopAnswer();
+      conv.cancel();
+    }
+  }
+  // Decided from the address, not from what is on screen: this runs before the screens are switched.
+  window.addEventListener('hashchange', () => { if (!['', '#home'].includes(location.hash)) leave(); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) leave(); });
+  window.addEventListener('pagehide', leave);
   if (canListen && !MOCK) {
     watchMicPermission((denied) => {
       blocked = denied;

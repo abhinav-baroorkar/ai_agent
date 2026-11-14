@@ -3,20 +3,21 @@ import { api } from './api.js';
 import { $, h, icon, clear } from './dom.js';
 import { ChatView } from './chat.js';
 import { openBotForm } from './bot-form.js';
+import { cleanBot, cleanConnector, cleanModel, initial } from './clean.js';
 
-export function initBots() {
+export function initBots(health) {
   const el = { items: $('#bot-items'), tabs: $('#tabs'), chats: $('#chats'), empty: $('#bots-empty'), add: $('#new-bot') };
   let bots = [];
   const open = new Map(); // bot id -> ChatView
   let active = null;
   const listeners = new Set();
-  // The server allows four conversations at once: Home keeps one, so three chats here.
-  const MAX_OPEN = 3;
+  // The server caps conversations (health.limits.max_sockets); Home keeps one of them.
+  const MAX_OPEN = health.max_chats;
   let note = '';
 
   async function load() {
     try {
-      bots = (await api('GET', '/api/bots')).bots;
+      bots = ((await api('GET', '/api/bots')).bots || []).map(cleanBot);
     } catch (err) {
       clear(el.items).append(h('li', { class: 'form-error' }, err.message));
       return;
@@ -32,7 +33,7 @@ export function initBots() {
   function render() {
     clear(el.items).append(...bots.map((bot) => h('li', {},
       h('button', { class: 'bot-item', type: 'button', 'aria-current': String(bot.id === active), onclick: () => show(bot.id) },
-        h('span', { class: 'avatar', 'aria-hidden': 'true' }, bot.name.trim().charAt(0).toUpperCase()),
+        h('span', { class: 'avatar', 'aria-hidden': 'true' }, initial(bot.name)),
         h('span', { class: 'name' }, bot.name),
         h('span', { class: 'model' }, bot.model),
         open.has(bot.id) && h('span', { class: 'open-dot', title: 'Chat is open' })))));
@@ -80,8 +81,8 @@ export function initBots() {
   async function lists() {
     const [m, c] = await Promise.allSettled([api('GET', '/api/models'), api('GET', '/api/connectors')]);
     return {
-      models: m.status === 'fulfilled' ? m.value.models : [],
-      connectors: c.status === 'fulfilled' ? c.value.connectors : [],
+      models: m.status === 'fulfilled' ? (m.value.models || []).map(cleanModel).filter((x) => x.name) : [],
+      connectors: c.status === 'fulfilled' ? (c.value.connectors || []).map(cleanConnector) : [],
     };
   }
 
@@ -91,7 +92,7 @@ export function initBots() {
     if (!result) return;
     if (result.deleted) closeChat(result.deleted);
     await load();
-    if (result.bot && !bot) show(result.bot.id);
+    if (result.bot && !bot) show(cleanBot(result.bot).id);
   }
 
   el.add.addEventListener('click', () => edit(null));

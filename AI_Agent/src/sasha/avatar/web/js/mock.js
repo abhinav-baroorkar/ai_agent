@@ -71,7 +71,7 @@ export class MockSocket {
     this.botId = botId;
     this.speaks = speak;
     this.turn = 0;
-    if (MockSocket.open >= 4) { // same cap as the real server
+    if (MockSocket.open >= data.health.limits.max_sockets) { // same cap as the real server
       setTimeout(() => this.onclose && this.onclose({ code: 1013 }), 100);
       return;
     }

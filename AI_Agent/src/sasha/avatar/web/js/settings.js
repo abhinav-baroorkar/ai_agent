@@ -2,6 +2,7 @@
 // Secrets are never typed here: a card only names the variable to fill in.
 import { api } from './api.js';
 import { $, h, clear } from './dom.js';
+import { cleanConnector } from './clean.js';
 
 const STATUS = { ok: 'Working', off: 'Off', needs_setup: 'Needs setup', error: 'Problem' };
 const SECRETS_FILE = '.env';
@@ -95,7 +96,7 @@ export function initSettings(health, botsApi) {
     renderFacts();
     let connectors;
     try {
-      connectors = (await api('GET', '/api/connectors')).connectors;
+      connectors = ((await api('GET', '/api/connectors')).connectors || []).map(cleanConnector);
     } catch (err) {
       clear(grid).append(h('p', { class: 'form-error' }, err.message));
       return;

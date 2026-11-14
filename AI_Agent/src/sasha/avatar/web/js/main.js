@@ -1,6 +1,7 @@
 // Boot: read who the assistant is from /api/health, then wire the three screens.
 import { api } from './api.js';
 import { $ } from './dom.js';
+import { cleanHealth } from './clean.js';
 import { initHome } from './home.js';
 import { initBots } from './bots.js';
 import { initSettings } from './settings.js';
@@ -26,12 +27,12 @@ async function health() {
   }
 }
 
-const info = await health();
+const info = cleanHealth(await health());
 document.title = info.assistant.name;
 document.querySelectorAll('[data-assistant-name]').forEach((el) => { el.textContent = info.assistant.name; });
 
 await initHome(info, (online, why) => setOffline(!online, why || undefined));
-const bots = initBots();
+const bots = initBots(info);
 const settings = initSettings(info, bots);
 
 function route() {

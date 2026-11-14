@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' ws://127.0.0.1:* ws://localhost:*; img-src 'self' data:; style-src 'self' 'unsafe-inline'">
 <title>Assistant</title>
 <link rel="icon" href="assets/icon.svg">
 <link rel="stylesheet" href="css/base.css">
@@ -25,6 +26,10 @@
     <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
   </defs>
 </svg>
+
+<button id="mic-on" class="mic-on" type="button" hidden>
+  <span class="dot"></span>Microphone is on<span class="mic-on-stop">Stop</span>
+</button>
 
 <div id="offline" class="banner" role="status" hidden>
   <span class="dot"></span><span id="offline-text">Offline. Trying to reconnect…</span>
@@ -138,8 +143,8 @@
   </form>
 </dialog>
 
-<p id="file-warning" class="file-warning" hidden>This page needs to be served over http. From this folder run <code>python3 -m http.server 8799</code> and open <code>http://localhost:8799/?mock=1</code>.</p>
-<script>if (location.protocol === 'file:') document.getElementById('file-warning').hidden = false;</script>
+<p id="file-warning" class="file-warning" hidden>This page can't run straight from a file. From this folder run <code>python3 -m http.server 8799</code>, then open <code>localhost:8799/?mock=1</code> in the browser.</p>
+<script src="js/file-warning.js"></script>
 <script type="module" src="js/main.js"></script>
 </body>
 </html>

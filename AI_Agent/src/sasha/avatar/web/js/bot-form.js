@@ -29,7 +29,7 @@ export function openBotForm({ bot, models, connectors, preferModel }) {
   if (bot && !names.includes(bot.model)) names.unshift(bot.model);
   clear(f.model).append(...names.map((name) => {
     const m = models.find((x) => x.name === name);
-    const label = m ? `${name}  (${Number(m.size_gb).toFixed(1)} GB)` : `${name}  (not installed)`;
+    const label = m ? `${name}  (${m.size_gb.toFixed(1)} GB${m.tools ? '' : ', can’t use connectors'})` : `${name}  (not installed)`;
     return h('option', { value: name, selected: name === (bot ? bot.model : preferModel) }, label);
   }));
   if (!names.length) f.model.append(h('option', { value: '', disabled: true, selected: true }, 'No local models found'));

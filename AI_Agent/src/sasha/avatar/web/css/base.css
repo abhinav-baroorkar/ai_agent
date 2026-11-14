@@ -119,6 +119,15 @@ textarea { resize: vertical; line-height: 1.5; }
 .banner .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); animation: pulse 1.4s infinite; }
 @keyframes pulse { 50% { opacity: .3; } }
 
+/* Shown on every screen whenever the microphone is open. Never hidden behind anything. */
+.mic-on {
+  position: fixed; z-index: 25; bottom: 14px; left: 50%; translate: -50% 0;
+  display: flex; align-items: center; gap: .6em; padding: .4em .5em .4em 1em;
+  background: #10261f; border: 1px solid var(--listen); border-radius: 99px; color: #d9fff6; font-size: .9rem; cursor: pointer;
+}
+.mic-on .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--bad); animation: pulse 1.2s infinite; }
+.mic-on-stop { padding: .15em .8em; border-radius: 99px; background: var(--listen); color: #06241d; font-weight: 600; }
+
 /* Dialog */
 dialog {
   width: min(520px, calc(100vw - 32px)); padding: 0;

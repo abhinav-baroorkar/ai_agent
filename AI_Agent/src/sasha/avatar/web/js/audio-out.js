@@ -15,6 +15,7 @@ export class SpeechPlayer {
     this.active = false;
     this.ended = true;
     this.timer = null;
+    this.dropping = false;
   }
 
   // Browsers only allow sound after a click or key press; call this from one.
@@ -31,9 +32,11 @@ export class SpeechPlayer {
   begin(sampleRate) {
     this.rate = sampleRate || 16000;
     this.ended = false;
+    this.dropping = false;
   }
 
   push(buf) {
+    if (this.dropping) return; // stopped: ignore what is still arriving for that answer
     const pcm = new Int16Array(buf, 0, buf.byteLength >> 1);
     if (!pcm.length) return;
     const samples = new Float32Array(pcm.length);
@@ -91,6 +94,7 @@ export class SpeechPlayer {
     });
     this.sources.clear();
     this.ended = true;
+    this.dropping = true;
     this.finish();
   }
 

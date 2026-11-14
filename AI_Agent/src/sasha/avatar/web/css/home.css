@@ -54,6 +54,7 @@
 
 /* ---------- Dock ---------- */
 .base { display: grid; grid-template-columns: minmax(0, 1fr) minmax(auto, 38rem) minmax(0, 1fr); align-items: end; gap: 1rem; }
+.home:has(~ .mic-on:not([hidden])) .dock { padding-bottom: 0; }
 .dock { grid-column: 2; display: flex; align-items: center; justify-content: center; gap: .7rem; flex-wrap: wrap; }
 
 /* Instrument labels in the corners: small, dim, only facts. */

@@ -1,4 +1,4 @@
-// Tiny DOM helpers. All text goes in through textContent, never innerHTML:
+// Tiny DOM helpers. All text goes in as text content, never as markup:
 // replies, device names and connector details are untrusted.
 export const $ = (sel, root = document) => root.querySelector(sel);
 

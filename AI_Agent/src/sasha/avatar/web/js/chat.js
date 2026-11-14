@@ -1,10 +1,11 @@
 // One open chat with one bot: transcript, tool chips, composer.
 import { h, icon, setText } from './dom.js';
 import { Conversation } from './socket.js';
+import { initial } from './clean.js';
 
 function chip(tool) {
   return h('span', { class: `chip ${tool.ok ? 'ok' : 'bad'}`, title: tool.ok ? 'Tool ran' : 'Tool failed' },
-    icon(tool.ok ? 'check' : 'x'), tool.name);
+    icon(tool.ok ? 'check' : 'x'), String(tool.name ?? 'tool'));
 }
 
 export class ChatView {
@@ -50,16 +51,16 @@ export class ChatView {
       })
       .on('state', (m) => this.setBusy(m.state !== 'idle'))
       .on('tool', (m) => this.reply().chips.append(chip(m)))
-      .on('reply_delta', (m) => { const r = this.reply(); r.text += m.text; this.paint(r); })
+      .on('reply_delta', (m) => { const r = this.reply(); r.text += String(m.text ?? ''); this.paint(r); })
       .on('reply', (m) => this.finish(m))
-      .on('error', (m) => { this.add(h('div', { class: 'msg error', role: 'alert' }, m.message)); this.pending = null; });
+      .on('error', (m) => { this.add(h('div', { class: 'msg error', role: 'alert' }, String(m.message ?? 'Something went wrong.'))); this.pending = null; });
     this.setOnline(false);
   }
 
   update(bot) {
     this.bot = bot;
     this.title.textContent = bot.name;
-    this.avatar.textContent = bot.name.trim().charAt(0).toUpperCase();
+    this.avatar.textContent = initial(bot.name);
     const n = bot.connectors.length;
     this.meta.textContent = `${bot.model} · ${n === 0 ? 'no connectors' : n === 1 ? '1 connector' : `${n} connectors`}`;
     this.input.placeholder = `Message ${bot.name}`;
@@ -116,7 +117,7 @@ export class ChatView {
 
   finish(m) {
     const r = this.reply();
-    r.text = m.text;
+    r.text = String(m.text ?? '');
     if (Array.isArray(m.tool_calls)) r.chips.replaceChildren(...m.tool_calls.map(chip));
     r.dots.remove();
     if (m.timing && m.timing.total_ms != null) {

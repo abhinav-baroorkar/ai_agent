@@ -2,6 +2,7 @@
 // knowing whether the browser has blocked the microphone.
 import { api } from './api.js';
 import { $, h, icon, setText } from './dom.js';
+import { cleanBot } from './clean.js';
 
 // Small facts in the corners: local time, the model, the link, the last answer's speed.
 export function initReadouts(health) {
@@ -16,7 +17,7 @@ export function initReadouts(health) {
 
   async function loadModel() {
     try {
-      const main = (await api('GET', '/api/bots')).bots.find((b) => b.id === health.default_bot);
+      const main = ((await api('GET', '/api/bots')).bots || []).map(cleanBot).find((b) => b.id === health.default_bot);
       el.model.textContent = main ? main.model : 'unknown';
     } catch {
       el.model.textContent = 'unknown';
@@ -33,7 +34,8 @@ export function initReadouts(health) {
     answered(timing) {
       if (!timing || timing.total_ms == null) return;
       const speed = timing.tokens_per_s ? ` · ${Math.round(timing.tokens_per_s)} tokens/s` : '';
-      el.last.textContent = `${(timing.total_ms / 1000).toFixed(1)} s${speed}`;
+      const secs = Number(timing.total_ms) / 1000;
+      if (Number.isFinite(secs)) el.last.textContent = `${secs.toFixed(1)} s${speed}`;
     },
   };
 }
@@ -75,7 +77,7 @@ export function initHistory(name) {
       setText(current().heard, text);
     },
     tool(tool) {
-      current().chips.append(h('span', { class: `chip ${tool.ok ? 'ok' : 'bad'}` }, icon(tool.ok ? 'check' : 'x'), tool.name));
+      current().chips.append(h('span', { class: `chip ${tool.ok ? 'ok' : 'bad'}` }, icon(tool.ok ? 'check' : 'x'), String(tool.name ?? 'tool')));
     },
     said(text) { setText(current().said, text); },
     stopped() { if (turn && turn.said.textContent) turn.said.dataset.stopped = ''; },
