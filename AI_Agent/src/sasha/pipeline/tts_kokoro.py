@@ -53,20 +53,32 @@ def float_to_pcm16(audio: NDArray[np.float32]) -> bytes:
     return bytes((clipped * 32767.0).astype("<i2").tobytes())
 
 
+def _head(text: str, room: int, hard: bool) -> str:
+    """The first `room` characters of `text`, cut back to the last space so no word
+    is split. With no space in range: a hard cut if `hard`, else nothing."""
+    if len(text) <= room:
+        return text
+    head = text[:room]
+    if " " in head:
+        return head.rsplit(" ", 1)[0]
+    return head if hard else ""
+
+
 def cap_text(text: str, max_chars: int) -> str:
-    """Cut `text` to at most `max_chars`, at a sentence end if there is one in range,
-    else at the last space."""
+    """Cut `text` to at most `max_chars`: whole sentences while they fit, then as much
+    of the next sentence as fits, cut at a space."""
     if len(text) <= max_chars:
         return text
     kept = ""
     for sentence in split_sentences(text):
         candidate = f"{kept} {sentence}".strip()
-        if len(candidate) > max_chars:
-            break
-        kept = candidate
-    if not kept:
-        head = text[:max_chars]
-        kept = head.rsplit(" ", 1)[0] if " " in head else head
+        if len(candidate) <= max_chars:
+            kept = candidate
+            continue
+        room = max_chars - len(kept) - (1 if kept else 0)
+        if room > 0:
+            kept = f"{kept} {_head(sentence, room, hard=not kept).rstrip()}".strip()
+        break
     return kept
 
 
@@ -116,9 +128,10 @@ def _read_npz(path: Path, voice_id: str) -> bool:
 
 def voices_npz(voice_bin: Path, voice_id: str, revision: str, root: Path) -> Path:
     """kokoro-onnx loads voices from one .npz; the official repo ships one raw .bin per
-    voice. Pack the voice into a small .npz next to the HF cache (inside the project),
+    voice. Pack the voice into a small .npz in `<HF_HOME>/derived` (inside the project),
     written atomically and checked (shape, dtype, no pickles) before every use."""
-    out = hf_cache_dir(root).parent / "derived" / f"kokoro-{revision[:12]}-{voice_id}.npz"
+    home = ensure_project_hf_env(root)
+    out = home / "derived" / f"kokoro-{revision[:12]}-{voice_id}.npz"
     require_inside(out, root, "Kokoro voice file")
     if _read_npz(out, voice_id):
         return out

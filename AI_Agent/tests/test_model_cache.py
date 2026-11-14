@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from sasha.config import STTConfig, TTSConfig
+from sasha.config import STTConfig, TTSConfig, Voice
 from sasha.pipeline.model_cache import (
     OutsideProjectError,
     ensure_project_hf_env,
@@ -23,7 +23,14 @@ from sasha.pipeline.model_cache import (
 )
 from tests.conftest import REPO_ROOT
 
-HF_VARS = ("HF_HOME", "HF_HUB_CACHE", "HF_XET_CACHE", "HF_ASSETS_CACHE")
+HF_VARS = (
+    "HF_HOME",
+    "HF_HUB_CACHE",
+    "HF_XET_CACHE",
+    "HF_ASSETS_CACHE",
+    "HUGGINGFACE_HUB_CACHE",
+    "HUGGINGFACE_ASSETS_CACHE",
+)
 
 
 @pytest.fixture
@@ -106,6 +113,21 @@ def test_hf_constants_land_in_project_in_a_fresh_process() -> None:
 def test_revisions_must_be_full_commit_hashes(model: type, revision: str) -> None:
     with pytest.raises(ValidationError):
         model(revision=revision)
+
+
+def test_legacy_hub_cache_variable_is_honoured(clean_env: dict[str, str]) -> None:
+    clean_env["HUGGINGFACE_HUB_CACHE"] = "/srv/proj/Dependencies/legacy-hub"
+    assert hf_cache_dir(Path("/srv/proj")) == Path("/srv/proj/Dependencies/legacy-hub")
+
+
+@pytest.mark.parametrize("voice", ["../etc/passwd", "af heart", "AF_heart", "af_", "a_x", ""])
+def test_voice_id_must_be_a_plain_name(voice: str) -> None:
+    with pytest.raises(ValidationError):
+        Voice(en_voice=voice)
+
+
+def test_voice_id_accepts_kokoro_names() -> None:
+    assert Voice(en_voice="bf_emma").en_voice == "bf_emma"
 
 
 def test_stt_revision_default_is_pinned() -> None:

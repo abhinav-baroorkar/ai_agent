@@ -40,7 +40,9 @@ class WakeWord(BaseModel):
 class Voice(BaseModel):
     tts_speaker: str | None = None
     description: str = ""
-    en_voice: str = "af_heart"  # Kokoro voice id for English replies
+    # Kokoro voice id for English replies. It becomes a Hugging Face and a local file
+    # name, so only "<lang letter><gender letter>_<name>" is accepted.
+    en_voice: str = Field(default="af_heart", pattern=r"^[a-z]{2}_[a-z0-9]+$")
     speed: float = Field(default=1.0, ge=0.5, le=2.0)
 
 

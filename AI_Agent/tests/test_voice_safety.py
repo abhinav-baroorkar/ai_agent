@@ -36,6 +36,16 @@ def test_cap_text_cuts_at_sentence_end() -> None:
     assert cap_text("word " * 50, 23) == "word word word word"
 
 
+def test_cap_text_keeps_the_head_of_a_long_run_on_sentence() -> None:
+    text = "Short one. " + "blah " * 1120  # ~5600 chars with no sentence end
+    capped = cap_text(text, 4000)
+    assert 3990 <= len(capped) <= 4000
+    assert capped.startswith("Short one. blah") and capped.endswith("blah")
+    capped = cap_text("A first full sentence. " + "word " * 1200, 4000)
+    assert 3990 <= len(capped) <= 4000
+    assert cap_text("x" * 5000, 4000) == "x" * 4000  # one giant word: hard cut
+
+
 def _bare_stt(max_seconds: float) -> FasterWhisperSTT:
     stt = FasterWhisperSTT.__new__(FasterWhisperSTT)
     stt.config = STTConfig(max_seconds=max_seconds)
@@ -99,6 +109,7 @@ def voice_dir(monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     base = REPO_ROOT / "Data" / "test-voice-npz"
     shutil.rmtree(base, ignore_errors=True)
     (base / "hub").mkdir(parents=True)
+    monkeypatch.setenv("HF_HOME", str(base))
     monkeypatch.setenv("HF_HUB_CACHE", str(base / "hub"))
     yield base
     shutil.rmtree(base, ignore_errors=True)

@@ -8,6 +8,10 @@ Hugging Face files (hub and xet caches) go to `$HF_HOME`, which must be inside t
 project; when unset it becomes `<main checkout>/Dependencies/hf` (also from a
 worktree). The script refuses to run if any HF cache variable points outside the
 project. `--voice` needs `uv sync --extra voice`.
+
+Never run a Hugging Face cache prune (`hf cache prune`) on this cache: models are
+downloaded by pinned commit hash, so a prune treats whole repos as detached and
+deletes them. To drop one model use `hf cache rm <repo>`.
 """
 
 from __future__ import annotations
@@ -53,7 +57,9 @@ def download_voice(settings: Settings) -> int:
 
 
 def main() -> int:
-    p = argparse.ArgumentParser(description=__doc__)
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     p.add_argument("--profile", default=None)
     p.add_argument("--small", action="store_true", help="Also pull the profile's small_model")
     p.add_argument("--voice", action="store_true", help="Download STT and TTS weights")

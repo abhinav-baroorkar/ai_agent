@@ -2,6 +2,11 @@
 
 In a git worktree under `<main>/Dependencies/worktrees/<name>/`, the cache belongs to
 the main checkout (the same rule as `scripts/env.sh`), so models download once.
+
+WARNING for maintainers: never run a Hugging Face cache prune (`hf cache prune`) on
+this cache. We download by pinned commit hash, so there is no `refs/main`; a prune
+treats whole repos as detached and deletes them. Remove one repo with
+`hf cache rm <repo>` instead.
 """
 
 from __future__ import annotations
@@ -11,7 +16,14 @@ import sys
 from pathlib import Path
 
 _WORKTREES = f"{os.sep}Dependencies{os.sep}worktrees{os.sep}"
-_HF_VARS = ("HF_HOME", "HF_HUB_CACHE", "HF_XET_CACHE", "HF_ASSETS_CACHE")
+_HF_VARS = (
+    "HF_HOME",
+    "HF_HUB_CACHE",
+    "HF_XET_CACHE",
+    "HF_ASSETS_CACHE",
+    "HUGGINGFACE_HUB_CACHE",  # legacy names huggingface_hub still honours
+    "HUGGINGFACE_ASSETS_CACHE",
+)
 
 
 class OutsideProjectError(RuntimeError):
@@ -55,9 +67,10 @@ def ensure_project_hf_env(root: Path) -> Path:
 
 
 def hf_cache_dir(root: Path) -> Path:
-    """The Hugging Face hub cache: `$HF_HUB_CACHE`, else `$HF_HOME/hub`,
+    """The Hugging Face hub cache: `$HF_HUB_CACHE` (or the legacy
+    `$HUGGINGFACE_HUB_CACHE`), else `$HF_HOME/hub`,
     else `<main checkout>/Dependencies/hf/hub`."""
-    if hub := os.environ.get("HF_HUB_CACHE"):
+    if hub := os.environ.get("HF_HUB_CACHE") or os.environ.get("HUGGINGFACE_HUB_CACHE"):
         return Path(hub)
     if home := os.environ.get("HF_HOME"):
         return Path(home) / "hub"
