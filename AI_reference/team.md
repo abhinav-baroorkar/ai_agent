@@ -99,9 +99,15 @@ One role per session. Add or drop roles as the work needs.
 - If a session already wrote something outside the folder, it does not delete it. It
   tells Primary the path.
 
-## Reusing code from an earlier project
+## Ideas from an earlier project of the owner's: read-only, no copying
 
-The owner allows reusing code from an earlier project of the owner's. Rules for doing it are in the team rules.
+The owner first allowed copying on 2026-11-14 and withdrew it the same evening. Now:
+- Sessions may read that project only when a brief from Primary says so.
+- Copy nothing from it: no files, functions, snippets, comments or config. Understand a
+  feature, then write our own code for our own design.
+- Public files never name or describe that project. At most: "an idea from an earlier
+  project of the owner's".
+- The rules are in the team rules file.
 
 ## Where documentation lives
 

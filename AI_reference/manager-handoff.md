@@ -21,7 +21,7 @@ Last updated: 2026-11-14, late evening.
   (git-ignored) and its own `.venv` there. The main checkout is Primary's.
 - Flow per task: brief → worker commits on its branch → Primary sends the branch
   to the reviewer → worker fixes findings → reviewer approves → Primary merges
-  and pushes. Primary merges and pushes after the reviewer approves. The owner told Primary this directly on 2026-11-14; `CLAUDE.md` step 3 still says "once the owner says go" and is the owner's to update.
+  and pushes. The owner told Primary this directly on 2026-11-14; `CLAUDE.md` step 3 still says "once the owner says go" and is the owner's to update.
   Nothing is posted on GitHub except the pushed commits.
 - **Strict rule (owner, 2026-11-14):** no session changes anything outside the
   project folder. Reading elsewhere is fine. Caches and downloads go under
@@ -54,8 +54,11 @@ only for now; satellites on other devices come later.
 | `feat/brain-server` | Staff SDE | FastAPI brain server, WebSocket chat, bots store, connector registry, `serve` and `window` commands, laptop profile | assigned 2026-11-14 |
 | `feat/web-ui` | Design expert | Face + home screen, bots screen, settings/connectors, mock mode | assigned 2026-11-14 |
 | `feat/voice-stages` | Jack of all tasks | faster-whisper STT and Kokoro TTS stages, fakes, bench script | assigned 2026-11-14 |
-| `docs/scope-refresh` | Grunt work | plan.md, decisions.md, linkedin-notes.md, README, .env.example for the new scope | merged and pushed (`main` is `6fbc60d`, 86 tests pass) |
-| `docs/handoff` | Documentation engineer | this file, `team.md`, devlog; owner notes in `User_reference/` | in first review; new commits on top only. Now also owns `plan.md`, `decisions.md`, `linkedin-notes.md`, `README.md`, `.env.example` |
+| `docs/scope-refresh` | Grunt work | plan.md, decisions.md, linkedin-notes.md, README, .env.example for the new scope | merged and pushed (`6fbc60d`, 86 tests pass) |
+| `docs/handoff` | Documentation engineer | this file, `team.md`, devlog; owner notes in `User_reference/` | merged and pushed (`main` is `5bd49eb`); work continues on this branch with new commits. Also owns `plan.md`, `decisions.md`, `linkedin-notes.md`, `README.md`, `.env.example` |
+
+The three build branches (`feat/brain-server`, `feat/web-ui`, `feat/voice-stages`)
+have not reported yet.
 
 Merge order: `feat/brain-server` first (others depend on its API), then
 `feat/web-ui`, then `feat/voice-stages` (the server session wires the real
@@ -84,9 +87,9 @@ Our own design. In order:
   the hardware profile list, the code layout and the common commands, plus
   `User_reference/HOW_TO_RUN.md`. Do not touch "Current phase" or the Rules section.
 
-## Reuse of earlier code
+## Ideas from an earlier project
 
-The owner allows reusing code from an earlier project of the owner's. Rules for doing it are in the team rules. Copying happens only when a task brief says so. **Hold:** a reviewer asked the owner to confirm that code is the owner's to publish; no copy task is assigned until the owner answers.
+Ideas from an earlier project of the owner's: read-only, no copying (owner's decision, 2026-11-14; copying was first allowed, then withdrawn the same evening). Nothing was copied.
 
 ## Waiting on the owner
 
