@@ -16,6 +16,21 @@ dependencies = [
     "websockets>=13",
 ]
 
+[project.optional-dependencies]
+# Real speech models. `uv sync --extra voice`. CI and text-only work stay light without it.
+voice = [
+    "faster-whisper>=1.1",
+    "kokoro-onnx>=0.6.1",  # the version the stage was written and tested against
+    "huggingface-hub>=0.24",
+    "numpy>=1.26",
+]
+# Optional CUDA 12 libraries for faster-whisper on an NVIDIA GPU (x86-64 Linux).
+# NVIDIA's own licence (proprietary, redistributable); never needed for CPU.
+voice-gpu = [
+    "nvidia-cublas-cu12>=12.4; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "nvidia-cudnn-cu12>=9.1,<10; sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+
 [project.scripts]
 sasha = "sasha.cli:main"
 
@@ -49,6 +64,14 @@ files = ["src"]
 
 [[tool.mypy.overrides]]
 module = ["pynvml"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Optional `voice` extra: absent in CI, so mypy must not require it.
+module = [
+    "faster_whisper", "faster_whisper.*", "kokoro_onnx", "onnxruntime",
+    "huggingface_hub", "huggingface_hub.*", "numpy", "numpy.*",
+]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
