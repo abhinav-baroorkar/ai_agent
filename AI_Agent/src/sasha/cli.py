@@ -74,13 +74,15 @@ def run_chat(
             continue
         try:
             reply = assistant.handle_text(text)
+        except KeyboardInterrupt:
+            _write_tool_calls(assistant.last_tool_calls, write)
+            write("(interrupted)")
+            continue
         except RequestFailed as failed:
             # Tools may already have changed something; say so before the error.
             _write_tool_calls(failed.tool_calls, write)
             cause = failed.__cause__
-            if isinstance(cause, KeyboardInterrupt):
-                write("(interrupted)")
-            elif isinstance(cause, OllamaError):
+            if isinstance(cause, OllamaError):
                 write(f"[error] {cause}")
             else:
                 write(f"[error] {type(cause).__name__}: {cause}")

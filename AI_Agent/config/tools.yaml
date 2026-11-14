@@ -2,8 +2,8 @@
 home_assistant:
   enabled: true
   timeout_s: 10
-  # Only these domains are listed or controllable. lock, alarm_control_panel, cover,
-  # camera, script, automation and similar are refused in code even if added here.
+  # Only these domains are listed or controllable. Code only accepts light, switch,
+  # fan, scene and media_player here; anything else (lock, valve, button...) fails at load.
   allowed_services:
     light: [turn_on, turn_off, toggle]
     switch: [turn_on, turn_off, toggle]

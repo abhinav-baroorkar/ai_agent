@@ -54,9 +54,9 @@ Hardware profiles: `AI_Agent/config/profiles/pc.yaml` and `jetson-orin-nano.yaml
   1. Work on a feature branch (`feat/...`, `fix/...`).
   2. A separate local Claude code-review session reviews the branch diff and
      reports back. Nothing is posted on GitHub.
-  3. Apply the fixes, run all checks, merge into `main` locally, push.
-  Run a privacy scan (names, emails, IPs, tokens, serials) on everything before
-  each push.
+  3. Apply the fixes, run all checks and a privacy scan (names, emails, IPs,
+     tokens, serials), show the owner the file list and `git status`, then merge
+     into `main` and push once the owner says go.
 - Secrets live in `.env` at the repo root (copy `.env.example`). Never commit `.env`.
 - Model weights are downloaded by script (`AI_Agent/scripts/download_models.py`),
   never committed.
@@ -66,9 +66,13 @@ Hardware profiles: `AI_Agent/config/profiles/pc.yaml` and `jetson-orin-nano.yaml
 
 ## Environment
 
-- WSL2 Ubuntu 22.04, Python 3.10, `uv`. Dev GPU: RTX 5070 (Blackwell) — any
-  PyTorch must be a cu128+ build (torch ≥ 2.7). Later target: Jetson Orin Nano,
-  JetPack 6 (ARM64, Ubuntu 22.04) — use NVIDIA's Jetson torch wheels there.
+- Python 3.10 via `uv` on every machine (uv downloads it; no system Python needed).
+- Dev machines: a laptop (native Ubuntu 24.04, RTX 5070 Laptop 8 GB) and a PC
+  (WSL2 Ubuntu 22.04, RTX 5070 12 GB). Both are Blackwell, so any PyTorch must be a
+  cu128+ build (torch ≥ 2.7). Each machine gets a profile in `config/profiles/`.
+- Use the strongest local models that fit on dev machines; downgrade only in the
+  Jetson profile. Target: Jetson Orin Nano 8 GB, JetPack 6 (ARM64, Ubuntu 22.04),
+  using NVIDIA's Jetson torch wheels.
 - `source AI_Agent/scripts/env.sh` points `UV_PROJECT_ENVIRONMENT` and `HF_HOME`
   into `Dependencies/`. Ollama keeps its models in its own default location.
 - Common commands (run from `AI_Agent/`):

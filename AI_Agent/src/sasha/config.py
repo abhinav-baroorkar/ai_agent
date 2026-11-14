@@ -18,21 +18,11 @@ from pydantic import BaseModel, Field, SecretStr, field_validator
 _DEFAULT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_PROFILE = "pc"
 
-# Domains the assistant may never control, whatever tools.yaml says. Unlocking,
-# disarming or opening things needs owner voice confirmation (a later phase).
-DENIED_DOMAINS = frozenset(
-    {
-        "lock",
-        "alarm_control_panel",
-        "cover",
-        "camera",
-        "script",
-        "automation",
-        "shell_command",
-        "rest_command",
-        "homeassistant",
-    }
-)
+# The only domains the assistant may ever control, whatever tools.yaml says. An allowlist,
+# not a denylist: HA adds domains every release, and button/valve/notify/remote/lock
+# can open gates, shut off water, message people or unlock doors. Widening this needs
+# owner voice confirmation (Phase 3) and a decisions.md entry.
+CONTROLLABLE_DOMAINS = frozenset({"light", "switch", "fan", "scene", "media_player"})
 
 
 class Pronouns(BaseModel):
@@ -116,10 +106,11 @@ class HomeAssistantConfig(BaseModel):
 
     @field_validator("allowed_services")
     @classmethod
-    def _no_denied_domains(cls, value: dict[str, list[str]]) -> dict[str, list[str]]:
-        denied = sorted(set(value) & DENIED_DOMAINS)
-        if denied:
-            raise ValueError(f"These domains can never be allowed: {', '.join(denied)}")
+    def _only_controllable_domains(cls, value: dict[str, list[str]]) -> dict[str, list[str]]:
+        refused = sorted(set(value) - CONTROLLABLE_DOMAINS)
+        if refused:
+            allowed = ", ".join(sorted(CONTROLLABLE_DOMAINS))
+            raise ValueError(f"Domains not controllable: {', '.join(refused)} (allowed: {allowed})")
         return value
 
 

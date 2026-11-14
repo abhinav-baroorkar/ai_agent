@@ -162,9 +162,28 @@ def test_get_state_refuses_crafted_ids_without_a_request(entity: str) -> None:
     assert fake.paths == []
 
 
-def test_denied_domains_cannot_be_configured() -> None:
-    with pytest.raises(ValidationError, match="never be allowed"):
-        HomeAssistantConfig(allowed_services={"lock": ["unlock"], "light": ["turn_on"]})
+@pytest.mark.parametrize(
+    "domain",
+    [
+        "lock",
+        "alarm_control_panel",
+        "cover",
+        "valve",
+        "button",
+        "input_button",
+        "siren",
+        "notify",
+        "update",
+        "remote",
+        "script",
+        "automation",
+        "camera",
+        "homeassistant",
+    ],
+)
+def test_uncontrollable_domains_cannot_be_configured(domain: str) -> None:
+    with pytest.raises(ValidationError, match="not controllable"):
+        HomeAssistantConfig(allowed_services={domain: ["turn_on"], "light": ["turn_on"]})
 
 
 SCENES = [
@@ -182,7 +201,7 @@ def test_scene_rules() -> None:
     ha, fake = _client(states=SCENES)
     with pytest.raises(ToolError, match="one scene at a time"):
         ha.call_service("scene", "turn_on", "all")
-    with pytest.raises(ToolError, match="protected devices"):
+    with pytest.raises(ToolError, match="can't; refused"):
         ha.call_service("scene", "turn_on", "scene.leaving")
     assert fake.posts == []
     ha.call_service("scene", "turn_on", "scene.movie")
@@ -228,3 +247,33 @@ def test_call_service_accepts_data_as_json_text() -> None:
     assert fake.posts[0][1]["brightness_pct"] == 5
     with pytest.raises(ToolError, match="JSON object"):
         ha.call_service("light", "turn_on", "light.bedroom", "bright please")
+
+
+def _scene(eid: str, members: Any) -> dict[str, Any]:
+    return {"entity_id": eid, "state": "x", "attributes": {"entity_id": members}}
+
+
+@pytest.mark.parametrize(
+    ("members", "msg"),
+    [
+        (["switch.garage_relay"], "can't; refused"),  # switch not opted in
+        (["valve.main_water", "siren.alarm"], "can't; refused"),
+        (["scene.other"], "can't; refused"),  # no scene chaining
+        ("lock.front_door", "unreadable"),  # string instead of list
+        ([42], "can't; refused"),
+    ],
+)
+def test_scene_members_must_be_controllable(members: Any, msg: str) -> None:
+    cfg = HomeAssistantConfig(allowed_services={"scene": ["turn_on"], "switch": ["turn_on"]})
+    ha, fake = _client(cfg, states=[*STATES, _scene("scene.s", members)])
+    with pytest.raises(ToolError, match=msg):
+        ha.call_service("scene", "turn_on", "scene.s")
+    assert fake.posts == []
+
+
+def test_scene_with_only_exposed_lights_or_no_members_is_allowed() -> None:
+    states = [*STATES, _scene("scene.a", ["light.bedroom"]), _scene("scene.hue", None)]
+    ha, fake = _client(states=states)
+    ha.call_service("scene", "turn_on", "scene.a")
+    ha.call_service("scene", "turn_on", "scene.hue")
+    assert len(fake.posts) == 2

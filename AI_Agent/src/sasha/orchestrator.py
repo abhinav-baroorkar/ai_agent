@@ -22,7 +22,8 @@ class Reply:
 class RequestFailed(Exception):
     """A request failed. `tool_calls` lists tools that already ran (they may have acted).
 
-    The original exception (including KeyboardInterrupt) is the `__cause__`.
+    The original exception is the `__cause__`. Ctrl-C is never wrapped: KeyboardInterrupt
+    propagates unchanged; `Assistant.last_tool_calls` then says what already ran.
     """
 
     def __init__(self, tool_calls: list[dict[str, Any]]) -> None:
@@ -55,6 +56,7 @@ class Assistant:
         self.history_turns = history_turns
         self.system_prompt = settings.assistant.render_system_prompt()
         self._history: list[Message] = []
+        self.last_tool_calls: list[dict[str, Any]] = []
 
     @property
     def name(self) -> str:
@@ -76,13 +78,14 @@ class Assistant:
         trace.models["llm"] = self.llm.model_version()
         trace.record_text("user", text)
         calls_made: list[dict[str, Any]] = []
+        self.last_tool_calls = calls_made
         try:
             reply = self._run(text, trace, calls_made)
         except BaseException as exc:  # includes Ctrl-C: still write the telemetry line
             trace.finish(success=False, error=f"{type(exc).__name__}: {exc}")
-            if isinstance(exc, (Exception, KeyboardInterrupt)):
+            if isinstance(exc, Exception):
                 raise RequestFailed(calls_made) from exc
-            raise  # SystemExit etc. pass through unchanged
+            raise  # Ctrl-C, SystemExit: unchanged, so `except Exception` can't swallow them
         trace.record_text("assistant", reply.text)
         reply.telemetry = trace.finish(success=True)
         self._history += [

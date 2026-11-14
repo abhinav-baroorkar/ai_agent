@@ -13,7 +13,7 @@ from urllib.parse import quote
 
 import httpx
 
-from sasha.config import DENIED_DOMAINS, HomeAssistantConfig
+from sasha.config import HomeAssistantConfig
 from sasha.tools.base import Tool, ToolError
 
 # Service data keys the LLM may set. Anything else is dropped.
@@ -145,12 +145,25 @@ class HomeAssistantClient:
         }
 
     def _check_scene(self, scene_id: str) -> None:
-        """Refuse a scene that would touch a denied domain (e.g. unlock a door)."""
+        """Refuse a scene that touches anything the assistant couldn't control directly."""
         s = self._request("GET", f"/api/states/{quote(scene_id, safe='.')}") or {}
-        members = (s.get("attributes") or {}).get("entity_id") or []
-        denied = [m for m in members if str(m).split(".", 1)[0] in DENIED_DOMAINS]
-        if denied:
-            raise ToolError(f"Scene '{scene_id}' controls protected devices; refused")
+        members = (s.get("attributes") or {}).get("entity_id")
+        if members is None:  # vendor scenes (Hue etc.) list no members
+            members = []
+        if not isinstance(members, list):
+            raise ToolError(f"Scene '{scene_id}' has unreadable members; refused")
+        bad = [
+            m
+            for m in members
+            if not (
+                isinstance(m, str)
+                and _ENTITY_ID_RE.fullmatch(m)
+                and not m.startswith("scene.")
+                and self._is_exposed(m)
+            )
+        ]
+        if bad:
+            raise ToolError(f"Scene '{scene_id}' controls devices the assistant can't; refused")
 
     def call_service(
         self,
@@ -242,13 +255,7 @@ def build_home_assistant_tools(client: HomeAssistantClient) -> list[Tool]:
                 "properties": {
                     "domain": {"type": "string", "enum": domains},
                     "service": {"type": "string", "description": "e.g. turn_on, turn_off"},
-                    "entity_id": {
-                        "anyOf": [
-                            {"type": "string"},
-                            {"type": "array", "items": {"type": "string"}},
-                        ],
-                        "description": "entity_id, a list of entity_ids, or 'all'",
-                    },
+                    "entity_id": {"type": "string", "description": "entity_id or 'all'"},
                     "data": {
                         "type": "object",
                         "description": "Optional: " + ", ".join(sorted(ALLOWED_DATA_KEYS)),

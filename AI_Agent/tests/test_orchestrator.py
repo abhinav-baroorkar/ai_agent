@@ -136,9 +136,8 @@ def test_ctrl_c_still_writes_telemetry(settings: Settings, tmp_path: Path) -> No
             raise KeyboardInterrupt
 
     a = _assistant(settings, Interrupted([]), tmp_path)
-    with pytest.raises(RequestFailed) as info:
+    with pytest.raises(KeyboardInterrupt):  # not wrapped, so `except Exception` can't eat it
         a.handle_text("x")
-    assert isinstance(info.value.__cause__, KeyboardInterrupt)
     assert json.loads(a.telemetry.path_for_today().read_text())["success"] is False
 
 
