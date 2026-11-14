@@ -10,6 +10,8 @@ import { COLORS, rgba, mix, rand } from './stage.js';
 import { WHITE } from './parts.js';
 
 const STEPS = 22;
+// Flame tongues: angle from straight up (radians) and relative height. Deliberately uneven.
+const TONGUES = [[-1.95, 0.42], [-1.3, 0.72], [-0.92, 0.5], [-0.5, 0.98], [-0.1, 1.2], [0.33, 0.8], [0.72, 0.56], [1.22, 0.78], [1.8, 0.38]];
 // Flat print colours, a little deeper than the light of the being itself.
 const INK = { idle: [236, 170, 96], listening: [72, 190, 176], thinking: [150, 136, 236], speaking: [246, 158, 66] };
 const TAU = Math.PI * 2;
@@ -75,6 +77,7 @@ export class Ribbons {
 
   // One broad stroke around the being when the state changes.
   sweep(state) {
+    if (state === 'speaking') return; // the flames rising are the flourish there
     this.sweeps.push({ age: 0, from: rand(0, TAU), dir: Math.random() < 0.5 ? -1 : 1, color: INK[state] || COLORS.idle });
     if (this.sweeps.length > 3) this.sweeps.shift();
   }
@@ -84,7 +87,7 @@ export class Ribbons {
     const { w, t, lvl, trail, calm } = mood;
     if (w.listening > 0.01) this.water(ctx, t, w.listening, 0.75 + 0.5 * lvl, INK.listening);
     if (w.thinking > 0.01) this.wind(ctx, t, w.thinking, INK.thinking, 4);
-    if (w.speaking > 0.01) this.flame(ctx, t, w.speaking, calm ? 0.35 : trail, lvl, INK.speaking);
+    if (w.speaking > 0.01) this.flame(ctx, t, w.speaking, calm ? 0.35 : trail, lvl, INK.speaking, calm ? 0 : -(mood.x ? mood.x.vel : 0) * 0.3);
     if (w.idle > 0.01) this.wind(ctx, t * 0.14, w.idle * 0.16, INK.idle, 2);
     if (calm) return;
     for (const s of this.sweeps) {
@@ -143,22 +146,25 @@ export class Ribbons {
     }
   }
 
-  // Tongues of fire that start on the lower half and reach up and out with the voice.
-  flame(ctx, t, weight, reach, flick, color) {
-    for (let j = 0; j < 6; j++) {
-      const side = j % 2 ? 1 : -1;
-      const beta = -Math.PI / 2 + side * (0.38 + 0.5 * (j >> 1)); // where on its upper half it starts
-      const [x0, y0] = [Math.cos(beta) * 0.98, Math.sin(beta) * 0.98];
-      const len = (0.3 + 0.8 * reach + 0.1 * Math.sin(t * 3.1 + j * 2)) * (1 - 0.16 * (j >> 1));
+  // Fire around the being: tongues that start hidden behind its body, all
+  // rising, of uneven height and spacing, so the mass reads as one flame with
+  // the being inside it. They lengthen with the voice and lean against its motion.
+  flame(ctx, t, weight, reach, flick, color, lean) {
+    for (const [j, [theta, tall]] of TONGUES.entries()) {
+      const [rx, ry] = [Math.sin(theta), -Math.cos(theta)]; // outward from the centre at this tongue
+      const up = 1 / Math.hypot(rx * 0.55, ry * 0.55 - 1);
+      const [dx, dy] = [rx * 0.55 * up, (ry * 0.55 - 1) * up];
+      const len = tall * (0.3 + 0.8 * reach + 0.09 * Math.sin(t * 3.3 + j * 2.1));
       const pts = [];
       for (let i = 0; i <= STEPS; i++) {
         const s = i / STEPS;
-        const sway = Math.sin(s * 4.2 - t * 5.5 + j * 1.3) * 0.13 * s * (0.6 + flick);
-        pts.push([x0 + side * s * len * (0.12 + 0.22 * (j >> 1)) + sway, y0 - s * len * (1.15 - 0.15 * (j >> 1))]);
+        const sway = Math.sin(s * 3.6 - t * 5.2 + j * 1.9) * 0.1 * s * (0.6 + flick);
+        // side tongues start outward and then bend up; all of them lean with the motion
+        pts.push([rx * 0.66 + dx * (len + 0.12) * s + sway + lean * s * s, ry * 0.66 + dy * (len + 0.12) * s - Math.abs(rx) * 0.35 * len * s * s]);
       }
-      const base = (s) => Math.sin((Math.PI / 2) * Math.min(1, s * 5)) * (1 - s) ** 0.85;
-      band(ctx, pts, (s) => 0.14 * base(s), color, weight * 0.9);
-      band(ctx, pts.slice(0, 15), (s) => 0.05 * base(s), mix(color, WHITE, 0.6), weight * 0.8);
+      const body = (s) => (1 - s) ** 0.9;
+      band(ctx, pts, (s) => 0.21 * body(s), color, weight);
+      band(ctx, pts.slice(2, 14), (s) => 0.06 * body(s), mix(color, WHITE, 0.3), weight * 0.5);
     }
   }
 }
