@@ -4,7 +4,7 @@ Kept by the manager session ("Primary"). Updated whenever a task is assigned,
 reported, reviewed or merged. If the manager session is lost, a new session can
 pick up from this file plus `plan.md`, `decisions.md` and the newest devlog.
 
-Last updated: 2026-11-14, evening.
+Last updated: 2026-11-14, late evening.
 
 ## How the project is run
 
@@ -14,6 +14,8 @@ Last updated: 2026-11-14, evening.
 - **Staff SDE:** main coder. **Design expert:** face, UI, anything people see.
   **Jack of all tasks:** flexible helper (research, side modules).
   **Grunt work:** small, cheap tasks (docs, config). **Code review session:** reviews.
+  **Documentation engineer:** keeps this file, the daily devlog, `team.md` and the
+  owner's private `User_reference/` notes current. See `team.md` for the full recipe.
 - Hub and spoke: every session talks only to Primary. No session-to-session messages.
 - Each worker has its own git worktree under `Dependencies/worktrees/<branch>`
   (git-ignored) and its own `.venv` there. The main checkout is Primary's.
@@ -46,12 +48,19 @@ only for now; satellites on other devices come later.
 | `feat/brain-server` | Staff SDE | FastAPI brain server, WebSocket chat, bots store, connector registry, `serve` and `window` commands, laptop profile | assigned 2026-11-14 |
 | `feat/web-ui` | Design expert | Face + home screen, bots screen, settings/connectors, mock mode | assigned 2026-11-14 |
 | `feat/voice-stages` | Jack of all tasks | faster-whisper STT and Kokoro TTS stages, fakes, bench script | assigned 2026-11-14 |
-| `docs/scope-refresh` | Grunt work | plan.md, decisions.md, linkedin-notes.md, README, .env.example for the new scope | assigned 2026-11-14 |
+| `docs/scope-refresh` | Grunt work | plan.md, decisions.md, linkedin-notes.md, README, .env.example for the new scope | done (`af6541e`, 86 tests pass); in review |
+| `docs/handoff` | Documentation engineer | this file, `team.md`, devlog; owner notes in `User_reference/` | `01530a7`; kept current |
 
 Merge order: `feat/brain-server` first (others depend on its API), then
 `feat/web-ui`, then `feat/voice-stages` (the server session wires the real
 stages in after it lands), `docs/scope-refresh` any time. `pyproject.toml` and
 `uv.lock` are touched by two branches; rebase the later one and re-lock.
+
+## Agreed interfaces
+
+- **TTS stage:** `stream(text, language)` yields one audio chunk per sentence,
+  24 kHz output. Agreed by the voice and server sessions (2026-11-14). The server
+  resamples as needed for the WebSocket contract.
 
 ## Next after these land
 
