@@ -118,8 +118,30 @@ def test_call_service_rejects(domain: str, service: str, entity: str, msg: str) 
 
 def test_bad_token_message() -> None:
     ha, _ = _client(token="wrong")
-    with pytest.raises(ToolError, match="401"):
+    with pytest.raises(ToolError, match="Token rejected; check HA_TOKEN"):
         ha.ping()
+
+
+@pytest.mark.parametrize(
+    ("error", "message"),
+    [
+        (httpx.ConnectError("refused"), "Can't reach Home Assistant; check HA_URL"),
+        (httpx.ReadTimeout("slow"), "Home Assistant timed out; check HA_URL"),
+        (httpx.RemoteProtocolError("dropped"), "Home Assistant request failed; check HA_URL"),
+    ],
+)
+def test_errors_seen_by_the_llm_never_contain_the_url(error: Exception, message: str) -> None:
+    url = "http://secret-host.lan:8123"
+
+    def fail(request: httpx.Request) -> httpx.Response:
+        raise error
+
+    http = httpx.Client(base_url=url, transport=httpx.MockTransport(fail))
+    ha = HomeAssistantClient(url, "tok", CFG, client=http)
+    result = ToolRegistry(build_home_assistant_tools(ha)).call("list_devices", {})
+    assert not result.ok
+    assert json.loads(result.content) == {"error": message}
+    assert "secret-host" not in result.content
 
 
 def test_tools_through_registry() -> None:

@@ -36,6 +36,13 @@ _ENTITY_ID_RE = re.compile(r"[a-z0-9_]+\.[a-z0-9_]+")
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]+")
 MAX_TEXT = 64
 
+# Fixed error texts, shared by the tools (seen by the LLM) and the connector's test
+# (seen in Settings). They never contain HA_URL, so a model can't repeat the address.
+UNREACHABLE = "Can't reach Home Assistant; check HA_URL"
+TIMED_OUT = "Home Assistant timed out; check HA_URL"
+REQUEST_FAILED = "Home Assistant request failed; check HA_URL"
+TOKEN_REJECTED = "Token rejected; check HA_TOKEN"
+
 
 def clean_text(value: Any) -> Any:
     """Strip control characters/newlines from HA-supplied strings and cap their length."""
@@ -80,11 +87,13 @@ class HomeAssistantClient:
         try:
             resp = self._client.request(method, path, json=json)
         except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
-            raise ToolError(f"Can't reach Home Assistant at {self.url}") from exc
+            raise ToolError(UNREACHABLE) from exc
         except httpx.TimeoutException as exc:
-            raise ToolError("Home Assistant timed out") from exc
+            raise ToolError(TIMED_OUT) from exc
+        except httpx.HTTPError as exc:  # dropped connection, bad URL...: never echo the URL
+            raise ToolError(REQUEST_FAILED) from exc
         if resp.status_code == 401:
-            raise ToolError("Home Assistant rejected the token (401). Check HA_TOKEN.")
+            raise ToolError(TOKEN_REJECTED)
         if resp.status_code == 404:
             raise ToolError(f"Not found in Home Assistant: {path}")
         if resp.is_error:  # body not passed on: it is untrusted text

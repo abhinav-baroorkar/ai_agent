@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -35,15 +36,19 @@ ISOLATION_FLAGS = (
     "--disable-domain-reliability",
     "--metrics-recording-only",
     "--disable-features=MediaRouter,OptimizationHints",
+    # WebRTC can open UDP straight to the network, around the proxy below.
+    "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
     # The flags above still left a fresh profile calling Google (network time, account
     # list, Safe Browsing keys, www.google.com), measured with --log-net-log. So the
     # window gets no route out at all: every non-loopback request goes to a dead proxy
-    # (Chromium always bypasses the proxy for localhost/127.0.0.1/[::1]) and every DNS
-    # lookup fails. The UI must therefore be self-contained (no CDN fonts or scripts).
-    "--proxy-server=http://127.0.0.1:9",
-    # `MAP *` also catches the 127.0.0.1 literal, so it must be excluded explicitly.
-    "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1",
+    # (see `dead_proxy_port`; Chromium always bypasses the proxy for loopback) and every
+    # DNS lookup fails. The UI must therefore be self-contained (no CDN fonts or scripts).
+    # `MAP *` also catches IP literals, so each loopback address is excluded explicitly.
+    # IPv6 is written bare (`::1`): `[::1]` doesn't match, and a window on ::1 then
+    # failed to load (checked live with --log-net-log).
+    "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1, EXCLUDE ::1",
 )
+DEAD_PROXY_PORT = 9  # "discard"; normally nothing listens on it
 START_TIMEOUT_S = 60.0
 BROWSER_TMP = "tmp"  # under the profile dir; see browser_env
 WS_MAX_BYTES = 1 << 20  # largest WebSocket message accepted (a 20 ms frame is 640 bytes)
@@ -110,12 +115,44 @@ def wait_until_up(url: str, proc: subprocess.Popen[bytes], timeout_s: float) -> 
     return False
 
 
-def browser_command(url: str, profile_dir: Path) -> list[str] | None:
+def port_is_closed(port: int, timeout_s: float = 0.3) -> bool:
+    """True if nothing accepts TCP connections on 127.0.0.1:<port>."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(timeout_s)
+        return sock.connect_ex(("127.0.0.1", port)) != 0
+
+
+def dead_proxy_port(is_closed: Callable[[int], bool] = port_is_closed) -> int:
+    """A local port nothing listens on, for the window's proxy that goes nowhere.
+
+    Port 9 if it is closed; otherwise a port the OS just handed out and released.
+    If something listened there, the window's traffic would reach it instead.
+    """
+    if is_closed(DEAD_PROXY_PORT):
+        return DEAD_PROXY_PORT
+    for _ in range(20):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind(("127.0.0.1", 0))
+            port = int(sock.getsockname()[1])
+        if is_closed(port):
+            return port
+    raise RuntimeError("found no closed local port for the window's dead proxy")
+
+
+def browser_command(
+    url: str, profile_dir: Path, proxy_port: int = DEAD_PROXY_PORT
+) -> list[str] | None:
     """An isolated app-window command, or None if no Chromium-family browser exists."""
     for name in CHROMIUM_BROWSERS:
         exe = shutil.which(name)
         if exe:
-            return [exe, f"--app={url}", f"--user-data-dir={profile_dir}", *ISOLATION_FLAGS]
+            return [
+                exe,
+                f"--app={url}",
+                f"--user-data-dir={profile_dir}",
+                *ISOLATION_FLAGS,
+                f"--proxy-server=http://127.0.0.1:{proxy_port}",
+            ]
     return None
 
 
@@ -160,6 +197,11 @@ def open_window(
         print(f"[refused] {host} is not a loopback address.", file=sys.stderr)
         return 2
     url = server_url(host, port)
+    try:
+        proxy_port = dead_proxy_port()  # checked before anything starts
+    except RuntimeError as exc:
+        print(f"[fail] Not opening the window: {exc}.", file=sys.stderr)
+        return 1
     server: subprocess.Popen[bytes] | None = None
     if not is_running(url):
         print(f"Starting the brain server on {url} ...")
@@ -182,7 +224,7 @@ def open_window(
             return 1
 
     profile_dir = settings.paths.data_dir / "chrome-profile"
-    window = browser_command(url, profile_dir)
+    window = browser_command(url, profile_dir, proxy_port)
     if window is None:
         print(
             "No Chrome/Chromium found. Not opening your default browser, because it can't "
