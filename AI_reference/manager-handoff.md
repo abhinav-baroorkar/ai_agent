@@ -47,8 +47,14 @@ only for now; satellites on other devices come later.
 
 ## State of `main`
 
-- PR #1 (Phase 0 skeleton + 3 review-fix commits) merged 2026-11-14, merge
-  commit `9dfe959`. 86 tests pass; ruff, format and mypy strict are clean.
+- `main` is `b53a118` (2026-11-14). 250 tests pass with the voice extras installed.
+  Merged today: Phase 0 skeleton (PR #1), the brain server, the docs batches,
+  `fix/server-followups` (`99ae0ac`: the window blocks WebRTC UDP, checks its dead-proxy
+  port, works on the IPv6 loopback; Home Assistant errors shown to the model never contain
+  its address) and `feat/voice-stages` (`b53a118`).
+- A full spoken turn works end to end on the laptop with synthetic speech streamed by a
+  script. Not yet checked with a real microphone in the window. Numbers in
+  `research-notes.md`.
 - Phase 0 gate still open: turning on a real light needs Docker + Home Assistant,
   which needs the owner (sudo). Not blocking the window goal.
 
@@ -57,18 +63,17 @@ only for now; satellites on other devices come later.
 | Branch | Session | What | Status |
 | --- | --- | --- | --- |
 | `feat/brain-server` | Staff SDE | FastAPI brain server, WebSocket chat, bots store, connector registry, `serve` and `window` commands, laptop profile | merged and pushed after two review rounds (16 findings fixed); `main` is `c6e8b1e`, 170 tests pass; `sasha serve` and `sasha window` exist |
-| `feat/web-ui` | Design expert | Face + home screen, bots screen, settings/connectors, mock mode | mock version done at `15a81d7`; face direction changed (see below); runs at 60 fps in a real window; two variants with the owner |
-| `feat/voice-stages` | Jack of all tasks | faster-whisper STT and Kokoro TTS stages, fakes, bench script | passed review (LGTM at `59a9612`); being brought up to `main` and wired into the server; not merged yet |
+| `feat/web-ui` | Design expert | Face + home screen, bots screen, settings/connectors, mock mode | in progress; face approved by the owner (the particle orb); review found the mic stayed open after leaving Home, being fixed. Rule recorded: the mic is never open without a visible sign |
+| `feat/voice-stages` | Jack of all tasks | faster-whisper STT and Kokoro TTS stages, fakes, bench script | merged and pushed (`b53a118`); wired into the server |
+| `fix/server-followups` | Staff SDE | window and Home Assistant error hardening | merged and pushed (`99ae0ac`) |
+| `fix/server-followups-2` | Staff SDE | chat-capable models only; invalid Home Assistant address is a warning; socket limit in health; contract v0.1.1 | in progress, not merged |
+| `chore/env-tmpdir` | | temp files inside the project | in progress, not merged |
+| `fix/warmup-timeouts` | | warm-up timeouts | in progress, not merged |
 | `docs/scope-refresh` | Grunt work | plan.md, decisions.md, linkedin-notes.md, README, .env.example for the new scope | merged and pushed (`6fbc60d`, 86 tests pass) |
 | `docs/handoff` | Documentation engineer | this file, `team.md`, devlog; owner notes in `User_reference/` | merged and pushed (`main` is `5bd49eb`); work continues on this branch with new commits. Also owns `plan.md`, `decisions.md`, `linkedin-notes.md`, `README.md`, `.env.example` |
 
-All three build branches (`feat/brain-server`, `feat/web-ui`, `feat/voice-stages`)
-have reported.
-
-Merge order: `feat/brain-server` first (others depend on its API), then
-`feat/web-ui`, then `feat/voice-stages` (the server session wires the real
-stages in after it lands), `docs/scope-refresh` any time. `pyproject.toml` and
-`uv.lock` are touched by two branches; rebase the later one and re-lock.
+Merge order for what is open: Primary decides per branch. `pyproject.toml` and `uv.lock`
+are touched by several branches; rebase the later one and re-lock.
 
 ## Agreed interfaces
 
@@ -96,13 +101,20 @@ eyes; eyes stay as a switch.
 
 ## Risks
 
+- **Load order decides GPU placement.** With speech-to-text on the GPU first, the LLM
+  spilled 17% onto the CPU (36 tokens/s). With the LLM first everything fits (7.35 of
+  8.15 GB, 58 tokens/s). The server warms the LLM before loading the voice stages and
+  keeps it loaded for 24 h. Known limit: a reload after the keep-alive expires can split
+  it again.
+- **Rule: the microphone is never open without a visible sign.**
+
 - **VRAM headroom on the 8 GB laptop card is about 1 GB** (LLM 5.2 GB at 8k context + STT
   0.8 GB = 7.1 of 8.15 GB). A bigger context could push LLM layers to the CPU.
 
 ## Next after these land
 
 Our own design. In order:
-1. Wire real STT/TTS into the server; check the full voice loop in the window.
+1. Check the full voice loop in the window with a real microphone (the server side is wired).
 2. MCP connectors, with an approval step before any tool that changes something.
 3. Per-bot avatar and tool groups.
 4. Wake word ("Hey <name>") in the window, then Marathi (Phase 2).
@@ -111,8 +123,7 @@ Our own design. In order:
 
 ## Pending doc follow-ups
 
-- When `feat/voice-stages` merges: the README voice licence rows (held as `efa3cc4` on the
-  local branch `docs/readme-licences`) and the voice commands in `HOW_TO_RUN.md`.
+- None right now.
 
 ## Ideas from an earlier project
 

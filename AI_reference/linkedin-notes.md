@@ -28,10 +28,12 @@ Film shots 1 and 2 after the Docker gate passes; today `sasha doctor` prints
 3. 20-30 s: show the telemetry JSON line (latency, tokens/s, VRAM).
 4. 30-35 s: end card with the repo name and "Next: voice".
 
-## Phase 1: a face and a voice, English (DRAFT, not for posting)
+## Phase 1: a face and a voice, English (DRAFT, not for posting until a real-microphone run)
 
-**Candidate one number (draft):** on an 8 GB laptop GPU: hear in 127 ms, first word of
-the answer in 150 to 170 ms, first audio in 457 ms. These are the pieces of the round
-trip; the full round trip has not been measured end to end yet, so don't post until it
-has.
+**Candidate one number (draft):** a full spoken turn on an 8 GB laptop GPU, all local.
+Warm medians from the end of speech: transcript in 126 ms, first reply text in 254 ms,
+first audio in 956 ms, done in about 1.5 s. Measured with synthetic speech streamed by a
+script, not yet with a real microphone in the window. Don't post until that run is done.
 
+**Detail worth a line:** loading the LLM before the speech model kept everything on the
+GPU: 58 tokens/s instead of 36.

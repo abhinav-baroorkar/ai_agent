@@ -288,3 +288,21 @@ connections outside this computer and nothing written outside the project folder
   speaking. The default is without eyes; eyes stay as a switch. This supersedes the
   brush-art flourish and the two-variant choice in "Face design direction".
 
+## 2026-11-14 — Voice wiring and server follow-ups (merged, `main` at `b53a118`)
+
+- **The server warms the LLM before loading the voice stages, keeps it loaded for 24 h, and
+  checks its GPU share once, warning if it is not fully on the GPU.** Why: load order
+  decides placement. Speech-to-text first pushed 17% of the LLM onto the CPU (36 tokens/s);
+  the LLM first fits (58 tokens/s). Known limit: a reload after the keep-alive expires can
+  split it again.
+- **The speaker starts the first piece of an answer early:** the first sentence as soon as
+  it ends, or a cut at a pause after 40 characters. Why: A/B took first audio from 1085 to
+  956 ms. This is in addition to the 200-character cut for long answers.
+- **`fix/server-followups` (`99ae0ac`):** the window blocks WebRTC UDP, checks its dead-proxy
+  port and works on the IPv6 loopback. Home Assistant errors shown to the model never
+  contain its address. Why: no route out of the computer, and no internal addresses in
+  model-visible text.
+- **Rule: the microphone is never open without a visible sign.** Recorded after review found
+  the mic stayed open after leaving Home (fix in progress on `feat/web-ui`).
+- **Face direction: the owner approved the particle orb.**
+
