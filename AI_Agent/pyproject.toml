@@ -17,7 +17,7 @@ dependencies = [
 # Real speech models. `uv sync --extra voice`. CI and text-only work stay light without it.
 voice = [
     "faster-whisper>=1.1",
-    "kokoro-onnx>=0.4",
+    "kokoro-onnx>=0.6.1",  # the version the stage was written and tested against
     "huggingface-hub>=0.24",
     "numpy>=1.26",
 ]
@@ -65,7 +65,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 # Optional `voice` extra: absent in CI, so mypy must not require it.
-module = ["faster_whisper", "faster_whisper.*", "kokoro_onnx", "huggingface_hub", "numpy", "numpy.*", "onnxruntime"]
+module = [
+    "faster_whisper", "faster_whisper.*", "kokoro_onnx", "onnxruntime",
+    "huggingface_hub", "huggingface_hub.*", "numpy", "numpy.*",
+]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

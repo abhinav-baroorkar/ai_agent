@@ -93,24 +93,31 @@ class TelemetryConfig(BaseModel):
     log_text: bool = False
 
 
+_COMMIT = r"^[0-9a-f]{40}$"  # a full git commit hash: branch names like "main" can move
+
+
 class STTConfig(BaseModel):
     backend: str = "faster-whisper"
     model: str = "small"
+    # Commit of Systran/faster-whisper-<model> on Hugging Face. Change it with `model`.
+    revision: str = Field(default="536b0662742c02347bc0e980a01041f333bce120", pattern=_COMMIT)
     device: str = "auto"  # auto (try cuda, fall back to cpu) | cuda | cpu
     compute_type: str = "auto"  # auto: float16 on cuda, int8 on cpu
     beam_size: int = 1
     cpu_threads: int = 0  # 0: library default
     vad_filter: bool = False  # the client already sends one trimmed utterance
+    max_seconds: float = Field(default=60.0, gt=0)  # longer utterances are refused
 
 
 class TTSConfig(BaseModel):
     backend: str = "kokoro"
     device: str = "cpu"
     model_repo: str = "onnx-community/Kokoro-82M-v1.0-ONNX"  # official ONNX export, Apache-2.0
-    revision: str = "1939ad2a8e416c0acfeecc08a694d14ef25f2231"  # full commit hash, pinned
+    revision: str = Field(default="1939ad2a8e416c0acfeecc08a694d14ef25f2231", pattern=_COMMIT)
     model_file: str = "onnx/model.onnx"  # fp32; the int8 export was 5x slower on CPU
     voices_dir: str = "voices"  # one <voice>.bin (float32, 510x256) per voice
     threads: int = 0  # onnxruntime intra-op threads; 0: library default
+    max_chars: int = Field(default=4000, gt=0)  # longer text is cut at a sentence end
 
 
 class Profile(BaseModel):

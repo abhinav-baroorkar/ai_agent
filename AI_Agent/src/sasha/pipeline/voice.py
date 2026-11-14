@@ -8,6 +8,7 @@ and keep text chat working.
 from __future__ import annotations
 
 from sasha.config import Settings
+from sasha.pipeline.model_cache import OutsideProjectError, ensure_project_hf_env
 from sasha.pipeline.stt import SpeechToText
 from sasha.pipeline.tts import TextToSpeech
 
@@ -22,10 +23,19 @@ def _missing_extra(e: ImportError) -> VoiceUnavailableError:
     )
 
 
+def _project_caches(settings: Settings) -> None:
+    """Pin Hugging Face caches inside the project before any model library is imported."""
+    try:
+        ensure_project_hf_env(settings.paths.root)
+    except OutsideProjectError as e:
+        raise VoiceUnavailableError(str(e)) from e
+
+
 def build_stt(settings: Settings) -> SpeechToText:
     cfg = settings.profile.stt
     if cfg.backend != "faster-whisper":
         raise VoiceUnavailableError(f"Unknown STT backend {cfg.backend!r}")
+    _project_caches(settings)
     try:
         from sasha.pipeline.stt_whisper import FasterWhisperSTT
 
@@ -42,6 +52,7 @@ def build_tts(settings: Settings) -> TextToSpeech:
     cfg = settings.profile.tts
     if cfg.backend != "kokoro":
         raise VoiceUnavailableError(f"Unknown TTS backend {cfg.backend!r}")
+    _project_caches(settings)
     try:
         from sasha.pipeline.tts_kokoro import KokoroTTS
 

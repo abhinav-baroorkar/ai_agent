@@ -788,7 +788,7 @@ requires-dist = [
     { name = "faster-whisper", marker = "extra == 'voice'", specifier = ">=1.1" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "huggingface-hub", marker = "extra == 'voice'", specifier = ">=0.24" },
-    { name = "kokoro-onnx", marker = "extra == 'voice'", specifier = ">=0.4" },
+    { name = "kokoro-onnx", marker = "extra == 'voice'", specifier = ">=0.6.1" },
     { name = "numpy", marker = "extra == 'voice'", specifier = ">=1.26" },
     { name = "nvidia-cublas-cu12", marker = "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'voice-gpu'", specifier = ">=12.4" },
     { name = "nvidia-cudnn-cu12", marker = "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'voice-gpu'", specifier = ">=9.1,<10" },

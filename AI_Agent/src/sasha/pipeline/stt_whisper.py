@@ -19,7 +19,11 @@ from numpy.typing import NDArray
 
 from sasha.config import STTConfig
 from sasha.pipeline.audio import AudioChunk
-from sasha.pipeline.model_cache import ModelNotDownloadedError, hf_cache_dir
+from sasha.pipeline.model_cache import (
+    ModelNotDownloadedError,
+    ensure_project_hf_env,
+    hf_cache_dir,
+)
 from sasha.pipeline.stt import Transcript
 
 log = logging.getLogger(__name__)
@@ -66,6 +70,7 @@ class FasterWhisperSTT:
         root: Path,
         languages: list[str] | None = None,
     ) -> None:
+        ensure_project_hf_env(root)  # before faster_whisper imports huggingface_hub
         self.config = config
         self.languages = languages or ["en"]
         self.cache = hf_cache_dir(root)
@@ -74,7 +79,8 @@ class FasterWhisperSTT:
         self._model: Any = self._load()
 
     def model_version(self) -> str:
-        return f"faster-whisper-{self.config.model}:{self.device}:{self.compute_type}"
+        cfg = self.config
+        return f"faster-whisper-{cfg.model}@{cfg.revision}:{self.device}:{self.compute_type}"
 
     def _load(self) -> Any:
         from faster_whisper import WhisperModel
@@ -98,6 +104,8 @@ class FasterWhisperSTT:
         compute = self.config.compute_type
         if compute == "auto":
             compute = "float16" if device == "cuda" else "int8"
+        from huggingface_hub.errors import LocalEntryNotFoundError
+
         try:
             model = cls(
                 self.config.model,
@@ -106,11 +114,11 @@ class FasterWhisperSTT:
                 cpu_threads=self.config.cpu_threads,
                 download_root=str(self.cache),
                 local_files_only=True,
+                revision=self.config.revision,
             )
-        except Exception as e:  # huggingface_hub raises LocalEntryNotFoundError
-            if "local" in type(e).__name__.lower() or "snapshot" in str(e).lower():
-                raise ModelNotDownloadedError(f"Whisper '{self.config.model}'", self.cache) from e
-            raise
+        except LocalEntryNotFoundError as e:
+            what = f"Whisper '{self.config.model}'@{self.config.revision[:8]}"
+            raise ModelNotDownloadedError(what, self.cache) from e
         self.device, self.compute_type = device, compute
         return model
 
@@ -123,6 +131,11 @@ class FasterWhisperSTT:
         if sample_rate != SAMPLE_RATE:
             raise ValueError(f"STT expects {SAMPLE_RATE} Hz audio, got {sample_rate}")
         samples = pcm16_to_float(audio)
+        seconds = samples.size / SAMPLE_RATE
+        if seconds > self.config.max_seconds:
+            raise ValueError(
+                f"Utterance is {seconds:.0f} s; the limit is {self.config.max_seconds} s"
+            )
         if samples.size < SAMPLE_RATE // 10:  # under 100 ms: nothing worth decoding
             return Transcript(text="", language=self.languages[0], confidence=0.0)
 
