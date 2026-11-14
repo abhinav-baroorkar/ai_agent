@@ -132,7 +132,8 @@ class BotStore:
         return list(dict.fromkeys(ids))  # drop duplicates, keep order
 
     def _check_model(self, model: str | None) -> None:
-        """Refuse a model Ollama doesn't have. Skipped when the list can't be read."""
+        """Refuse a model that isn't an installed chat model (the list from `/api/models`
+        leaves out embedding-only models). Skipped when the list can't be read."""
         if model is None or self._installed_models is None:
             return
         try:
@@ -141,7 +142,7 @@ class BotStore:
             return
         if model not in installed and f"{model}:latest" not in installed:
             names = ", ".join(installed) or "none"
-            raise BotError(f"Model '{model}' is not installed. Installed: {names}")
+            raise BotError(f"Model '{model}' is not an installed chat model. Chat models: {names}")
 
     def create(self, fields: BotFields) -> Bot:
         if not fields.name:

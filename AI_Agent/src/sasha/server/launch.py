@@ -20,6 +20,7 @@ import httpx
 
 from sasha.config import Settings
 from sasha.server.security import is_loopback
+from sasha.server.warmup import WARMUP_TIMEOUT_S
 
 CHROMIUM_BROWSERS = ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser")
 # A fresh profile must not reach Google or the desktop keyring: no background
@@ -49,7 +50,11 @@ ISOLATION_FLAGS = (
     "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1, EXCLUDE ::1",
 )
 DEAD_PROXY_PORT = 9  # "discard"; normally nothing listens on it
-START_TIMEOUT_S = 60.0
+# Startup = imports + LLM warm-up (capped at WARMUP_TIMEOUT_S) + loading the voice
+# stages. The margin covers imports and the voice stages on a cold disk.
+START_MARGIN_S = 45.0
+START_TIMEOUT_S = WARMUP_TIMEOUT_S + START_MARGIN_S
+PROGRESS_EVERY_S = 10.0
 BROWSER_TMP = "tmp"  # under the profile dir; see browser_env
 WS_MAX_BYTES = 1 << 20  # largest WebSocket message accepted (a 20 ms frame is 640 bytes)
 
@@ -104,13 +109,25 @@ def is_running(url: str, timeout_s: float = 1.5) -> bool:
         return False
 
 
-def wait_until_up(url: str, proc: subprocess.Popen[bytes], timeout_s: float) -> bool:
-    deadline = time.monotonic() + timeout_s
-    while time.monotonic() < deadline:
+def wait_until_up(
+    url: str,
+    proc: subprocess.Popen[bytes],
+    timeout_s: float,
+    say: Callable[[str], None] = lambda line: print(line, flush=True),
+    every_s: float = PROGRESS_EVERY_S,
+    clock: Callable[[], float] = time.monotonic,
+) -> bool:
+    """Wait for the server's health check, printing a line every `every_s` seconds."""
+    start = clock()
+    next_note = start + every_s
+    while (now := clock()) < start + timeout_s:
         if proc.poll() is not None:
             return False
         if is_running(url):
             return True
+        if now >= next_note:
+            say(f"  still starting ({now - start:.0f} s): loading the language and voice models")
+            next_note += every_s
         time.sleep(0.3)
     return False
 
@@ -122,21 +139,22 @@ def port_is_closed(port: int, timeout_s: float = 0.3) -> bool:
         return sock.connect_ex(("127.0.0.1", port)) != 0
 
 
-def dead_proxy_port(is_closed: Callable[[int], bool] = port_is_closed) -> int:
-    """A local port nothing listens on, for the window's proxy that goes nowhere.
+def dead_proxy_candidates() -> tuple[int, ...]:
+    """Port 9 first, then the other odd ports below 1024."""
+    return (DEAD_PROXY_PORT, *(p for p in range(1, 1024, 2) if p != DEAD_PROXY_PORT))
 
-    Port 9 if it is closed; otherwise a port the OS just handed out and released.
-    If something listened there, the window's traffic would reach it instead.
+
+def dead_proxy_port(is_closed: Callable[[int], bool] = port_is_closed) -> int:
+    """A closed privileged local port, for the window's proxy that goes nowhere.
+
+    Only ports below 1024: no non-root process can bind them later, so nothing can
+    start listening there while the window is open and receive its proxied traffic
+    (CONNECT lines naming hosts, plain-HTTP URLs). An ephemeral port could be.
     """
-    if is_closed(DEAD_PROXY_PORT):
-        return DEAD_PROXY_PORT
-    for _ in range(20):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.bind(("127.0.0.1", 0))
-            port = int(sock.getsockname()[1])
+    for port in dead_proxy_candidates():
         if is_closed(port):
             return port
-    raise RuntimeError("found no closed local port for the window's dead proxy")
+    raise RuntimeError("found no closed privileged local port for the window's dead proxy")
 
 
 def browser_command(
@@ -219,7 +237,11 @@ def open_window(
         ]
         server = spawn(cmd, env={**os.environ, "SASHA_ROOT": str(settings.paths.root)})
         if not wait_until_up(url, server, START_TIMEOUT_S):
-            print("[fail] The server did not start; run `sasha serve` to see why.", file=sys.stderr)
+            print(
+                f"[fail] The server did not start within {START_TIMEOUT_S:.0f} s; "
+                "run `sasha serve` to see why.",
+                file=sys.stderr,
+            )
             server.terminate()
             return 1
 
