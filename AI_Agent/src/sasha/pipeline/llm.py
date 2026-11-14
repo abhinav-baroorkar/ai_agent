@@ -1,10 +1,10 @@
-"""LLM stage: the `LLM` protocol and an Ollama implementation (HTTP, non-streaming)."""
+"""LLM stage: the `LLM` protocol and an Ollama implementation (HTTP, plain and streaming)."""
 
 from __future__ import annotations
 
 import json
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
@@ -48,8 +48,28 @@ class LLM(Protocol):
         ...
 
 
+@runtime_checkable
+class StreamingLLM(LLM, Protocol):
+    def chat_stream(
+        self,
+        messages: Sequence[Message],
+        tools: Sequence[dict[str, Any]] | None,
+        on_delta: Callable[[str], None],
+        should_stop: Callable[[], bool] | None = None,
+    ) -> LLMResponse:
+        """Like `chat`, but calls `on_delta` with each piece of answer text as it arrives.
+
+        Raises `LLMCancelled` as soon as `should_stop()` returns true.
+        """
+        ...
+
+
 class OllamaError(RuntimeError):
     pass
+
+
+class LLMCancelled(Exception):
+    """The caller asked to stop while the answer was streaming."""
 
 
 def _parse_arguments(raw: Any) -> dict[str, Any]:
@@ -100,21 +120,26 @@ class OllamaLLM:
     def model_id(self) -> str:
         return self._model
 
-    def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
-        try:
-            resp = self._client.post(path, json=payload)
-        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
-            raise OllamaError(
-                f"Can't reach Ollama at {self.host}. Is `ollama serve` running?"
-            ) from exc
-        except httpx.TimeoutException as exc:
-            raise OllamaError(f"Ollama timed out after {self.config.timeout_s}s") from exc
-        except httpx.HTTPError as exc:  # dropped connection, bad URL, protocol error...
-            raise OllamaError(f"Ollama request failed: {type(exc).__name__}: {exc}") from exc
+    def _http_error(self, exc: httpx.HTTPError) -> OllamaError:
+        if isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout)):
+            return OllamaError(f"Can't reach Ollama at {self.host}. Is `ollama serve` running?")
+        if isinstance(exc, httpx.TimeoutException):
+            return OllamaError(f"Ollama timed out after {self.config.timeout_s}s")
+        # dropped connection, bad URL, protocol error...
+        return OllamaError(f"Ollama request failed: {type(exc).__name__}: {exc}")
+
+    def _check_status(self, resp: httpx.Response) -> None:
         if resp.status_code == 404:
             raise OllamaError(f"Model '{self._model}' not found. Run: ollama pull {self._model}")
         if resp.is_error:
             raise OllamaError(f"Ollama error {resp.status_code}: {resp.text[:300]}")
+
+    def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            resp = self._client.post(path, json=payload)
+        except httpx.HTTPError as exc:
+            raise self._http_error(exc) from exc
+        self._check_status(resp)
         try:
             body = resp.json()
         except ValueError as exc:
@@ -144,7 +169,44 @@ class OllamaLLM:
         self, messages: Sequence[Message], tools: Sequence[dict[str, Any]] | None = None
     ) -> LLMResponse:
         body = self._post("/api/chat", self.build_payload(messages, tools))
-        message = body.get("message") or {}
+        return self._response(body, body.get("message") or {})
+
+    def chat_stream(
+        self,
+        messages: Sequence[Message],
+        tools: Sequence[dict[str, Any]] | None,
+        on_delta: Callable[[str], None],
+        should_stop: Callable[[], bool] | None = None,
+    ) -> LLMResponse:
+        """Stream `/api/chat` (`stream: true`): one JSON object per line, the last has stats."""
+        payload = {**self.build_payload(messages, tools), "stream": True}
+        content: list[str] = []
+        calls: list[Any] = []
+        last: dict[str, Any] = {}
+        try:
+            with self._client.stream("POST", "/api/chat", json=payload) as resp:
+                if resp.is_error:
+                    resp.read()
+                    self._check_status(resp)
+                for line in resp.iter_lines():
+                    if should_stop and should_stop():
+                        raise LLMCancelled
+                    if not line.strip():
+                        continue
+                    last = _parse_chunk(line)
+                    msg = last.get("message") or {}
+                    calls += msg.get("tool_calls") or []
+                    if piece := str(msg.get("content") or ""):
+                        content.append(piece)
+                        on_delta(piece)
+        except httpx.HTTPError as exc:
+            raise self._http_error(exc) from exc
+        message: dict[str, Any] = {"role": "assistant", "content": "".join(content)}
+        if calls:
+            message["tool_calls"] = calls
+        return self._response(last, message)
+
+    def _response(self, body: dict[str, Any], message: dict[str, Any]) -> LLMResponse:
         calls = [
             ToolCall(
                 name=str(c.get("function", {}).get("name", "")),
@@ -177,6 +239,33 @@ class OllamaLLM:
         return self._model
 
     def list_models(self) -> list[str]:
-        resp = self._client.get("/api/tags")
-        resp.raise_for_status()
-        return [str(m.get("name")) for m in resp.json().get("models", [])]
+        return [str(m["name"]) for m in self.list_model_info()]
+
+    def list_model_info(self) -> list[dict[str, Any]]:
+        """`[{name, size_gb}]` for every model Ollama has pulled."""
+        try:
+            resp = self._client.get("/api/tags", timeout=10.0)
+        except httpx.HTTPError as exc:
+            raise self._http_error(exc) from exc
+        self._check_status(resp)
+        try:
+            models = resp.json().get("models", [])
+        except (ValueError, AttributeError) as exc:
+            raise OllamaError("Unexpected response from Ollama") from exc
+        return [
+            {"name": str(m.get("name")), "size_gb": round(int(m.get("size") or 0) / 1e9, 2)}
+            for m in models
+            if isinstance(m, dict) and m.get("name")
+        ]
+
+
+def _parse_chunk(line: str) -> dict[str, Any]:
+    try:
+        chunk = json.loads(line)
+    except ValueError as exc:
+        raise OllamaError("Ollama sent a stream line that is not JSON") from exc
+    if not isinstance(chunk, dict):
+        raise OllamaError("Unexpected stream chunk from Ollama")
+    if chunk.get("error"):
+        raise OllamaError(f"Ollama error: {str(chunk['error'])[:300]}")
+    return chunk
