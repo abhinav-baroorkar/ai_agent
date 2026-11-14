@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+import httpx
 from pydantic import ValidationError
 
 from sasha.config import HomeAssistantConfig, Secrets
@@ -128,7 +129,10 @@ class HomeAssistantConnector:
         if not (secrets.ha_url and secrets.ha_token):
             raise ConnectorError("Home Assistant is not set up")
         token = secrets.ha_token.get_secret_value()
-        return self._client_factory(secrets.ha_url, token, self._config(settings))
+        try:
+            return self._client_factory(secrets.ha_url, token, self._config(settings))
+        except httpx.InvalidURL:  # e.g. "http://[::1:8123": a warning, not a dead socket
+            raise ConnectorError("HA_URL is not a valid URL") from None
 
     def build_tools(self, settings: dict[str, Any]) -> list[Tool]:
         return build_home_assistant_tools(self._client(settings))

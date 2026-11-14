@@ -155,6 +155,7 @@ class OllamaLLM:
             base_url=self.host, timeout=httpx.Timeout(config.timeout_s, connect=5.0)
         )
         self._version: str | None = None
+        self._capability_cache: dict[str, list[str]] = {}  # digest -> capabilities
 
     @property
     def model_id(self) -> str:
@@ -285,8 +286,32 @@ class OllamaLLM:
     def list_models(self) -> list[str]:
         return [str(m["name"]) for m in self.list_model_info()]
 
+    def _capabilities(self, name: str, digest: str) -> list[str] | None:
+        """Ollama's capabilities for a model ("completion", "tools", "embedding"...).
+
+        Cached per digest (a re-pulled model gets a new digest, so it is asked again).
+        None when unknown (call failed, or an Ollama too old to report them); not cached.
+        """
+        key = digest or name
+        if key in self._capability_cache:
+            return self._capability_cache[key]
+        try:
+            resp = self._client.post("/api/show", json={"model": name}, timeout=10.0)
+            resp.raise_for_status()
+            caps = resp.json().get("capabilities")
+        except (httpx.HTTPError, ValueError, AttributeError):
+            return None
+        if not isinstance(caps, list):
+            return None
+        self._capability_cache[key] = [str(c) for c in caps]
+        return self._capability_cache[key]
+
     def list_model_info(self) -> list[dict[str, Any]]:
-        """`[{name, size_gb}]` for every model Ollama has pulled."""
+        """`[{name, size_gb, tools}]` for every pulled model that can chat.
+
+        Models whose capabilities lack "completion" (embedding models) are left out.
+        If a model's capabilities can't be read, it is listed anyway, with tools false.
+        """
         try:
             resp = self._client.get("/api/tags", timeout=10.0)
         except httpx.HTTPError as exc:
@@ -296,11 +321,17 @@ class OllamaLLM:
             models = resp.json().get("models", [])
         except (ValueError, AttributeError) as exc:
             raise OllamaError("Unexpected response from Ollama") from exc
-        return [
-            {"name": str(m.get("name")), "size_gb": round(int(m.get("size") or 0) / 1e9, 2)}
-            for m in models
-            if isinstance(m, dict) and m.get("name")
-        ]
+        out: list[dict[str, Any]] = []
+        for m in models:
+            if not (isinstance(m, dict) and m.get("name")):
+                continue
+            name = str(m["name"])
+            caps = self._capabilities(name, str(m.get("digest") or ""))
+            if caps is not None and "completion" not in caps:
+                continue  # can't chat (e.g. an embedding model)
+            size_gb = round(int(m.get("size") or 0) / 1e9, 2)
+            out.append({"name": name, "size_gb": size_gb, "tools": bool(caps and "tools" in caps)})
+        return out
 
 
 def _parse_chunk(line: str) -> dict[str, Any]:
