@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-import httpx
 from pydantic import ValidationError
 
 from sasha.config import HomeAssistantConfig, Secrets
@@ -14,6 +13,10 @@ from sasha.tools import Tool, ToolError
 from sasha.tools.home_assistant import (
     _ENTITY_ID_RE,
     OPT_IN_DOMAINS,
+    REQUEST_FAILED,
+    TIMED_OUT,
+    TOKEN_REJECTED,
+    UNREACHABLE,
     HomeAssistantClient,
     build_home_assistant_tools,
 )
@@ -32,13 +35,9 @@ MAX_EXPOSED = 500
 
 def _test_message(exc: ToolError) -> str:
     """A fixed message for the settings screen. Never includes HA_URL or HA text."""
-    cause, text = exc.__cause__, str(exc)
-    if isinstance(cause, (httpx.ConnectError, httpx.ConnectTimeout)):
-        return "Can't reach Home Assistant; check HA_URL"
-    if isinstance(cause, httpx.TimeoutException):
-        return "Home Assistant timed out; check HA_URL"
-    if "(401)" in text:
-        return "Token rejected; check HA_TOKEN"
+    text = str(exc)
+    if text in (UNREACHABLE, TIMED_OUT, REQUEST_FAILED, TOKEN_REJECTED):
+        return text
     if text.startswith("Not found"):
         return "Home Assistant API not found; check HA_URL"
     for word in text.split():
