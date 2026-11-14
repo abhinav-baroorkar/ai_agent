@@ -97,6 +97,10 @@ One role per session. Add or drop roles as the work needs.
 - If a session already wrote something outside the folder, it does not delete it. It
   tells Primary the path.
 
+## Reusing code from an earlier project
+
+The owner allows reusing code from an earlier project of his. Rules for doing it are in the team rules.
+
 ## Where documentation lives
 
 | Folder | Reader | Content |

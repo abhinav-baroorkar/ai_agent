@@ -69,7 +69,7 @@ stages in after it lands), `docs/scope-refresh` any time. `pyproject.toml` and
 
 ## Next after these land
 
-Our own design, with ideas from an earlier project of the owner's. In order:
+Our own design, with ideas and code from an earlier project of the owner's. In order:
 1. Wire real STT/TTS into the server; check the full voice loop in the window.
 2. MCP connectors, with an approval step before any tool that changes something.
 3. Per-bot avatar and tool groups.
@@ -87,13 +87,14 @@ Our own design, with ideas from an earlier project of the owner's. In order:
   phase, profile list, `server/` package, commands) and `User_reference/HOW_TO_RUN.md`.
   Leave the workflow and merge rules in `CLAUDE.md` as they are.
 
+## Reuse of earlier code
+
+The owner allows reusing code from an earlier project of his. Rules for doing it are in the team rules. Copying happens only when a task brief says so.
+
 ## Waiting on the owner
 
 - Docker install (sudo) for Home Assistant, then the HA account and `HA_TOKEN` in `.env`.
 - What "Grok-bot-like" should mean beyond "several bots with their own chats".
-- Whether code from an earlier project of his may be copied into this repo. Its
-  licence status is unclear. Until he confirms, we take ideas and write our own
-  code; nothing is copied.
 - Whether Claude's memory folder for this project is allowed (see the folder rule).
   Memory notes are paused until he says so.
 - Which Meta device he has; the TV model.
