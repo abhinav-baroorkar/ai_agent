@@ -159,6 +159,24 @@ Model weights are downloaded by script and never committed.
 | --- | --- | --- |
 | Qwen3 8B / 4B (via Ollama) | LLM | Apache-2.0 |
 | `qwen3.5:9b` (via Ollama, the laptop default) | LLM | Apache-2.0 (as printed by `ollama show`) |
+| Whisper small weights (via faster-whisper) | English speech-to-text | MIT |
+| Kokoro-82M weights | English text-to-speech | Apache-2.0 |
+
+Software the voice stages depend on:
+
+| Package | Used for | License |
+| --- | --- | --- |
+| faster-whisper | Speech-to-text runner | MIT |
+| CTranslate2 | Inference engine under faster-whisper | MIT |
+| onnxruntime | Runs Kokoro | MIT |
+| kokoro-onnx | Kokoro runner | MIT |
+| phonemizer | Text to phonemes (optional `voice` extra only) | GPL-3.0+ |
+| espeak-ng via espeakng-loader | Text to phonemes (optional `voice` extra only) | GPL-3.0 |
+| NVIDIA CUDA runtime wheels | GPU speech-to-text (optional GPU extra only) | NVIDIA license |
+
+The two GPL packages are never vendored or committed; they are installed only if you
+choose the optional `voice` extra.
+
 
 Software the brain server depends on:
 
@@ -170,7 +188,7 @@ Software the brain server depends on:
 | starlette (via fastapi) | Web framework under fastapi | BSD-3-Clause |
 | opentelemetry-api (via fastapi) | API only, no network | Apache-2.0 |
 
-More rows get added as models land (openWakeWord, faster-whisper,
+More rows get added as models land (openWakeWord,
 IndicConformer, IndicTrans2, Indic Parler-TTS).
 
 ## License
