@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,7 @@ import pytest
 
 from sasha.config import HomeAssistantConfig, LLMConfig, Settings
 from sasha.connectors import ConnectorRegistry, HomeAssistantConnector
+from sasha.pipeline import llm as llm_module
 from sasha.pipeline.llm import OllamaLLM
 from sasha.state import JsonStore
 from tests.server_fakes import WS, Harness
@@ -93,17 +95,68 @@ def test_models_list_only_chat_models_with_tool_flag() -> None:
 def test_capabilities_are_cached_per_digest() -> None:
     fake = FakeOllama()
     llm = _llm(fake)
+    now = [1000.0]
+    llm._clock = lambda: now[0]
     llm.list_model_info()
-    first = list(fake.shows)
+    first = len(fake.shows)
     llm.list_model_info()
-    # Known capabilities aren't asked again; an unknown one (failed call) is retried.
-    assert fake.shows[len(first) :] == ["mystery:2b"]
+    # Known capabilities aren't asked again, and a failed call isn't retried for 60 s.
+    assert fake.shows[first:] == []
+    now[0] += llm_module.SHOW_FAILURE_TTL_S + 1
+    llm.list_model_info()
+    assert fake.shows[first:] == ["mystery:2b"]  # retried once the failure has aged
     TAGS["models"][0]["digest"] = "aaa2"  # re-pulled model: new digest, asked again
     try:
         llm.list_model_info()
-        assert "qwen3.5:9b" in fake.shows[len(first) + 1 :]
+        assert "qwen3.5:9b" in fake.shows[first + 1 :]
     finally:
         TAGS["models"][0]["digest"] = "aaa"
+
+
+def test_show_calls_share_one_short_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A busy Ollama (every show call hangs until its timeout) can't stall the list."""
+    now = [0.0]
+    seen: list[httpx.Request] = []
+
+    def hanging(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/tags":
+            return httpx.Response(200, json=TAGS)
+        seen.append(request)
+        now[0] += request.extensions["timeout"]["read"]  # the call used its whole timeout
+        raise httpx.ReadTimeout("busy", request=request)
+
+    client = httpx.Client(base_url="http://ollama.test", transport=httpx.MockTransport(hanging))
+    llm = OllamaLLM(LLMConfig(model="m"), host="http://ollama.test", client=client)
+    llm._clock = lambda: now[0]
+    models = llm.list_model_info()
+    assert [m["name"] for m in models] == [m["name"] for m in TAGS["models"]]
+    assert all(m["tools"] is False for m in models)
+    assert now[0] <= llm_module.SHOW_BUDGET_S  # answered within the budget
+    assert len(seen) == 1  # budget spent: the other models were not asked
+    timeout = seen[0].extensions["timeout"]
+    assert timeout["connect"] <= 1.0 and timeout["read"] <= 3.0
+
+
+def test_models_route_answers_fast_when_ollama_hangs(
+    settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(llm_module, "SHOW_BUDGET_S", 0.3)
+    monkeypatch.setattr(llm_module, "SHOW_TIMEOUT_S", 0.2)
+
+    def slow(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/tags":
+            return httpx.Response(200, json=TAGS)
+        time.sleep(request.extensions["timeout"]["read"])  # MockTransport ignores timeouts
+        raise httpx.ReadTimeout("busy", request=request)
+
+    client = httpx.Client(base_url="http://ollama.test", transport=httpx.MockTransport(slow))
+    llm = OllamaLLM(LLMConfig(model="m"), host="http://ollama.test", client=client)
+    h = Harness(settings, tmp_path)
+    h.deps.list_models = llm.list_model_info
+    started = time.perf_counter()
+    body = h.client().get("/api/models").json()
+    assert time.perf_counter() - started < 1.0
+    assert [m["name"] for m in body["models"]] == [m["name"] for m in TAGS["models"]]
 
 
 def test_show_failing_lists_everything() -> None:

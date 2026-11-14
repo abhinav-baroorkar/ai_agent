@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
@@ -17,6 +18,13 @@ Message = dict[str, Any]
 
 _THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 _NS_PER_MS = 1_000_000
+# Model list (`/api/models`): Ollama is local, so connects are short. Show calls share
+# one budget per list; a failed one is not retried for a minute.
+TAGS_TIMEOUT = httpx.Timeout(10.0, connect=2.0)
+SHOW_TIMEOUT_S = 3.0
+SHOW_CONNECT_S = 1.0
+SHOW_BUDGET_S = 3.0
+SHOW_FAILURE_TTL_S = 60.0
 
 
 @dataclass(frozen=True)
@@ -156,6 +164,8 @@ class OllamaLLM:
         )
         self._version: str | None = None
         self._capability_cache: dict[str, list[str]] = {}  # digest -> capabilities
+        self._capability_failures: dict[str, float] = {}  # digest -> when the call failed
+        self._clock: Callable[[], float] = time.monotonic
 
     @property
     def model_id(self) -> str:
@@ -286,23 +296,35 @@ class OllamaLLM:
     def list_models(self) -> list[str]:
         return [str(m["name"]) for m in self.list_model_info()]
 
-    def _capabilities(self, name: str, digest: str) -> list[str] | None:
+    def _capabilities(self, name: str, digest: str, deadline: float) -> list[str] | None:
         """Ollama's capabilities for a model ("completion", "tools", "embedding"...).
 
         Cached per digest (a re-pulled model gets a new digest, so it is asked again).
-        None when unknown (call failed, or an Ollama too old to report them); not cached.
+        None when unknown: the call failed or timed out (remembered for
+        SHOW_FAILURE_TTL_S, so a busy Ollama isn't asked on every page load), this
+        Ollama doesn't report capabilities, or the request's time budget is spent.
         """
         key = digest or name
         if key in self._capability_cache:
             return self._capability_cache[key]
+        now = self._clock()
+        failed_at = self._capability_failures.get(key)
+        if failed_at is not None and now - failed_at < SHOW_FAILURE_TTL_S:
+            return None
+        left = deadline - now
+        if left <= 0:
+            return None  # budget spent: list it without asking (not a failure)
+        timeout = httpx.Timeout(min(SHOW_TIMEOUT_S, left), connect=min(SHOW_CONNECT_S, left))
         try:
-            resp = self._client.post("/api/show", json={"model": name}, timeout=10.0)
+            resp = self._client.post("/api/show", json={"model": name}, timeout=timeout)
             resp.raise_for_status()
             caps = resp.json().get("capabilities")
         except (httpx.HTTPError, ValueError, AttributeError):
-            return None
+            caps = None
         if not isinstance(caps, list):
+            self._capability_failures[key] = self._clock()
             return None
+        self._capability_failures.pop(key, None)
         self._capability_cache[key] = [str(c) for c in caps]
         return self._capability_cache[key]
 
@@ -311,9 +333,12 @@ class OllamaLLM:
 
         Models whose capabilities lack "completion" (embedding models) are left out.
         If a model's capabilities can't be read, it is listed anyway, with tools false.
+        All show calls together get SHOW_BUDGET_S, so a busy Ollama can't stall the
+        route (the UI gives up after 8 s, and saving a bot calls this too).
         """
+        deadline = self._clock() + SHOW_BUDGET_S
         try:
-            resp = self._client.get("/api/tags", timeout=10.0)
+            resp = self._client.get("/api/tags", timeout=TAGS_TIMEOUT)
         except httpx.HTTPError as exc:
             raise self._http_error(exc) from exc
         self._check_status(resp)
@@ -326,7 +351,7 @@ class OllamaLLM:
             if not (isinstance(m, dict) and m.get("name")):
                 continue
             name = str(m["name"])
-            caps = self._capabilities(name, str(m.get("digest") or ""))
+            caps = self._capabilities(name, str(m.get("digest") or ""), deadline)
             if caps is not None and "completion" not in caps:
                 continue  # can't chat (e.g. an embedding model)
             size_gb = round(int(m.get("size") or 0) / 1e9, 2)
