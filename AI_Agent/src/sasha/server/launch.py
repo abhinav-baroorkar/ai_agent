@@ -21,7 +21,23 @@ from sasha.config import Settings
 from sasha.server.security import is_loopback
 
 CHROMIUM_BROWSERS = ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser")
+# A fresh profile must not reach Google or the desktop keyring: no background
+# networking, updates, sync or pings; passwords in the profile, not the keyring.
+ISOLATION_FLAGS = (
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--password-store=basic",
+    "--disable-background-networking",
+    "--disable-component-update",
+    "--disable-sync",
+    "--no-pings",
+    "--disable-default-apps",
+    "--disable-domain-reliability",
+    "--metrics-recording-only",
+    "--disable-features=MediaRouter,OptimizationHints",
+)
 START_TIMEOUT_S = 60.0
+WS_MAX_BYTES = 1 << 20  # largest WebSocket message accepted (a 20 ms frame is 640 bytes)
 
 
 def server_url(host: str, port: int) -> str:
@@ -55,7 +71,14 @@ def run_server(settings: Settings, host: str | None = None, port: int | None = N
     for warning in deps.warnings:
         print(f"[warn] {warning}")
     print(f"Brain server on {server_url(host, port)} (profile {settings.profile.name})")
-    uvicorn.run(create_app(deps), host=host, port=port, log_level="info", access_log=False)
+    uvicorn.run(
+        create_app(deps),
+        host=host,
+        port=port,
+        log_level="info",
+        access_log=False,
+        ws_max_size=WS_MAX_BYTES,
+    )
     return 0
 
 
@@ -83,13 +106,7 @@ def browser_command(url: str, profile_dir: Path) -> list[str] | None:
     for name in CHROMIUM_BROWSERS:
         exe = shutil.which(name)
         if exe:
-            return [
-                exe,
-                f"--app={url}",
-                f"--user-data-dir={profile_dir}",
-                "--no-first-run",
-                "--no-default-browser-check",
-            ]
+            return [exe, f"--app={url}", f"--user-data-dir={profile_dir}", *ISOLATION_FLAGS]
     return None
 
 
@@ -97,8 +114,10 @@ def browser_env(profile_dir: Path) -> dict[str, str]:
     """Environment for the window's browser: home and XDG dirs inside the project.
 
     `--user-data-dir` alone still lets Chromium on Linux write `~/.pki` (NSS cert db),
-    `~/.cache` and `~/.config` bits, so HOME and the XDG dirs point under the profile.
-    The display variables (DISPLAY, WAYLAND_DISPLAY, XAUTHORITY, DBus) are kept.
+    `~/.cache` and `~/.config` bits, and its singleton socket and scoped temp files go
+    to `/tmp`, so HOME, TMPDIR and the XDG dirs point under the profile. The display
+    variables (DISPLAY, WAYLAND_DISPLAY, XAUTHORITY, DBus) are kept; the keyring is
+    kept out by `--password-store=basic`.
     """
     env = dict(os.environ)
     if "XAUTHORITY" not in env:  # X11 falls back to $HOME/.Xauthority; keep the real one
@@ -111,6 +130,7 @@ def browser_env(profile_dir: Path) -> dict[str, str]:
         XDG_CONFIG_HOME=str(home / ".config"),
         XDG_CACHE_HOME=str(home / ".cache"),
         XDG_DATA_HOME=str(home / ".local" / "share"),
+        TMPDIR=str(profile_dir / "tmp"),
     )
     return env
 
@@ -123,6 +143,9 @@ def open_window(
 ) -> int:
     cfg = settings.profile.server
     host, port = host or cfg.host, port or cfg.port
+    if not is_loopback(host):  # never probe or open a page on another machine
+        print(f"[refused] {host} is not a loopback address.", file=sys.stderr)
+        return 2
     url = server_url(host, port)
     server: subprocess.Popen[bytes] | None = None
     if not is_running(url):
@@ -153,7 +176,8 @@ def open_window(
             f"use a separate profile inside the project. Open {url} yourself."
         )
     else:
-        (profile_dir / "home").mkdir(parents=True, exist_ok=True)
+        for sub in ("home", "tmp"):
+            (profile_dir / sub).mkdir(parents=True, exist_ok=True)
         env = browser_env(profile_dir)
         spawn(window, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         print(f"Opened {url} in an app window.")

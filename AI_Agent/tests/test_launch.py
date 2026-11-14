@@ -40,6 +40,8 @@ def test_browser_command_uses_isolated_profile(
     assert cmd is not None and cmd[0] == "/usr/bin/chromium"
     assert "--app=http://127.0.0.1:8765" in cmd
     assert f"--user-data-dir={tmp_path / 'chrome-profile'}" in cmd
+    for flag in ("--password-store=basic", "--disable-background-networking", "--no-pings"):
+        assert flag in cmd
     monkeypatch.setattr(launch.shutil, "which", lambda n: None)
     assert launch.browser_command("http://x", tmp_path) is None
 
@@ -77,7 +79,7 @@ def test_window_reuses_running_server(
     s = _settings_in(settings, tmp_path)
     assert launch.open_window(s, spawn=spawn) == 0  # type: ignore[arg-type]
     assert len(spawned) == 1 and spawned[0][0] == "/usr/bin/google-chrome"
-    assert (tmp_path / "Data" / "chrome-profile").is_dir()
+    assert (tmp_path / "Data" / "chrome-profile" / "tmp").is_dir()
 
 
 def test_window_starts_server_then_browser(
@@ -128,7 +130,7 @@ def test_browser_env_keeps_files_in_profile(
 ) -> None:
     monkeypatch.setenv("DISPLAY", ":0")
     env = launch.browser_env(tmp_path / "chrome-profile")
-    for key in ("HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME"):
+    for key in ("HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "TMPDIR"):
         assert Path(env[key]).is_relative_to(tmp_path / "chrome-profile")
     assert env["DISPLAY"] == ":0"
 
@@ -136,3 +138,22 @@ def test_browser_env_keeps_files_in_profile(
 def test_pcm_frames_are_20ms_whole_samples() -> None:
     frames = list(pcm_frames(b"\x00" * 1000, 16000))
     assert [len(f) for f in frames] == [640, 360]
+
+
+@pytest.mark.parametrize("host", ["example.com", "192.0.2.1", "0.0.0.0"])
+def test_window_refuses_non_loopback_host(
+    settings: Settings, tmp_path: Path, host: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    probed: list[str] = []
+    monkeypatch.setattr(launch, "is_running", lambda url, timeout_s=1.5: bool(probed.append(url)))
+    spawned: list[Any] = []
+    s = _settings_in(settings, tmp_path)
+    assert launch.open_window(s, host=host, spawn=lambda c, **_: spawned.append(c)) == 2  # type: ignore[arg-type,func-returns-value]
+    assert probed == [] and spawned == []
+
+
+def test_window_refuses_remote_host_from_profile(settings: Settings, tmp_path: Path) -> None:
+    s = _settings_in(settings, tmp_path)
+    server = s.profile.server.model_copy(update={"host": "example.com"})
+    s = s.model_copy(update={"profile": s.profile.model_copy(update={"server": server})})
+    assert launch.open_window(s, spawn=lambda c, **_: None) == 2  # type: ignore[arg-type,return-value]

@@ -38,7 +38,8 @@ def _error(status: int, message: str) -> JSONResponse:
 
 
 async def _json_body(request: Request) -> dict[str, Any]:
-    if "application/json" not in request.headers.get("content-type", ""):
+    media_type = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    if media_type != "application/json":
         raise ApiError(415, "Send JSON (Content-Type: application/json)")
     try:
         body = await request.json()
@@ -60,6 +61,7 @@ def create_app(deps: ServerDeps, web_dir: Path | None = WEB_DIR) -> FastAPI:
     server = settings.profile.server
     app = FastAPI(title="brain", version=__version__, docs_url=None, redoc_url=None)
     voice = VoiceStages(stt=deps.stt, tts=deps.tts)  # shared by every socket
+    open_sockets = 0
     app.add_middleware(
         LocalOnlyMiddleware,
         hosts=allowed_hosts(server.port),
@@ -165,21 +167,33 @@ def create_app(deps: ServerDeps, web_dir: Path | None = WEB_DIR) -> FastAPI:
         return {"ok": result.ok, "message": result.message}
 
     # --- conversation ----------------------------------------------------------
+    async def refuse(websocket: WebSocket, reason: str, code: int = 1008) -> None:
+        await websocket.send_json({"type": "error", "message": reason})
+        await websocket.close(code=code, reason=reason)
+
     @app.websocket("/ws")
     async def ws(websocket: WebSocket, bot: str = "main", speak: str = "0") -> None:
+        nonlocal open_sockets
         await websocket.accept()
+        if open_sockets >= server.max_sockets:
+            await refuse(websocket, f"Too many connections (max {server.max_sockets})", 1013)
+            return
+        open_sockets += 1  # counted at once, so parallel handshakes can't overshoot
+        try:
+            await conversation(websocket, bot, speak)
+        finally:
+            open_sockets -= 1
+
+    async def conversation(websocket: WebSocket, bot: str, speak: str) -> None:
         if speak not in ("0", "1"):
-            reason = "speak must be 0 or 1"
-            await websocket.send_json({"type": "error", "message": reason})
-            await websocket.close(code=1008, reason=reason)
+            await refuse(websocket, "speak must be 0 or 1")
             return
         try:
             chosen = deps.bots.get(bot) if BOT_ID_RE.fullmatch(bot) else None
         except BotNotFound:
             chosen = None
         if chosen is None:
-            await websocket.send_json({"type": "error", "message": f"Unknown bot '{bot}'"})
-            await websocket.close(code=1008)
+            await refuse(websocket, f"Unknown bot '{bot[:64]}'")
             return
         assistant, warnings = await run_in_threadpool(deps.make_assistant, chosen)
         for warning in warnings:

@@ -88,10 +88,11 @@ def test_failed_test_shows_error_until_settings_change(tmp_path: Path) -> None:
 
 
 def test_corrupt_state_file_is_moved_aside(tmp_path: Path) -> None:
-    (tmp_path / "connectors.json").write_text("{not json", encoding="utf-8")
     reg = _registry(tmp_path, _connector())
-    assert reg.view("home_assistant")["enabled"] is True
-    assert (tmp_path / "connectors.json.corrupt").is_file()
+    for _ in range(2):  # a second corruption must not overwrite the first one
+        (tmp_path / "connectors.json").write_text("{not json", encoding="utf-8")
+        assert reg.view("home_assistant")["enabled"] is True
+    assert len(list(tmp_path.glob("connectors.json.*.corrupt"))) == 2
 
 
 def test_unknown_connector(tmp_path: Path) -> None:
@@ -103,11 +104,13 @@ def test_unknown_connector(tmp_path: Path) -> None:
 
 
 def test_reload_secrets_reads_dotenv_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("HA_URL", "http://old.test")
-    assert reload_secrets(tmp_path).ha_url == "http://old.test"
-    (tmp_path / ".env").write_text("HA_URL=http://new.test\nHA_TOKEN=abc\n", encoding="utf-8")
+    monkeypatch.setenv("HA_URL", "http://from-env.test")
+    monkeypatch.setenv("HA_TOKEN", "")  # empty in the environment: the file may fill it
+    assert reload_secrets(tmp_path).ha_token is None
+    (tmp_path / ".env").write_text("HA_URL=http://from-file.test\nHA_TOKEN=abc\n", encoding="utf-8")
     secrets = reload_secrets(tmp_path)
-    assert secrets.ha_url == "http://new.test" and secrets.ha_token is not None
+    assert secrets.ha_url == "http://from-env.test"  # the process environment wins
+    assert secrets.ha_token is not None  # a variable added to the file is picked up
 
 
 def test_build_deps_uses_state_dir(settings: Settings, tmp_path: Path) -> None:
@@ -119,7 +122,8 @@ def test_build_deps_uses_state_dir(settings: Settings, tmp_path: Path) -> None:
     assert deps.connectors.view("home_assistant")["status"] == "needs_setup"
     assert deps.bots.get("main").connectors == ["home_assistant"]
     assert deps.stt is None and deps.tts is None
-    assert deps.bots.update("main", parse_fields({"model": "m2"})).model == "m2"
+    # (connectors, not model: a model change would ask the real Ollama for its list)
+    assert deps.bots.update("main", parse_fields({"connectors": []})).connectors == []
     assert (tmp_path / "Data" / "state" / "bots.json").is_file()
 
 

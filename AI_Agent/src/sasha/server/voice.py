@@ -30,7 +30,11 @@ def basic_split_sentences(text: str) -> list[str]:
 
 
 def sentence_splitter() -> Callable[[str], list[str]]:
-    """The TTS stage's `split_sentences` (voice branch) if present, else the fallback."""
+    """The TTS stage's `split_sentences` (voice branch) if present, else the fallback.
+
+    TODO(after the voice branch merges): import `split_sentences` directly and drop
+    this lookup and `basic_split_sentences`; the fallback splits differently.
+    """
     found = getattr(tts_module, "split_sentences", None)
     return found if callable(found) else basic_split_sentences
 

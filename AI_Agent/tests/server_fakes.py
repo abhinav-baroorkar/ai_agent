@@ -175,9 +175,12 @@ class Harness:
             main_prompt=self.settings.assistant.render_system_prompt(),
             default_model="big-model",
             connector_ids=lambda: self.connectors.ids,
+            main_connectors=["fake"],
+            installed_models=lambda: [str(m["name"]) for m in self.models],
         )
         self.llms: dict[str, FakeLLM] = {}
-        self.models = [{"name": "big-model", "size_gb": 6.6}]
+        self.models: list[dict[str, Any]] = [{"name": "big-model", "size_gb": 6.6}]
+        self.models += [{"name": n, "size_gb": 1.0} for n in ("other", "small:latest", "m2")]
         self.deps = ServerDeps(
             settings=self.settings,
             bots=self.bots,

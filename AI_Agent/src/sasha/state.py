@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -36,7 +37,9 @@ class JsonStore:
                 data = None
             if isinstance(data, dict):
                 return data
-            aside = self.path.with_suffix(self.path.suffix + ".corrupt")
+            # Timestamped to the nanosecond, so a later corruption never overwrites this one.
+            stamp = f"{time.strftime('%Y%m%d-%H%M%S')}-{time.time_ns() % 1_000_000_000:09d}"
+            aside = self.path.with_suffix(f"{self.path.suffix}.{stamp}.corrupt")
             log.warning("State file %s is unreadable; moved it to %s", self.path, aside.name)
             os.replace(self.path, aside)
             return {}
@@ -45,5 +48,8 @@ class JsonStore:
         with self.lock:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             tmp = self.path.with_suffix(self.path.suffix + ".tmp")
-            tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+            with tmp.open("w", encoding="utf-8") as f:
+                f.write(json.dumps(data, ensure_ascii=False, indent=2))
+                f.flush()
+                os.fsync(f.fileno())  # on disk before the rename, so a crash can't empty it
             os.replace(tmp, self.path)

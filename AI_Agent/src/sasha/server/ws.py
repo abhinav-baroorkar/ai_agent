@@ -3,7 +3,9 @@
 The Assistant, STT and TTS all block, so they run in worker threads. Frames from
 those threads go through one outbox queue, and a single writer task writes them, so
 frames never interleave. `cancel` sets an event the worker checks between stream
-chunks, before every tool call and between speech chunks.
+chunks, before every tool call and between speech chunks. Cancel and disconnect
+therefore take effect at Ollama's next streamed line: a long prompt evaluation runs
+until the first token arrives (the HTTP stream is closed then).
 
 Each socket is its own conversation (own history), even for the same bot. With
 `speak=1` every answer is also spoken while it streams, whatever started the turn,
@@ -113,6 +115,8 @@ class Conversation:
             pass
         finally:
             self.stop.set()  # let a running worker thread stop at its next check
+            if self.speaker is not None:
+                self.speaker.cancel()
             if self.turn is not None:
                 self.turn.cancel()
             self.outbox.put_nowait(None)
@@ -185,7 +189,9 @@ class Conversation:
         self.loop.call_soon_threadsafe(self._on_delta, piece)
 
     async def _turn(self, text: str, language: str, input_mode: str) -> None:
-        self.speaker = self._make_speaker(language)
+        # Kept in self.speaker until speech is over, so a disconnect can cancel it.
+        speaker = self.speaker = self._make_speaker(language)
+        spoken = False
         try:
             self.state("thinking")
             reply = await self._ask(text, input_mode)
@@ -199,17 +205,16 @@ class Conversation:
                         "timing": _timing(reply),
                     }
                 )
-            if self.speaker is not None:
-                speaker, self.speaker = self.speaker, None
+            if speaker is not None:
                 await (speaker.finish() if reply is not None else speaker.abort())
+            spoken = True
         except Exception as exc:  # never let one turn kill the connection
             log.error("Turn failed: %s", type(exc).__name__)
             self.error(f"Something went wrong ({type(exc).__name__})")
         finally:
-            if self.speaker is not None:  # failed before speech was finished
-                speaker, self.speaker = self.speaker, None
-                self.stop.set()
-                await speaker.abort()
+            if speaker is not None and not spoken:  # error or cancelled: stop speech now
+                speaker.cancel()
+            self.speaker = None
             self.state("idle")
 
     async def _ask(self, text: str, input_mode: str) -> Reply | None:

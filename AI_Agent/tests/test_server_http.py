@@ -37,7 +37,7 @@ def test_health_voice_true_when_stages_configured(settings: Settings, tmp_path: 
 
 
 def test_models(h: Harness, client: TestClient) -> None:
-    assert client.get("/api/models").json() == {"models": [{"name": "big-model", "size_gb": 6.6}]}
+    assert client.get("/api/models").json()["models"][0] == {"name": "big-model", "size_gb": 6.6}
 
 
 def test_models_when_ollama_down(h: Harness, client: TestClient) -> None:
@@ -56,7 +56,7 @@ def test_main_bot_is_built_in(h: Harness, client: TestClient) -> None:
     assert main["id"] == "main" and main["builtin"] is True
     assert main["name"] == h.settings.assistant.name
     assert main["model"] == "big-model"
-    assert main["connectors"] == ["fake", "other"]
+    assert main["connectors"] == ["fake"]  # fixed default, not "all connectors"
 
 
 def test_bot_create_edit_delete(client: TestClient) -> None:
@@ -81,8 +81,15 @@ def test_bot_validation_errors(client: TestClient) -> None:
     assert r.status_code == 400 and "nope" in r.json()["error"]
     r = client.post("/api/bots", json={"name": "x", "secret": 1})
     assert r.status_code == 400
-    r = client.post("/api/bots", content=b"name=x", headers={"content-type": "text/plain"})
-    assert r.status_code == 415
+    for ctype in ("text/plain", "text/plain;application/json", "application/jsonx"):
+        r = client.post("/api/bots", content=b'{"name": "x"}', headers={"content-type": ctype})
+        assert r.status_code == 415, ctype
+    r = client.post(
+        "/api/bots",
+        content=b'{"name": "x"}',
+        headers={"content-type": "Application/JSON; charset=utf-8"},
+    )
+    assert r.status_code == 201
     assert client.patch("/api/bots/../etc", json={"name": "x"}).status_code == 404
 
 

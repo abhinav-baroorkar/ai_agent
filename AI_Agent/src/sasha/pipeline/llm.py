@@ -68,6 +68,46 @@ class OllamaError(RuntimeError):
     pass
 
 
+class ThinkFilter:
+    """Drops `<think>...</think>` from streamed text, even when a tag is split across chunks.
+
+    Text that might be the start of a tag is held back until the next chunk decides.
+    """
+
+    OPEN, CLOSE = "<think>", "</think>"
+
+    def __init__(self) -> None:
+        self.inside = False
+        self.pending = ""
+
+    def feed(self, text: str) -> str:
+        self.pending += text
+        out: list[str] = []
+        while True:
+            tag = self.CLOSE if self.inside else self.OPEN
+            at = self.pending.find(tag)
+            if at >= 0:
+                if not self.inside:
+                    out.append(self.pending[:at])
+                self.pending = self.pending[at + len(tag) :]
+                self.inside = not self.inside
+                continue
+            keep = next(
+                (k for k in range(len(tag) - 1, 0, -1) if self.pending.endswith(tag[:k])), 0
+            )
+            cut = len(self.pending) - keep
+            if not self.inside:
+                out.append(self.pending[:cut])
+            self.pending = self.pending[cut:]
+            return "".join(out)
+
+    def flush(self) -> str:
+        """End of stream: return held-back text (none if a think block never closed)."""
+        rest = "" if self.inside else self.pending
+        self.pending = ""
+        return rest
+
+
 class LLMCancelled(Exception):
     """The caller asked to stop while the answer was streaming."""
 
@@ -180,6 +220,7 @@ class OllamaLLM:
     ) -> LLMResponse:
         """Stream `/api/chat` (`stream: true`): one JSON object per line, the last has stats."""
         payload = {**self.build_payload(messages, tools), "stream": True}
+        thinking = ThinkFilter()  # deltas reach the UI already filtered
         content: list[str] = []
         calls: list[Any] = []
         last: dict[str, Any] = {}
@@ -198,7 +239,10 @@ class OllamaLLM:
                     calls += msg.get("tool_calls") or []
                     if piece := str(msg.get("content") or ""):
                         content.append(piece)
-                        on_delta(piece)
+                        if visible := thinking.feed(piece):
+                            on_delta(visible)
+                if rest := thinking.flush():
+                    on_delta(rest)
         except httpx.HTTPError as exc:
             raise self._http_error(exc) from exc
         message: dict[str, Any] = {"role": "assistant", "content": "".join(content)}

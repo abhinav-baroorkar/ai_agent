@@ -9,7 +9,7 @@ from typing import Any
 
 from sasha.bots import Bot, BotStore
 from sasha.config import Settings, reload_secrets
-from sasha.connectors import ConnectorRegistry, build_connectors
+from sasha.connectors import ConnectorRegistry, HomeAssistantConnector, build_connectors
 from sasha.orchestrator import Assistant
 from sasha.pipeline.llm import LLM, OllamaLLM
 from sasha.pipeline.stt import SpeechToText
@@ -62,13 +62,6 @@ def build_deps(settings: Settings, reload_env: bool = True) -> ServerDeps:
         return reload_secrets(root) if reload_env else settings.secrets
 
     connectors = build_connectors(settings, secrets)
-    bots = BotStore(
-        JsonStore(settings.paths.state_dir / "bots.json"),
-        main_name=settings.assistant.name,
-        main_prompt=settings.assistant.render_system_prompt(),
-        default_model=settings.profile.llm.model,
-        connector_ids=lambda: connectors.ids,
-    )
     llms: dict[str, OllamaLLM] = {}
     lock = threading.Lock()
 
@@ -84,6 +77,15 @@ def build_deps(settings: Settings, reload_env: bool = True) -> ServerDeps:
         assert isinstance(lister, OllamaLLM)
         return lister.list_model_info()
 
+    bots = BotStore(
+        JsonStore(settings.paths.state_dir / "bots.json"),
+        main_name=settings.assistant.name,
+        main_prompt=settings.assistant.render_system_prompt(),
+        default_model=settings.profile.llm.model,
+        connector_ids=lambda: connectors.ids,
+        main_connectors=[HomeAssistantConnector.id],
+        installed_models=lambda: [m["name"] for m in list_models()],
+    )
     stt, tts, warnings = load_voice_stages(settings)
     return ServerDeps(
         settings=settings,

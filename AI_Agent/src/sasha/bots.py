@@ -80,12 +80,17 @@ class BotStore:
         main_prompt: str,
         default_model: str,
         connector_ids: Callable[[], list[str]],
+        main_connectors: list[str] | None = None,
+        installed_models: Callable[[], list[str]] | None = None,
     ) -> None:
         self.store = store
         self.main_name = main_name
-        self.main_prompt = main_prompt
+        self.main_prompt = with_safety_note(main_prompt)
         self.default_model = default_model
         self._connector_ids = connector_ids
+        # Fixed default: connectors added later are opt-in per bot, the main bot included.
+        self.main_connectors = list(main_connectors or [])
+        self._installed_models = installed_models
 
     # --- reading ------------------------------------------------------------
     def _main(self, data: dict[str, Any]) -> Bot:
@@ -95,7 +100,7 @@ class BotStore:
             name=self.main_name,
             model=str(saved.get("model") or self.default_model),
             system_prompt=self.main_prompt,
-            connectors=list(saved.get("connectors", self._connector_ids())),
+            connectors=list(saved.get("connectors", self.main_connectors)),
             builtin=True,
         )
 
@@ -126,9 +131,22 @@ class BotStore:
             raise BotError(f"Unknown connector(s): {', '.join(unknown)}")
         return list(dict.fromkeys(ids))  # drop duplicates, keep order
 
+    def _check_model(self, model: str | None) -> None:
+        """Refuse a model Ollama doesn't have. Skipped when the list can't be read."""
+        if model is None or self._installed_models is None:
+            return
+        try:
+            installed = self._installed_models()
+        except Exception:  # Ollama down: don't block editing bots
+            return
+        if model not in installed and f"{model}:latest" not in installed:
+            names = ", ".join(installed) or "none"
+            raise BotError(f"Model '{model}' is not installed. Installed: {names}")
+
     def create(self, fields: BotFields) -> Bot:
         if not fields.name:
             raise BotError("name: required")
+        self._check_model(fields.model)
         with self.store.lock:
             data = self.store.load()
             bot = Bot(
@@ -148,6 +166,7 @@ class BotStore:
             raise BotError("fields can't be set to null")
         if "connectors" in changes:
             changes["connectors"] = self._check_connectors(changes["connectors"])
+        self._check_model(changes.get("model"))
         with self.store.lock:
             data = self.store.load()
             if bot_id == MAIN_ID:
@@ -196,3 +215,8 @@ class BotStore:
             return self.main_prompt
         base = bot.system_prompt.strip() or f"You are {bot.name}, a helpful local assistant."
         return f"{base}\n{SAFETY_NOTE}"
+
+
+def with_safety_note(prompt: str) -> str:
+    """Add SAFETY_NOTE unless the prompt already covers untrusted tool data."""
+    return prompt if "untrusted_data" in prompt else f"{prompt.rstrip()}\n{SAFETY_NOTE}"

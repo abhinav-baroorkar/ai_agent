@@ -98,6 +98,7 @@ class ServerConfig(BaseModel):
     host: str = "127.0.0.1"
     port: int = 8765
     allowed_origins: list[str] = Field(default_factory=list)  # besides the server's own
+    max_sockets: int = Field(default=4, ge=1, le=64)  # open /ws connections at once
 
 
 class Profile(BaseModel):
@@ -194,9 +195,15 @@ def load_secrets(environ: Mapping[str, str] | None = None) -> Secrets:
 
 
 def reload_secrets(root: Path) -> Secrets:
-    """Re-read the root dotenv file so edits apply without a restart. Values there win."""
+    """Re-read the root dotenv file, so a variable added there works without a restart.
+
+    Same rule as at startup (`load_dotenv(override=False)`): the process environment
+    wins. The file only fills variables the environment leaves unset or empty, so
+    changing a value that was already loaded still needs a restart.
+    """
     in_file = {k: v for k, v in dotenv_values(root / ".env").items() if v}
-    return load_secrets({**os.environ, **in_file})
+    in_env = {k: v for k, v in os.environ.items() if v}
+    return load_secrets({**in_file, **in_env})
 
 
 def load_settings(
