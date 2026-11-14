@@ -87,9 +87,9 @@ Our own design. In order:
   the hardware profile list, the code layout and the common commands, plus
   `User_reference/HOW_TO_RUN.md`. Do not touch "Current phase" or the Rules section.
 
-## Reuse of earlier code
+## Ideas from an earlier project
 
-The owner allows reusing code from an earlier project of the owner's. Rules for doing it are in the team rules. Copying happens only when a task brief says so. **Hold:** a reviewer asked the owner to confirm that code is the owner's to publish; no copy task is assigned until the owner answers.
+Ideas from an earlier project of the owner's: read-only, no copying (owner's decision, 2026-11-14; copying was first allowed, then withdrawn the same evening). Nothing was copied.
 
 ## Waiting on the owner
 
