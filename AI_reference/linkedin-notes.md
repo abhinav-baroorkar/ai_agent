@@ -27,3 +27,11 @@ Film shots 1 and 2 after the Docker gate passes; today `sasha doctor` prints
    with `--timing`, then cut to the real light turning on.
 3. 20-30 s: show the telemetry JSON line (latency, tokens/s, VRAM).
 4. 30-35 s: end card with the repo name and "Next: voice".
+
+## Phase 1: a face and a voice, English (DRAFT, not for posting)
+
+**Candidate one number (draft):** on an 8 GB laptop GPU: hear in 127 ms, first word of
+the answer in 150 to 170 ms, first audio in 457 ms. These are the pieces of the round
+trip; the full round trip has not been measured end to end yet, so don't post until it
+has.
+
