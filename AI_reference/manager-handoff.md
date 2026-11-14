@@ -25,6 +25,8 @@ Last updated: 2026-11-14, late evening.
 - **Strict rule (owner, 2026-11-14):** no session changes anything outside the
   project folder. Reading elsewhere is fine. Caches and downloads go under
   `Dependencies/`, a browser profile under `Data/`. Details in `team.md`.
+  Before this rule, some sessions wrote to the default uv cache in the home directory
+  and to Claude's own memory folder for this project. Nothing was deleted.
 - Shared team files (git-ignored, local): `Dependencies/team/team-rules.md` and
   `Dependencies/team/api-contract.md`. The contract is also committed as
   `AI_reference/api-contract.md` once the server branch lands.
@@ -51,7 +53,7 @@ only for now; satellites on other devices come later.
 | `feat/brain-server` | Staff SDE | FastAPI brain server, WebSocket chat, bots store, connector registry, `serve` and `window` commands, laptop profile | assigned 2026-11-14 |
 | `feat/web-ui` | Design expert | Face + home screen, bots screen, settings/connectors, mock mode | assigned 2026-11-14 |
 | `feat/voice-stages` | Jack of all tasks | faster-whisper STT and Kokoro TTS stages, fakes, bench script | assigned 2026-11-14 |
-| `docs/scope-refresh` | Grunt work | plan.md, decisions.md, linkedin-notes.md, README, .env.example for the new scope | done (`af6541e`, 86 tests pass); in review |
+| `docs/scope-refresh` | Grunt work | plan.md, decisions.md, linkedin-notes.md, README, .env.example for the new scope | done (`af6541e`, 86 tests pass); two fix commits (`82544a8`, `b8e1b7e`) answer all eight review findings; in re-review |
 | `docs/handoff` | Documentation engineer | this file, `team.md`, devlog; owner notes in `User_reference/` | `01530a7`; kept current |
 
 Merge order: `feat/brain-server` first (others depend on its API), then
@@ -67,19 +69,33 @@ stages in after it lands), `docs/scope-refresh` any time. `pyproject.toml` and
 
 ## Next after these land
 
+Our own design, with ideas from an earlier project of the owner's. In order:
 1. Wire real STT/TTS into the server; check the full voice loop in the window.
-2. MCP connector kind (official `mcp` Python SDK) so connectors can be added
-   from settings.
-3. Wake word ("Hey <name>") in the window, then Marathi (Phase 2).
-4. A safe "open an app or page on this device" tool, allowlisted.
+2. MCP connectors, with an approval step before any tool that changes something.
+3. Per-bot avatar and tool groups.
+4. Wake word ("Hey <name>") in the window, then Marathi (Phase 2).
+5. A browser-control bot with live view and take-over.
+6. A safe "open an app or page on this device" tool, allowlisted.
+
+## Pending doc follow-ups
+
+- After `docs/scope-refresh` merges: `team.md` says "source `AI_Agent/scripts/env.sh`"
+  in place of the manual cache exports. On that branch the script is safe to source
+  from a worktree: caches go to the main root's `Dependencies/`, and only the main
+  checkout shares `Dependencies/.venv`.
+- After `feat/brain-server` is on `main`: update stale facts in `CLAUDE.md` (current
+  phase, profile list, `server/` package, commands) and `User_reference/HOW_TO_RUN.md`.
+  Leave the workflow and merge rules in `CLAUDE.md` as they are.
 
 ## Waiting on the owner
 
 - Docker install (sudo) for Home Assistant, then the HA account and `HA_TOKEN` in `.env`.
 - What "Grok-bot-like" should mean beyond "several bots with their own chats".
-- Whether code from an earlier work project may be read for ideas. A safety
-  hook blocked reading that folder, so it has not been opened. Its code must
-  not be copied into this public repo unless the owner confirms he owns it.
+- Whether code from an earlier project of his may be copied into this repo. Its
+  licence status is unclear. Until he confirms, we take ideas and write our own
+  code; nothing is copied.
+- Whether Claude's memory folder for this project is allowed (see the folder rule).
+  Memory notes are paused until he says so.
 - Which Meta device he has; the TV model.
 - **GPL text-to-phoneme packages for the English voice.** The voice is Kokoro-82M via
   `kokoro-onnx` (weights Apache-2.0, `kokoro-onnx` MIT). It depends on two GPL-3.0
