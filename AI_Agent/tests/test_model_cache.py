@@ -38,6 +38,8 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     """A private copy of os.environ without HF variables, restored after the test."""
     env = {k: v for k, v in os.environ.items() if k not in HF_VARS}
     monkeypatch.setattr(os, "environ", env)
+    # Another test may have imported huggingface_hub with the real project cache.
+    monkeypatch.delitem(sys.modules, "huggingface_hub.constants", raising=False)
     return env
 
 

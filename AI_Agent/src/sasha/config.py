@@ -7,16 +7,17 @@ Selection order (highest first): explicit arguments, environment variables
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 import yaml
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 from pydantic import BaseModel, Field, SecretStr, field_validator
 
 # src/sasha/config.py -> sasha -> src -> AI_Agent -> repo root
 _DEFAULT_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_PROFILE = "pc"
+DEFAULT_PROFILE = "laptop"
 
 # The only domains the assistant may ever control, whatever tools.yaml says. An allowlist,
 # not a denylist: HA adds domains every release, and button/valve/notify/remote/lock
@@ -122,6 +123,15 @@ class TTSConfig(BaseModel):
     max_chars: int = Field(default=4000, gt=0)  # longer text is cut at a sentence end
 
 
+class ServerConfig(BaseModel):
+    """The brain server (`sasha serve`). v0 has no auth, so it listens on loopback only."""
+
+    host: str = "127.0.0.1"
+    port: int = 8765
+    allowed_origins: list[str] = Field(default_factory=list)  # besides the server's own
+    max_sockets: int = Field(default=4, ge=1, le=64)  # open /ws connections at once
+
+
 class Profile(BaseModel):
     name: str
     device: str = "cpu"
@@ -129,6 +139,7 @@ class Profile(BaseModel):
     telemetry: TelemetryConfig = Field(default_factory=TelemetryConfig)
     stt: STTConfig = Field(default_factory=STTConfig)
     tts: TTSConfig = Field(default_factory=TTSConfig)
+    server: ServerConfig = Field(default_factory=ServerConfig)
 
 
 class HomeAssistantConfig(BaseModel):
@@ -168,6 +179,10 @@ class Paths(BaseModel):
     def telemetry_dir(self) -> Path:
         return self.data_dir / "logs" / "telemetry"
 
+    @property
+    def state_dir(self) -> Path:
+        return self.data_dir / "state"
+
 
 class Settings(BaseModel):
     assistant: AssistantConfig
@@ -202,13 +217,26 @@ def normalize_host(host: str) -> str:
     return f"{scheme}://{rest}"
 
 
-def load_secrets() -> Secrets:
-    token = os.environ.get("HA_TOKEN") or None
+def load_secrets(environ: Mapping[str, str] | None = None) -> Secrets:
+    env = os.environ if environ is None else environ
+    token = env.get("HA_TOKEN") or None
     return Secrets(
-        ollama_host=normalize_host(os.environ.get("OLLAMA_HOST") or "http://localhost:11434"),
-        ha_url=os.environ.get("HA_URL") or None,
+        ollama_host=normalize_host(env.get("OLLAMA_HOST") or "http://localhost:11434"),
+        ha_url=env.get("HA_URL") or None,
         ha_token=SecretStr(token) if token else None,
     )
+
+
+def reload_secrets(root: Path) -> Secrets:
+    """Re-read the root dotenv file, so a variable added there works without a restart.
+
+    Same rule as at startup (`load_dotenv(override=False)`): the process environment
+    wins. The file only fills variables the environment leaves unset or empty, so
+    changing a value that was already loaded still needs a restart.
+    """
+    in_file = {k: v for k, v in dotenv_values(root / ".env").items() if v}
+    in_env = {k: v for k, v in os.environ.items() if v}
+    return load_secrets({**in_file, **in_env})
 
 
 def load_settings(
