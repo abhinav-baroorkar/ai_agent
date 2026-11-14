@@ -69,12 +69,20 @@ def test_port_is_closed_sees_a_real_listener() -> None:
     assert launch.port_is_closed(port) is True
 
 
-def test_dead_proxy_port_avoids_a_listening_port_9() -> None:
+def test_dead_proxy_port_is_always_privileged() -> None:
     assert launch.dead_proxy_port(lambda p: True) == 9
-    picked = launch.dead_proxy_port(lambda p: p != 9)  # something listens on 9
-    assert picked != 9 and 1024 <= picked <= 65535
-    with pytest.raises(RuntimeError, match="no closed local port"):
-        launch.dead_proxy_port(lambda p: False)
+    assert launch.dead_proxy_port(lambda p: p != 9) == 1  # something listens on 9
+    assert launch.dead_proxy_port(lambda p: p not in (9, 1, 3)) == 5
+    tried: list[int] = []
+
+    def nothing_closed(port: int) -> bool:
+        tried.append(port)
+        return False
+
+    with pytest.raises(RuntimeError, match="no closed privileged local port"):
+        launch.dead_proxy_port(nothing_closed)
+    # Never an ephemeral port: every candidate is below 1024, port 9 first.
+    assert tried[0] == 9 and max(tried) < 1024 and len(tried) == len(set(tried)) == 512
 
 
 def test_window_uses_the_checked_proxy_port(

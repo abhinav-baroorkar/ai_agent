@@ -122,21 +122,22 @@ def port_is_closed(port: int, timeout_s: float = 0.3) -> bool:
         return sock.connect_ex(("127.0.0.1", port)) != 0
 
 
-def dead_proxy_port(is_closed: Callable[[int], bool] = port_is_closed) -> int:
-    """A local port nothing listens on, for the window's proxy that goes nowhere.
+def dead_proxy_candidates() -> tuple[int, ...]:
+    """Port 9 first, then the other odd ports below 1024."""
+    return (DEAD_PROXY_PORT, *(p for p in range(1, 1024, 2) if p != DEAD_PROXY_PORT))
 
-    Port 9 if it is closed; otherwise a port the OS just handed out and released.
-    If something listened there, the window's traffic would reach it instead.
+
+def dead_proxy_port(is_closed: Callable[[int], bool] = port_is_closed) -> int:
+    """A closed privileged local port, for the window's proxy that goes nowhere.
+
+    Only ports below 1024: no non-root process can bind them later, so nothing can
+    start listening there while the window is open and receive its proxied traffic
+    (CONNECT lines naming hosts, plain-HTTP URLs). An ephemeral port could be.
     """
-    if is_closed(DEAD_PROXY_PORT):
-        return DEAD_PROXY_PORT
-    for _ in range(20):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.bind(("127.0.0.1", 0))
-            port = int(sock.getsockname()[1])
+    for port in dead_proxy_candidates():
         if is_closed(port):
             return port
-    raise RuntimeError("found no closed local port for the window's dead proxy")
+    raise RuntimeError("found no closed privileged local port for the window's dead proxy")
 
 
 def browser_command(
