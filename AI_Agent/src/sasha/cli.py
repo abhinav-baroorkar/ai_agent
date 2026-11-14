@@ -1,4 +1,4 @@
-"""Command line: `sasha chat` (text-only loop) and `sasha doctor` (connectivity checks)."""
+"""Command line: `sasha chat` (text loop), `doctor`, `serve` and `window` (brain server)."""
 
 from __future__ import annotations
 
@@ -147,6 +147,13 @@ def build_parser() -> argparse.ArgumentParser:
     chat.add_argument("--timing", action="store_true", help="Print per-stage latency")
     chat.add_argument("--small", action="store_true", help="Use the profile's small_model")
     sub.add_parser("doctor", help="Check Ollama and Home Assistant connectivity")
+    for name, text in (
+        ("serve", "Run the brain server (HTTP + WebSocket + web UI)"),
+        ("window", "Open the assistant in an app window (starts the server if needed)"),
+    ):
+        cmd = sub.add_parser(name, help=text)
+        cmd.add_argument("--host", help="Loopback address to use (default from the profile)")
+        cmd.add_argument("--port", type=int, help="Port (default from the profile)")
     return p
 
 
@@ -159,6 +166,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     if args.command == "doctor":
         return run_doctor(settings)
+    if args.command in ("serve", "window"):
+        from sasha.server.launch import open_window, run_server  # FastAPI only when needed
+
+        run = run_server if args.command == "serve" else open_window
+        return run(settings, host=args.host, port=args.port)
     assistant, warnings = make_assistant(settings, small=getattr(args, "small", False))
     for w in warnings:
         print(f"[warn] {w}")
