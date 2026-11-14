@@ -79,6 +79,24 @@ One role per session. Add or drop roles as the work needs.
   or addresses in any committed file. Say "the owner" and "household members".
 - Never put real data from work systems through a session (owner's standing rule).
 
+## Stay inside the project folder (owner's rule, 2026-11-14, strict)
+
+- Change nothing outside the project folder (the repo root). No other folder, no
+  other project. Reading elsewhere is allowed; writing, moving and deleting are not.
+- That includes caches and downloads. Before any install or model download, set
+  (with `SASHA_ROOT` pointing at the repo root):
+  ```
+  export HF_HOME=$SASHA_ROOT/Dependencies/hf
+  export UV_CACHE_DIR=$SASHA_ROOT/Dependencies/uv-cache
+  export XDG_CACHE_HOME=$SASHA_ROOT/Dependencies/cache
+  ```
+  Still don't set `UV_PROJECT_ENVIRONMENT`: each worktree keeps its own `.venv`.
+- Any program the project starts keeps its files inside the project too. A browser
+  window uses `--user-data-dir` under `Data/`.
+- Don't pull or delete Ollama models; use the ones already installed.
+- If a session already wrote something outside the folder, it does not delete it. It
+  tells Primary the path.
+
 ## Where documentation lives
 
 | Folder | Reader | Content |

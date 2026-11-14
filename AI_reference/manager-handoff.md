@@ -22,6 +22,9 @@ Last updated: 2026-11-14, late evening.
 - Flow per task: brief → worker commits on its branch → Primary sends the branch
   to the reviewer → worker fixes findings → reviewer approves → Primary merges
   and pushes. Nothing is posted on GitHub except the pushed commits.
+- **Strict rule (owner, 2026-11-14):** no session changes anything outside the
+  project folder. Reading elsewhere is fine. Caches and downloads go under
+  `Dependencies/`, a browser profile under `Data/`. Details in `team.md`.
 - Shared team files (git-ignored, local): `Dependencies/team/team-rules.md` and
   `Dependencies/team/api-contract.md`. The contract is also committed as
   `AI_reference/api-contract.md` once the server branch lands.
