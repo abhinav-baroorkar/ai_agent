@@ -78,6 +78,13 @@ stages in after it lands), `docs/scope-refresh` any time. `pyproject.toml` and
   hook blocked reading that folder, so it has not been opened. Its code must
   not be copied into this public repo unless the owner confirms he owns it.
 - Which Meta device he has; the TV model.
+- **GPL text-to-phoneme packages for the English voice.** The voice is Kokoro-82M via
+  `kokoro-onnx` (weights Apache-2.0, `kokoro-onnx` MIT). It depends on two GPL-3.0
+  packages, `phonemizer` and `espeakng-loader` (bundles espeak-ng). Tonight's
+  decision: keep them only in the optional `voice` extra, imported lazily, nothing
+  GPL vendored or committed. Open question: keep them as an optional install, or
+  spend time on a GPL-free path (lexicon-based G2P plus our own small ONNX runner,
+  worse on unknown words)?
 
 ## How to resume if the manager session is new
 
