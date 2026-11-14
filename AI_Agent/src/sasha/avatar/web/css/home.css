@@ -1,6 +1,6 @@
 /* Home: the face fills the room; controls sit in a quiet dock at the bottom. */
 .home {
-  display: grid; grid-template-rows: auto 1fr auto auto;
+  position: relative; display: grid; grid-template-rows: auto 1fr auto auto;
   padding: 18px max(20px, 2.5vw) 20px;
   background: radial-gradient(90vmin 70vmin at 50% 42%, #152030 0%, var(--bg) 70%);
 }
@@ -11,43 +11,12 @@
 
 .stage { min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr) auto; justify-items: center; gap: 3.5vh; padding-top: 2vh; }
 
-/* ---------- The face ---------- */
-.face { --glow: var(--lamp); --lvl: 0; height: 100%; aspect-ratio: 1; max-width: 100%; min-height: 0; }
-.face svg { width: 100%; height: 100%; display: block; overflow: visible; }
-.face[data-state="listening"] { --glow: var(--listen); }
-.face[data-state="thinking"] { --glow: var(--think); }
-.face * { transform-box: fill-box; transform-origin: center; }
-
-.halo { animation: breathe 5.5s ease-in-out infinite; transition: opacity .4s; }
-.head { animation: bob 5.5s ease-in-out infinite; }
-.skull { stroke: var(--glow); stroke-opacity: .34; stroke-width: 1.5; transition: stroke .4s; }
-.cheek { fill: var(--glow); opacity: .13; transition: fill .4s; }
-.eye { fill: var(--glow); transition: fill .4s; filter: drop-shadow(0 0 7px color-mix(in srgb, var(--glow) 60%, transparent)); }
-.eyes { transition: transform .45s var(--ease); }
-.eyes.blink .eye { transform: scaleY(.08); transition: transform .07s; }
-.mouth { fill: #0a0e13; stroke: var(--glow); stroke-width: 5; stroke-linejoin: round; stroke-linecap: round; transition: stroke .4s; }
-
-@keyframes breathe { 50% { transform: scale(1.045); } }
-@keyframes bob { 50% { transform: translateY(-3px); } }
-
-/* listening: a ring that swells with the microphone level */
-.ring {
-  stroke: var(--listen); stroke-width: 4; opacity: 0;
-  transform: scale(calc(.94 + var(--lvl) * .07));
-  filter: drop-shadow(0 0 8px var(--listen)) drop-shadow(0 0 22px var(--listen));
-  transition: opacity .3s, transform .09s linear;
-}
-.face[data-state="listening"] .ring { opacity: .9; }
-.face[data-state="listening"] .eyes { transform: scale(1.1); }
-
-/* thinking: eyes drift up, three dots circle the head */
-.orbit { fill: var(--think); opacity: 0; transform-box: view-box; transform-origin: 200px 200px; transition: opacity .3s; }
-.face[data-state="thinking"] .orbit { opacity: 1; animation: orbit 2.6s linear infinite; }
-.face[data-state="thinking"] .eyes { transform: translate(9px, -12px) scale(.9); }
-@keyframes orbit { to { transform: rotate(360deg); } }
-
-/* speaking: the halo brightens with the voice */
-.face[data-state="speaking"] .halo { opacity: calc(1 + var(--lvl)); animation-duration: 3s; }
+/* ---------- The face ----------
+   The character is drawn by one of the modules in js/faces/ into this box.
+   Canvas faces overscan the box so their glow can spill past it. */
+.face { position: relative; height: 100%; aspect-ratio: 1; max-width: 100%; min-height: 0; }
+.face-canvas { position: absolute; left: 50%; top: 50%; translate: -50% -50%; pointer-events: none; }
+.face > svg { position: absolute; inset: -12%; width: 124%; height: 124%; overflow: visible; }
 
 /* ---------- Subtitles ---------- */
 .subtitles {
@@ -60,13 +29,40 @@
 .heard:not(:empty)::after { content: "”"; }
 .heard.partial { opacity: .65; }
 .said {
-  font-size: clamp(1.15rem, 2.3vh, 1.6rem); line-height: 1.55; font-weight: 500; text-wrap: balance;
+  font-size: clamp(1.15rem, 2.3vh, 1.6rem); line-height: 1.55; font-weight: 500;
   max-height: 4.65em; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end;
 }
-.notice { color: var(--warn); font-size: .9rem; }
+/* Long answers: the newest three lines stay, older text fades out at the top. */
+.said.long { -webkit-mask-image: linear-gradient(transparent, #000 55%); mask-image: linear-gradient(transparent, #000 55%); }
+.notice { align-self: center; max-width: 38rem; padding: .5rem .9rem; border-radius: var(--r); color: var(--warn); font-size: .9rem; line-height: 1.5;
+  background: color-mix(in srgb, var(--warn) 9%, transparent); border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent); }
+
+/* History drawer */
+.drawer {
+  position: absolute; z-index: 5; inset: 0 0 0 auto; width: min(26rem, 100%);
+  display: grid; grid-template-rows: auto minmax(0, 1fr); background: var(--bg-2); border-left: 1px solid var(--line);
+  box-shadow: -24px 0 60px rgb(0 0 0 / .45);
+}
+.drawer header { display: flex; align-items: center; justify-content: space-between; padding: .9rem .8rem .9rem 1.2rem; border-bottom: 1px solid var(--line); }
+.drawer ol { margin: 0; padding: 1.1rem 1.2rem; list-style: none; overflow-y: auto; display: grid; gap: 1.2rem; align-content: start; }
+.drawer li { display: grid; gap: .3rem; line-height: 1.6; overflow-wrap: anywhere; }
+.drawer .h-heard { color: var(--muted); }
+.drawer .h-chips { display: flex; flex-wrap: wrap; gap: .35rem; }
+.drawer-empty { padding: 1.2rem; color: var(--muted); }
 
 /* ---------- Dock ---------- */
-.dock { display: flex; align-items: center; justify-content: center; gap: .7rem; flex-wrap: wrap; }
+.base { display: grid; grid-template-columns: minmax(0, 1fr) minmax(auto, 46rem) minmax(0, 1fr); align-items: end; gap: 1rem; }
+.dock { grid-column: 2; display: flex; align-items: center; justify-content: center; gap: .7rem; flex-wrap: wrap; }
+
+/* Instrument labels in the corners: small, dim, only facts. */
+.readout { display: grid; gap: .3rem; font-size: .78rem; color: var(--muted); }
+.readout > div { display: flex; gap: .7em; align-items: baseline; }
+.readout dt { width: 6.2em; flex: none; font-size: .66rem; letter-spacing: .1em; text-transform: uppercase; color: #5f6d7e; }
+.readout dd { font-family: var(--mono); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.readout.right { justify-self: end; }
+.readout dd[data-tone="bad"] { color: var(--bad); }
+.readout dd[data-tone="ok"] { color: var(--text); }
+#r-time { color: var(--text); }
 .mic {
   display: inline-flex; align-items: center; gap: .6em;
   height: 52px; padding: 0 1.5em 0 1.2em; border-radius: 99px; cursor: pointer;
@@ -75,15 +71,13 @@
 }
 .mic .ico { width: 1.35em; height: 1.35em; }
 .mic:hover { background: #f8d7a6; }
+.mic[data-blocked="true"] { background: var(--surface-2); color: var(--warn); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 50%, transparent); }
 .mic[aria-pressed="true"] { background: var(--listen); box-shadow: 0 0 0 6px color-mix(in srgb, var(--listen) 22%, transparent); }
-.say { display: flex; gap: .4rem; width: min(26rem, 100%); }
+.say { display: flex; gap: .4rem; flex: 0 1 26rem; min-width: 12rem; }
 .say input { height: 42px; border-radius: 99px; padding-inline: 1.1em; background: rgb(17 24 34 / .8); }
 .say .btn { border-radius: 50%; width: 42px; min-height: 42px; }
 .dock .danger { border-radius: 99px; min-height: 42px; }
 .voice-hint { margin-top: .7rem; text-align: center; color: var(--muted); font-size: .85rem; }
 
 @media (max-height: 560px) { .subtitles { min-height: 4.4rem; } .said { max-height: 3.1em; } }
-@media (prefers-reduced-motion: reduce) {
-  .face[data-state="thinking"] .orbit { animation: none !important; }
-  .ring { transform: none; }
-}
+@media (max-width: 900px) { .readout { display: none; } .base { grid-template-columns: 1fr; } .dock { grid-column: 1; } }

@@ -8,9 +8,10 @@ const RETRY_MIN = 800;
 const RETRY_MAX = 10000;
 
 export class Conversation extends EventTarget {
-  constructor(botId) {
+  constructor(botId, { speak = false } = {}) {
     super();
     this.botId = botId;
+    this.speak = speak;
     this.online = false;
     this.state = 'idle';
     this.closed = false;
@@ -23,7 +24,7 @@ export class Conversation extends EventTarget {
     if (this.closed) return;
     let ws;
     try {
-      ws = openSocket(this.botId);
+      ws = openSocket(this.botId, this.speak);
     } catch {
       this.scheduleRetry();
       return;

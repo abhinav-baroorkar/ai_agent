@@ -57,11 +57,18 @@ export async function mockFetch(method, path, body) {
   throw fail(404, 'Not found.');
 }
 
-let turn = 0;
+// Typed text is matched to the scripted turn it is about, so the answer fits the question.
+function pick(text, sock) {
+  const t = text.toLowerCase();
+  const hit = data.script.find((s) => s.keys.every((k) => t.includes(k)));
+  return hit || { heard: text, tool: null, reply: `This is the mock, so I only know a few lines. Try: “${data.script[sock.turn++ % data.script.length].heard}”.` };
+}
 
 export class MockSocket {
-  constructor(botId) {
+  constructor(botId, speak = false) {
     this.botId = botId;
+    this.speaks = speak;
+    this.turn = 0;
     this.timers = new Set();
     this.heardTimer = null;
     this.run = 0;
@@ -103,7 +110,7 @@ export class MockSocket {
   send(raw) {
     if (typeof raw !== 'string') return; // mic frames: the mock ignores the sound
     const msg = JSON.parse(raw);
-    if (msg.type === 'text') this.answer(data.script[turn++ % data.script.length], false);
+    if (msg.type === 'text') this.answer(pick(msg.text, this), false);
     if (msg.type === 'audio_start') this.listen();
     if (msg.type === 'audio_stop') this.heardDone();
     if (msg.type === 'cancel' || msg.type === 'reset') {
@@ -118,7 +125,7 @@ export class MockSocket {
       return;
     }
     this.stopAll();
-    this.step = data.script[turn++ % data.script.length];
+    this.step = data.script[this.turn++ % data.script.length];
     this.emit({ type: 'state', state: 'listening' });
     const words = this.step.heard.split(' ');
     let n = 0;
@@ -160,7 +167,8 @@ export class MockSocket {
     }
     const total = Math.round(performance.now() - started);
     this.emit({ type: 'reply', text: step.reply, tool_calls: step.tool ? [step.tool] : [], timing: { total_ms: total, tokens_per_s: 38.4 } });
-    if (data.health.voice.tts) await this.speak(step.reply);
+    const lang = /[\u0900-\u097F]/.test(step.reply) ? 'mr' : 'en';
+    if (this.speaks && data.health.voice.tts && data.health.voice.tts_languages.includes(lang)) await this.speak(step.reply);
     this.emit({ type: 'state', state: 'idle' });
   }
 

@@ -7,7 +7,7 @@ export const health = {
   assistant: { name: params.get('name') || 'Mira', pronouns: { subject: 'she', object: 'her', possessive: 'her' } },
   profile: 'laptop (mock)',
   default_bot: 'main',
-  voice: { stt: params.get('voice') !== '0', tts: params.get('voice') !== '0' },
+  voice: { stt: params.get('voice') !== '0', tts: params.get('voice') !== '0', tts_languages: ['en'] },
 };
 
 export const models = [
@@ -31,9 +31,9 @@ export const connectors = [
 
 // The scripted conversation. Each turn: what was heard, an optional tool, the answer.
 export const script = [
-  { heard: 'Turn on the living room lamp', tool: { name: 'turn_on', ok: true }, reply: 'Done. The living room lamp is on at forty percent.' },
-  { heard: 'दिवाणखान्यातला दिवा बंद कर', tool: { name: 'turn_off', ok: true }, reply: 'ठीक आहे, दिवाणखान्यातला दिवा बंद केला.' },
-  { heard: 'Is the front door locked?', tool: { name: 'get_state', ok: true }, reply: 'Yes. The front door has been locked since nine this evening.' },
-  { heard: 'What is on the calendar tomorrow?', tool: null, reply: 'The calendar connector is switched off, so I can’t see tomorrow yet. You can turn it on in Settings.' },
-  { heard: 'Set the bedroom to movie mode', tool: { name: 'activate_scene', ok: false }, reply: 'I couldn’t do that. There is no scene called movie mode in the bedroom. The scenes I can see are Reading and Night.' },
+  { keys: ['on', 'lamp'], heard: 'Turn on the living room lamp', tool: { name: 'turn_on', ok: true }, reply: 'Done. The living room lamp is on at forty percent.' },
+  { keys: ['बंद'], heard: 'दिवाणखान्यातला दिवा बंद कर', tool: { name: 'turn_off', ok: true }, reply: 'ठीक आहे, दिवाणखान्यातला दिवा बंद केला.' },
+  { keys: ['door'], heard: 'Is the front door locked?', tool: { name: 'get_state', ok: true }, reply: 'Yes. The front door has been locked since nine this evening.' },
+  { keys: ['calendar'], heard: 'What is on the calendar tomorrow?', tool: null, reply: 'The calendar connector is switched off, so I can’t see tomorrow yet. You can turn it on in Settings.' },
+  { keys: ['movie'], heard: 'Set the bedroom to movie mode', tool: { name: 'activate_scene', ok: false }, reply: 'I couldn’t do that. There is no scene called movie mode in the bedroom. The scenes I can see are Reading and Night.' },
 ];

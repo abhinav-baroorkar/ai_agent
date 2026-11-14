@@ -1,21 +1,21 @@
 // Home screen: the face, subtitles, mic, typed fallback and Stop.
 import { MOCK } from './api.js';
 import { $, setText } from './dom.js';
-import { Face } from './face.js';
+import { createFace } from './face.js';
 import { Conversation } from './socket.js';
 import { SpeechPlayer } from './audio-out.js';
 import { Mic, micErrorText } from './audio-in.js';
 
 const LABEL = { idle: 'Ready', listening: 'Listening', thinking: 'Thinking', speaking: 'Speaking' };
 
-export function initHome(health, onOnline) {
+export async function initHome(health, onOnline) {
   const el = {
     status: $('#home-status'), heard: $('#heard'), said: $('#said'), notice: $('#notice'),
     mic: $('#mic'), micLabel: $('#mic-label'), micIcon: $('#mic use'),
     form: $('#say-form'), text: $('#say-text'), cancel: $('#cancel'), hint: $('#voice-hint'),
   };
-  const face = new Face($('#face'));
-  const conv = new Conversation(health.default_bot);
+  const face = await createFace($('#face'));
+  const conv = new Conversation(health.default_bot, { speak: true });
   const player = new SpeechPlayer({ muted: MOCK, onChange: () => render() });
   const mic = new Mic();
   const canListen = !!health.voice.stt && (MOCK || Mic.supported());

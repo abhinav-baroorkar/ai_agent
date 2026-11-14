@@ -29,10 +29,11 @@ export async function api(method, path, body) {
   }
 }
 
-export function openSocket(botId) {
-  if (mock) return new mock.MockSocket(botId);
+// speak: ask the server to also send speech for this conversation (Home only).
+export function openSocket(botId, speak = false) {
+  if (mock) return new mock.MockSocket(botId, speak);
   const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
-  const ws = new WebSocket(`${scheme}://${location.host}/ws?bot=${encodeURIComponent(botId)}`);
+  const ws = new WebSocket(`${scheme}://${location.host}/ws?bot=${encodeURIComponent(botId)}${speak ? '&speak=1' : ''}`);
   ws.binaryType = 'arraybuffer';
   return ws;
 }
