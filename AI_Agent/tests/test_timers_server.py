@@ -55,12 +55,18 @@ def test_routes(settings: Settings, tmp_path: Path) -> None:
     assert listed["now"].endswith("+02:30") and len(listed["timers"]) == 2
     assert client.delete(f"/api/timers/{waiting.id}").status_code == 409  # use dismiss
     assert client.delete("/api/timers/nope").status_code == 404
-    r = client.post(f"/api/timers/{waiting.id}/dismiss", json={})
+    form = {"Content-Type": "application/x-www-form-urlencoded"}
+    assert (
+        client.post(f"/api/timers/{waiting.id}/dismiss", content="a=1", headers=form).status_code
+        == 415
+    )
+    r = client.post(f"/api/timers/{waiting.id}/dismiss")  # no body: how the Home card sends it
     assert r.status_code == 200 and r.json()["state"] == "done"
     assert client.delete(f"/api/timers/{scheduled.id}").json() == {"ok": True}
     assert service.items[scheduled.id].state == "done"
     assert client.post(f"/api/timers/{scheduled.id}/snooze", json={"minutes": 0}).status_code == 400
     assert client.post(f"/api/timers/{scheduled.id}/dismiss", content="{}").status_code == 415
+    assert client.post(f"/api/timers/{scheduled.id}/say").status_code == 409  # nothing connected
 
 
 @pytest.mark.parametrize(

@@ -1,5 +1,5 @@
 """`/api/timers` (contract v0.3). Behind the app's Host and Origin checks like every
-route; POSTs also need a JSON body (`{}` is fine), D5. `say` returns plain text only."""
+route; a POST body must be JSON (dismiss and say may have none), D5."""
 
 from __future__ import annotations
 
@@ -22,6 +22,13 @@ def _refused(exc: TimerError) -> JSONResponse:
 
 
 def add_timer_routes(app: FastAPI, service: TimerService, hub: Hub, json_body: JsonBody) -> None:
+    async def body_or_none(request: Request) -> dict[str, Any]:
+        """No body and no content type (the Home card's dismiss and say) is fine; any
+        body must be JSON, so a cross-site form post is still refused (415)."""
+        if "content-type" not in request.headers and not await request.body():
+            return {}
+        return await json_body(request)
+
     @app.exception_handler(TimerError)
     async def _timer_error(_: Request, exc: TimerError) -> JSONResponse:
         return _refused(exc)
@@ -37,7 +44,7 @@ def add_timer_routes(app: FastAPI, service: TimerService, hub: Hub, json_body: J
 
     @app.post("/api/timers/{item_id}/dismiss")
     async def dismiss(item_id: str, request: Request) -> dict[str, Any]:
-        await json_body(request)
+        await body_or_none(request)
         item = await run_in_threadpool(service.dismiss, item_id)
         return item.to_api(service.zone)
 
@@ -52,7 +59,7 @@ def add_timer_routes(app: FastAPI, service: TimerService, hub: Hub, json_body: J
 
     @app.post("/api/timers/{item_id}/say")
     async def say(item_id: str, request: Request) -> dict[str, Any]:
-        await json_body(request)
+        await body_or_none(request)
         with service.lock:
             item = service.get(item_id)
         if not hub.say_text(item):

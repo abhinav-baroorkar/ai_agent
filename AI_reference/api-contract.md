@@ -159,7 +159,8 @@ dismisses, snoozes and replays them. There is no create route in v0.3.
 - `created_by:"wake"` items are marked as voice-made on the card.
 
 All HTTP routes above sit behind the same Host, Origin and JSON content-type checks
-as every other route.
+as every other route. `dismiss` and `say` may be sent with no body at all; any body
+that is sent must be JSON (`415` otherwise).
 
 WebSocket, server → every socket:
 - `{type:"timers", now, timers:[Timer]}`: on connect, and after every change (create,
