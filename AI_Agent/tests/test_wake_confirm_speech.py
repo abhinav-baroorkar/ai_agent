@@ -3,17 +3,82 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from sasha.config import Settings
 from sasha.pipeline.llm import ToolCall
+from sasha.pipeline.tts import SpeechAudio
 from sasha.server.wake_confirm import PlaybackClock
 from tests.server_fakes import WS, FakeTTS, resp
 from tests.wake_fakes import frames, listen, make, segment, turn_frames, with_devices
 
 OFF_ALL = ToolCall("call_service", {"domain": "light", "service": "turn_off", "entity_id": "all"})
+
+
+class QuestionHoldTTS(FakeTTS):
+    """Speaks normally, but holds the confirmation question until `release`."""
+
+    def stream(self, text: str, language: str) -> Iterator[SpeechAudio]:
+        self.spoken.append((text, language))
+        yield SpeechAudio(b"\x01\x00" * 720, self.sample_rate)
+        if text.startswith("Should I"):
+            self.release.wait(5)
+        yield SpeechAudio(b"\x01\x00" * 720, self.sample_rate)
+
+
+def _types(items: list[Any]) -> list[str]:
+    return [f["type"] if isinstance(f, dict) else "<audio>" for f in items]
+
+
+def test_w1_confirm_comes_after_the_earlier_speech_ends(settings: Settings, tmp_path: Path) -> None:
+    """Speech before the tool call ends (tts_end) before `confirm`; then the question."""
+    name = settings.assistant.wake_word.phrase
+    h, stt = make(settings, tmp_path, tts=FakeTTS(), speaking_tail_s=0.05)
+    with_devices(h)
+    stt.say(f"{name}, turn off all the lights", "yes")
+    before = resp("Let me check that for you.", [OFF_ALL])
+    h.llm("big-model").responses = [before, resp("Done.")]
+    with h.client().websocket_connect(f"{WS}/ws?wake=1&speak=1") as ws:
+        listen(ws)
+        segment(ws)
+        before_confirm = _types(frames(ws, "confirm"))
+        question = _types(frames(ws, "tts_end"))  # the question's own utterance
+        segment(ws)
+        turn_frames(ws)
+    # The earlier speech started and ended before `confirm` ...
+    assert before_confirm.index("tts_start") < before_confirm.index("tts_end")
+    # ... so the listener's next tts_end after `confirm` is the question's.
+    assert question.count("tts_start") == 1 and question.count("tts_end") == 1
+    assert question.index("tts_start") < question.index("tts_end")
+
+
+def test_w2_cancel_during_the_question_ends_at_once(settings: Settings, tmp_path: Path) -> None:
+    name = settings.assistant.wake_word.phrase
+    tts = QuestionHoldTTS()
+    h, stt = make(settings, tmp_path, tts=tts, speaking_tail_s=0.05)
+    dev = with_devices(h)
+    stt.say(f"{name}, turn off all the lights")
+    h.llm("big-model").responses = [resp("", [OFF_ALL]), resp("Okay.")]
+    with h.client().websocket_connect(f"{WS}/ws?wake=1&speak=1") as ws:
+        listen(ws)
+        segment(ws)
+        frames(ws, "confirm")
+        frames(ws, "tts_start")  # the question is being spoken (and held)
+        segment(ws)  # a segment before the question ended: not an answer
+        early = frames(ws, "wake")
+        started = time.perf_counter()
+        ws.send_json({"type": "cancel"})
+        rest = turn_frames(ws)
+        elapsed = time.perf_counter() - started
+        tts.release.set()  # let the held speech thread finish before the socket closes
+    assert early[-1] == {"type": "wake", "heard": False, "command": False}
+    assert stt.calls == 1  # the early segment was never transcribed
+    assert {"type": "confirm_result", "accepted": False, "reason": "no"} in rest
+    assert dev.calls == [] and elapsed < 3  # no waiting out the 5 s window
 
 
 class Clock:
