@@ -92,6 +92,7 @@ class BrowserConversation:
     started: float = 0.0
     chrome_id: int = field(default=0)
     queries: list[str] = field(default_factory=list)  # this turn's searches
+    owner_stops: int = 0  # the service's count when this turn began
 
     def _turn(self) -> tuple[str, ...]:
         ctx = current_turn.get()
@@ -102,6 +103,9 @@ class BrowserConversation:
         if ctx.turn_id != self.turn_id:
             self.turn_id, self.steps, self.started = ctx.turn_id, 0, time.monotonic()
             self.queries = []
+            self.owner_stops = self.bridge.service.owner_stops
+        if self.bridge.service.owner_stops != self.owner_stops:
+            raise ToolError("The owner stopped the browser")
         self.steps += 1
         if self.steps > STEPS_PER_TURN:
             raise ToolError(f"Browser step limit reached ({STEPS_PER_TURN} per request)")

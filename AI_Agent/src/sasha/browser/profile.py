@@ -25,6 +25,7 @@ log = logging.getLogger(__name__)
 MARKER = ".sasha-browser-profile"
 FOLDER = "browser-profile"
 FREE_WAIT_S = 5.0
+CHROME_LINKS = "Singleton"  # Chrome's own lock links at the top of the profile
 
 
 class ProfileError(RuntimeError):
@@ -51,6 +52,12 @@ def verify_profile(path: Path) -> Path:
             f"The browser profile {path} wasn't made by the assistant (no marker); "
             f"refusing to use or clean it. {_reset_hint(path)}"
         )
+    for entry in path.iterdir():  # e.g. Default linked to the owner's real profile
+        if entry.is_symlink() and not entry.name.startswith(CHROME_LINKS):
+            raise ProfileError(
+                f"The browser profile {path} has a link ({entry.name}); refusing. "
+                f"{_reset_hint(path)}"
+            )
     return path.resolve(strict=True)
 
 
@@ -80,22 +87,29 @@ def _alive(pid: int) -> bool:
     return True
 
 
-def in_use(root: Path) -> bool:
-    """True while any process has its working directory in the profile or was started
-    with it as `--user-data-dir`, or the profile's SingletonLock names a live pid."""
+def _uses(pid: int, root: Path) -> bool:
+    """Whether process `pid` works in the profile or was started with it as
+    `--user-data-dir`."""
+    with contextlib.suppress(OSError):
+        cwd = Path(os.readlink(f"/proc/{pid}/cwd"))
+        if cwd == root or root in cwd.parents:
+            return True
     flag = f"--user-data-dir={root}"
-    for pid in _pids():
-        with contextlib.suppress(OSError):
-            cwd = Path(os.readlink(f"/proc/{pid}/cwd"))
-            if cwd == root or root in cwd.parents:
-                return True
-        with contextlib.suppress(OSError):
-            args = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
-            if any(a.decode(errors="replace").startswith(flag) for a in args):
-                return True
+    with contextlib.suppress(OSError):
+        args = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+        return any(a.decode(errors="replace").startswith(flag) for a in args)
+    return False
+
+
+def in_use(root: Path) -> bool:
+    """True while any process uses the profile (`_uses`). The SingletonLock's pid
+    counts only if that process uses this profile (a reused pid doesn't)."""
+    if any(_uses(pid, root) for pid in _pids()):
+        return True
     with contextlib.suppress(OSError, ValueError):
         target = os.readlink(root / "SingletonLock")  # "<host>-<pid>"
-        return _alive(int(target.rsplit("-", 1)[1]))
+        pid = int(target.rsplit("-", 1)[1])
+        return _alive(pid) and _uses(pid, root)
     return False
 
 

@@ -30,3 +30,10 @@ current_turn: contextvars.ContextVar[TurnContext | None] = contextvars.ContextVa
 
 def new_turn(user_messages: tuple[str, ...], input_mode: str) -> TurnContext:
     return TurnContext(user_messages, input_mode, next(_turn_ids))
+
+
+# Which bot a conversation's tools are being built for (set by `make_assistant`), so a
+# connector can tell whose conversation it serves (the browser live view's holder_bot).
+building_for_bot: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "building_for_bot", default=None
+)

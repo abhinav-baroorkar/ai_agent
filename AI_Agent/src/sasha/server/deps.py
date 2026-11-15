@@ -12,6 +12,7 @@ from typing import Any
 from sasha.bots import Bot, BotStore
 from sasha.config import Settings, reload_secrets
 from sasha.connectors import ConnectorRegistry, HomeAssistantConnector, build_connectors
+from sasha.conversation import building_for_bot
 from sasha.orchestrator import Assistant
 from sasha.pipeline.llm import LLM, OllamaLLM
 from sasha.pipeline.stt import SpeechToText
@@ -58,7 +59,11 @@ class ServerDeps:
 
     def make_assistant(self, bot: Bot) -> tuple[Assistant, list[str]]:
         """A fresh conversation for `bot`, with its connectors' tools and the clock."""
-        tools, warnings = self.connectors.tools_for(bot.connectors)
+        token = building_for_bot.set(bot.id)  # the browser notes whose conversation it is
+        try:
+            tools, warnings = self.connectors.tools_for(bot.connectors)
+        finally:
+            building_for_bot.reset(token)
         if CLOCK_TOOL not in tools:
             tools.register(clock_tool())  # every bot: read-only, so no guessed times
         assistant = Assistant(

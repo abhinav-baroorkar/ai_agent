@@ -18,6 +18,7 @@ from sasha.bots import BOT_ID_RE, MAIN_ID, VOICE_ID, BotError, BotNotFound, pars
 from sasha.browser.hooks import attach_browser
 from sasha.connectors import ConnectorError
 from sasha.pipeline.llm import OllamaError
+from sasha.server.browser_view import BROWSER_SOCKETS, add_browser_routes
 from sasha.server.deps import ServerDeps
 from sasha.server.security import LocalOnlyMiddleware, allowed_hosts, allowed_origins
 from sasha.server.speaking import SpeakingTracker
@@ -121,7 +122,11 @@ def create_app(deps: ServerDeps, web_dir: Path | None = WEB_DIR) -> FastAPI:
                 "tts_languages": voice.languages,
             },
             "wake": {"available": voice.stt is not None},
-            "limits": {"max_sockets": server.max_sockets, "reserved_sockets": RESERVED_SOCKETS},
+            "limits": {
+                "max_sockets": server.max_sockets,
+                "reserved_sockets": RESERVED_SOCKETS,
+                "browser_sockets": BROWSER_SOCKETS,  # the live view's own slot (v0.4)
+            },
         }
 
     @app.get("/api/models")
@@ -175,6 +180,8 @@ def create_app(deps: ServerDeps, web_dir: Path | None = WEB_DIR) -> FastAPI:
     def test_connector(connector_id: str) -> dict[str, Any]:
         result = deps.connectors.test(connector_id)
         return {"ok": result.ok, "message": result.message}
+
+    app.state.browser_view = add_browser_routes(app, deps)  # v0.4, before the static mount
 
     # --- conversation ----------------------------------------------------------
     async def refuse(websocket: WebSocket, reason: str, code: int = 1008) -> None:

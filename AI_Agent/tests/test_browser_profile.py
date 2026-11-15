@@ -47,8 +47,29 @@ def test_default_linked_out_of_the_profile_is_left_alone(tmp_path: Path) -> None
     root = prepare_profile(tmp_path)
     outside = _outside(tmp_path)
     (root / "Default").symlink_to(outside)
+    with pytest.raises(ProfileError, match=r"link \(Default\)"):
+        prepare_profile(tmp_path)  # Chrome would use it: refuse to start
     assert forget_history(root) == 0
     assert (outside / "History").exists() and (outside / "Cache").is_dir()
+
+
+def test_chromes_own_lock_links_are_fine(tmp_path: Path) -> None:
+    root = prepare_profile(tmp_path)
+    for name in ("SingletonLock", "SingletonCookie", "SingletonSocket"):
+        (root / name).symlink_to("host-999999999")
+    assert prepare_profile(tmp_path) == root
+
+
+def test_a_link_found_while_wiping_is_logged_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    import sasha.browser.history as history
+
+    root = prepare_profile(tmp_path)
+    (root / "Default").symlink_to(_outside(tmp_path))
+    monkeypatch.setattr(history, "verify_profile", lambda p: p.resolve())  # a late swap
+    assert forget_history(root) == 0
+    assert sum("under a link" in r.message for r in caplog.records) == 1
 
 
 def test_a_linked_profile_folder_is_refused(tmp_path: Path) -> None:
@@ -100,8 +121,17 @@ def test_no_wipe_while_a_process_uses_the_profile(tmp_path: Path) -> None:
     finally:
         sleeper.kill()
         sleeper.wait()
-    os.symlink(f"host-{os.getpid()}", root / "SingletonLock")  # a live pid holds the lock
-    assert in_use(root)
+    # a live pid in the lock counts only if that process uses this profile
+    os.symlink(f"host-{os.getpid()}", root / "SingletonLock")
+    assert not in_use(root)
+    holder = subprocess.Popen(["bash", "-c", "sleep 30; :", f"--user-data-dir={root}"])
+    try:
+        (root / "SingletonLock").unlink()
+        os.symlink(f"host-{holder.pid}", root / "SingletonLock")
+        assert in_use(root)
+    finally:
+        holder.kill()
+        holder.wait()
     (root / "SingletonLock").unlink()
     os.symlink("host-999999999", root / "SingletonLock")  # a stale lock
     assert not in_use(root)
