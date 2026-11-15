@@ -125,7 +125,7 @@ printed pan-tilt head (servos, ROS 2 Humble) come later. Original character only
 
 ## Roadmap and gates
 
-Each phase ends with a demo and a gate. Don't start the next phase until the
+Build order (set 2026-11-14, night): see "Build order" below. Each phase ends with a demo and a gate. Don't start the next phase until the
 gate passes, except Phase 1, which started early on the owner's instruction;
 the Phase 0 real-light gate stays open and must pass before the v0.1 release.
 
@@ -133,12 +133,45 @@ the Phase 0 real-light gate stays open and must pass before the v0.1 release.
 | --- | --- | --- | --- | --- |
 | 0 | Repo, config, telemetry, Ollama LLM stage, Home Assistant tool, text CLI | Telemetry on; first devlog | LLM turns on a real light via Home Assistant from the text CLI | Done except the real-light gate, which waits for Docker |
 | 1 | Brain server, main window with face, bots, connectors screen, English voice loop | Rename is config only; release v0.1 and demo clip | Lights work by voice in English | In progress |
-| 2 | Marathi: IndicConformer, IndicTrans2, Indic Parler-TTS, fast path | Record code-mixed command set; cascade vs direct; v0.2 | A Marathi light command works end to end | |
-| 3 | Speaker ID and permissions, pets, camera vision | Speaker ID by room, distance and noise | Guests can only control lights | |
+| 2 | Marathi: IndicConformer, IndicTrans2, Indic Parler-TTS, fast path | Record code-mixed command set; cascade vs direct; v0.2 | A Marathi light command works end to end | Postponed, conditional (see the build order) |
+| 3 | Speaker ID and permissions (software, in the build order below); pets and camera vision are device work, later | Speaker ID by room, distance and noise | Guests can only control lights | |
 | 4 | Gmail drafts, calendar brief, MCP connectors | Prompt-injection tests; demo video | Morning brief on screen; drafts only. Before Gmail work merges: ask the owner again about the send-guard exception | |
-| 5 | Satellites on other devices, wake-word arbitration | Which device should answer; Wi-Fi latency per satellite | Two devices hear one wake word, the right one answers | |
+| 5 | Satellites on other devices, wake-word arbitration (device work, later) | Which device should answer; Wi-Fi latency per satellite | Two devices hear one wake word, the right one answers | |
 | 6 | Jetson port and backup brain | Big vs small model: quality, latency, watts; paper draft | All tests pass on the Jetson | |
-| Later | 3D avatar, robot body | | | |
+| Later | 3D avatar, robot body (device work, later) | | | |
+
+### Build order (set 2026-11-14, night)
+
+- **For the first week: software only.** Device and robot work comes after that: Home Assistant
+  with real devices, cameras, pet devices, room-to-room announcements, satellites on other devices
+  and the robot body. Why: device work needs hands-on testing, scheduled after the first week.
+- **No "fun" features** (games, trivia, stories, a music visualiser).
+- The assistant's own browser stays the feature in flight next to timers, alarms and reminders.
+- Postponed, conditional: Marathi–English support (Phase 2). The owner's condition: the base assistant must keep working properly. Marathi support is optional and may only be added if it doesn't slow the English path (latency and GPU placement measured before and after); otherwise it stays out.
+- Everything else on the recommended list is built as current tasks end, in this order unless the
+  owner changes it:
+
+1. Timers, alarms and reminders.
+2. Memory ("remember that...").
+3. A morning brief. It needs calendar and mail, so the parked send-guard question is asked
+   before the mail part.
+4. Media control for whatever is playing.
+5. Questions about the owner's own files (local search).
+6. Scheduled routines.
+7. "What's on my screen" with a vision model.
+8. Computer helpers: open apps and sites, dictation, local meeting and voice-note
+   transcription, clipboard summary.
+9. Web search with a spoken summary (through the assistant's own browser).
+10. Calculation tools.
+11. Speaker ID with per-person profiles.
+12. Lists.
+13. Proactive reminders.
+14. MCP connectors with approvals, bot templates, and multi-step tasks with a plan.
+15. An activity log, "forget the last 5 minutes", and a visible everything-is-local status.
+
+Four items on this list handle very private data. Each gets a short design note and a review before any code, like the wake word and the browser: questions about the owner's files, "what's on my screen", dictation and meeting or voice-note transcription together with the clipboard helper, and speaker profiles. Each note says which folders or screens, what is stored and for how long, the visible sign, and how to turn it off.
+
+The phase gates above stay. Deferred device items are marked "device work, later".
 
 ## Research
 
