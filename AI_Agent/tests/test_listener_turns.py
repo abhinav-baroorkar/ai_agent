@@ -17,35 +17,37 @@ from sasha.listener.contracts import MIC_OPEN_STATES  # noqa: E402
 from sasha.listener.guards import GuardEvent  # noqa: E402
 from sasha.listener.listener import Listener  # noqa: E402
 from tests.listener_fakes import FakeIndicator  # noqa: E402
+from tests.listener_oracle import ChildOracle  # noqa: E402
 from tests.listener_rig import Rig, go, until  # noqa: E402
 
 
 class WatchedIndicator(FakeIndicator):
-    """Records every break of the visible-sign invariant: "a closed state is shown if
-    and only if no started capture is still un-killed" (kill issued, or never started).
-    Checked at each set_state call and right after each child has finished starting."""
+    """Records every break of the visible-sign invariant, judged by an oracle that does
+    not use the product's own predicate: a closed state may be shown only while every
+    fake-mic child is either gone (reaped) or has really been sent SIGKILL. Checked at
+    each set_state call and right after each child has finished starting."""
 
-    def __init__(self, rig: Rig) -> None:
+    def __init__(self, rig: Rig, oracle: ChildOracle) -> None:
         super().__init__()
         self.rig = rig
-        self.started: list[CaptureProcess] = []
+        self.oracle = oracle
         self.violations: list[str] = []
 
-    def mic_live(self) -> bool:
-        return any(p.live_or_starting for p in self.started)
-
     def check(self, state: str, when: str) -> None:
-        if (state in MIC_OPEN_STATES) != self.mic_live() and state not in MIC_OPEN_STATES:
-            self.violations.append(f"{when}: {state!r} shown while a capture is not killed")
+        if state not in MIC_OPEN_STATES and self.oracle.unsafe():
+            self.violations.append(f"{when}: {state!r} shown while a mic child is live")
 
     def set_state(self, state: str) -> None:
         self.check(state, "set_state")
         super().set_state(state)
 
 
-def _watched() -> Rig:
+def _watched(monkeypatch: pytest.MonkeyPatch) -> Rig:
     rig = Rig()
-    rig.indicator = WatchedIndicator(rig)
+    oracle = ChildOracle(rig.marker)
+    oracle.install(monkeypatch)
+    watched = WatchedIndicator(rig, oracle)
+    rig.indicator = watched
     real = rig.capture
 
     def capture() -> CaptureProcess:
@@ -53,11 +55,6 @@ def _watched() -> Rig:
         start = proc.start
 
         async def checked_start() -> None:
-            watched: WatchedIndicator = rig.indicator  # type: ignore[assignment]
-            last = watched.states[-1] if watched.states else "none"
-            if last not in MIC_OPEN_STATES:
-                watched.violations.append(f"capture starting while showing {last!r}")
-            watched.started.append(proc)
             await start()
             watched.check(watched.states[-1], "after start")
 
@@ -68,7 +65,7 @@ def _watched() -> Rig:
     return rig
 
 
-def test_capture_runs_only_while_a_mic_open_state_is_shown() -> None:
+def test_capture_runs_only_while_a_mic_open_state_is_shown(monkeypatch: pytest.MonkeyPatch) -> None:
     """Review L2: every transition of a full turn keeps the invariant."""
 
     async def reply(ws: Any) -> None:
@@ -93,7 +90,7 @@ def test_capture_runs_only_while_a_mic_open_state_is_shown() -> None:
         await until(lambda: not rig.mic_open)
         await asyncio.sleep(0.1)
 
-    rig = _watched()
+    rig = _watched(monkeypatch)
     asyncio.run(rig.run(body))
     assert rig.indicator.violations == []  # type: ignore[attr-defined]
     assert {"thinking", "speaking", "waiting", "paused"} <= set(rig.indicator.states)

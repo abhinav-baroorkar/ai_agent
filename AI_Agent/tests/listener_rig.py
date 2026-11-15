@@ -65,10 +65,11 @@ class Rig:
         self.healthy = healthy
         self.pattern = pattern or UTTERANCE
         self.captures: list[CaptureProcess] = []
+        self.marker = f"fake-mic-{id(self):x}"
         self.listener: Listener | None = None
 
     def capture(self) -> CaptureProcess:
-        proc = CaptureProcess(scripted_mic_command(self.pattern))
+        proc = CaptureProcess(scripted_mic_command(self.pattern, marker=self.marker))
         self.captures.append(proc)
         return proc
 

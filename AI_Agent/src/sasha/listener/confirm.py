@@ -54,6 +54,17 @@ class ConfirmWindow:
         if self.pending:
             self.open()
 
+    def speech_started(self) -> None:
+        """`tts_start` while the window is open and nothing was taken yet: the question
+        is only now being played (its audio was slower than the grace period), so go
+        back to pending; `speech_done` reopens with a fresh timer."""
+        if self.is_open:
+            self.state = "pending"
+            if self._timer is not None:
+                self._timer.cancel()
+                self._timer = None
+            self.on_change()
+
     def open(self) -> None:
         self.state = "open"
         self._restart_timer(self._expire())
@@ -86,3 +97,37 @@ class ConfirmWindow:
             timer.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await timer
+
+
+class StopWindow:
+    """Contract v0.3 `stop_window {id, timeout_s}`: while an item rings on the listener,
+    the brain says when the microphone may open for one short segment ("stop",
+    "snooze"). Opened only on that explicit event, never on a timer guess; closed by
+    the first segment, `stop_result`, `timer_stopped`, the next tone, or `timeout_s`."""
+
+    MAX_S = 8.0
+
+    def __init__(self, on_change: Callable[[], None]) -> None:
+        self.on_change = on_change
+        self.is_open = False
+        self._timer: asyncio.Task[None] | None = None
+
+    def open(self, timeout_s: float) -> None:
+        self.close(notify=False)
+        self.is_open = True
+        seconds = max(0.5, min(float(timeout_s or self.MAX_S), self.MAX_S))
+        self._timer = asyncio.get_running_loop().create_task(self._expire(seconds))
+        self.on_change()
+
+    async def _expire(self, seconds: float) -> None:
+        await asyncio.sleep(seconds)
+        self._timer = None
+        self.close()
+
+    def close(self, notify: bool = True) -> None:
+        was_open, self.is_open = self.is_open, False
+        if self._timer is not None and self._timer is not asyncio.current_task():
+            self._timer.cancel()
+        self._timer = None
+        if was_open and notify:
+            self.on_change()
