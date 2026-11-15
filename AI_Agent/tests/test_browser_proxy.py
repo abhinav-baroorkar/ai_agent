@@ -191,3 +191,18 @@ def test_two_content_length_headers_are_refused() -> None:
     )
     out, _, connected = run({"public.example": [PUBLIC]}, (req, b""))
     assert out[0].startswith(b"HTTP/1.1 400") and connected == []
+
+
+def test_chromes_background_hosts_are_refused_by_exact_name() -> None:
+    table = {h: [PUBLIC] for h in ("accounts.google.com", "clients2.google.com", "www.google.com")}
+    out, proxy, connected = run(
+        table,
+        (b"CONNECT accounts.google.com:443 HTTP/1.1\r\nHost: x\r\n\r\n", b""),
+        (b"CONNECT ACCOUNTS.google.com.:443 HTTP/1.1\r\nHost: x\r\n\r\n", b""),
+        (b"GET http://clients2.google.com/service/update2 HTTP/1.1\r\nHost: x\r\n\r\n", b""),
+        (b"CONNECT www.google.com:443 HTTP/1.1\r\nHost: x\r\n\r\n", b"hi"),  # a search page
+    )
+    assert [o[:12] for o in out[:3]] == [b"HTTP/1.1 403"] * 3
+    assert out[3].startswith(b"HTTP/1.1 200")
+    assert proxy.stats.background_refused == 3 and not proxy.stats.refused
+    assert connected == [f"{PUBLIC}:443"]

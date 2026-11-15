@@ -48,6 +48,14 @@ def test_flags_are_pipe_only_and_locked_down(tmp_path: Path) -> None:
         "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1",
     ):
         assert must in flags, must
+    for must in ("--disable-background-networking", "--disable-component-update", "--no-pings"):
+        assert must in flags, must
+    features = [f for f in flags if f.startswith("--disable-features=")]
+    assert len(features) == 1  # a second one would replace the first
+    off = features[0].split("=", 1)[1].split(",")
+    for name in ("BackForwardCache", "Translate", "AutofillServerCommunication", "MediaRouter"):
+        assert name in off, name
+    assert len(off) == len(set(off))
     assert not any(f.startswith("--remote-debugging-port") for f in flags)
     assert sum(f.startswith("--host-resolver-rules") for f in flags) == 1
 
@@ -148,3 +156,4 @@ def test_kill_9_of_the_brain_leaves_no_chrome(tmp_path: Path) -> None:
     finally:
         if parent.poll() is None:
             parent.kill()
+

@@ -64,15 +64,40 @@ def check_profile(path: Path, data_dir: Path) -> Path:
     return resolved
 
 
+# Chrome's own background traffic, switched off at the source where a switch exists
+# (review question 1); what remains is refused by hostname in the proxy.
+BACKGROUND_FLAGS = (
+    "--disable-client-side-phishing-detection",
+    "--safebrowsing-disable-auto-update",
+    "--disable-breakpad",
+    "--disable-crash-reporter",
+    "--no-service-autorun",
+    "--disable-search-engine-choice-screen",
+)
+BACKGROUND_FEATURES_OFF = (
+    "BackForwardCache",  # so "back" is a normal load whose end we can see
+    "Translate",
+    "AutofillServerCommunication",
+    "NetworkTimeServiceQuerying",
+    "CertificateTransparencyComponentUpdater",
+    "OptimizationGuideModelDownloading",
+    "MediaRouter",
+    "OptimizationHints",
+    "PreconnectToSearch",
+    "SafeBrowsingHashPrefixRealTimeLookups",  # the www.gstatic.com ohttp key fetch
+    "HashPrefixRealTimeLookups",
+)
+
+
 def chrome_flags(profile: Path, proxy_port: int) -> list[str]:
     replaced = ("--host-resolver-rules=", "--disable-features=")
     isolation = [f for f in ISOLATION_FLAGS if not f.startswith(replaced)]
     window_off = next(
         (f.split("=", 1)[1] for f in ISOLATION_FLAGS if f.startswith("--disable-features=")), ""
     )
-    # One --disable-features flag (a second would replace the first). The back-forward
-    # cache is off so "back" is a normal load whose end we can see.
-    disabled = ",".join(x for x in (window_off, "BackForwardCache") if x)
+    # One --disable-features flag (a second would replace the first).
+    features = [*window_off.split(","), *BACKGROUND_FEATURES_OFF]
+    disabled = ",".join(dict.fromkeys(x for x in features if x))
     return [
         "--headless=new",
         "--remote-debugging-pipe",
@@ -83,6 +108,7 @@ def chrome_flags(profile: Path, proxy_port: int) -> list[str]:
         "--mute-audio",
         "--disable-quic",
         "--deny-permission-prompts",
+        *BACKGROUND_FLAGS,
         f"--proxy-server=http://127.0.0.1:{proxy_port}",
         "--proxy-bypass-list=<-loopback>",
         # Chrome resolves nothing itself; only the proxy's own address is reachable.

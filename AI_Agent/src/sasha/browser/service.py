@@ -110,4 +110,9 @@ class BrowserService:
         if self.proxy is None:
             return {"running": False}
         s = self.proxy.stats
-        return {"running": True, "allowed": s.allowed, "refused": dict(s.refused)}
+        return {
+            "running": True,
+            "allowed": s.allowed,
+            "refused": dict(s.refused),
+            "background_refused": s.background_refused,
+        }

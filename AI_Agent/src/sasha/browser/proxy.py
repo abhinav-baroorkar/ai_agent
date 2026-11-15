@@ -29,6 +29,10 @@ CONNECT_TIMEOUT_S = 10.0
 IDLE_TIMEOUT_S = 120.0
 MAX_CONNECTIONS = 256
 MAX_BODY = 1024 * 1024  # phase 1 is read-only; a larger request body is refused
+# Chrome's own background endpoints seen from a fresh profile (account list, component
+# update) that no page needs. Exact hostnames, not domains, so www.google.com search
+# pages and www.gstatic.com page assets still work. Chrome tolerates these failing.
+BACKGROUND_HOSTS = frozenset({"accounts.google.com", "clients2.google.com"})
 _HOP_HEADERS = {b"proxy-connection", b"proxy-authorization", b"connection", b"keep-alive"}
 
 
@@ -38,6 +42,7 @@ class ProxyStats:
 
     allowed: int = 0
     refused: Counter[str] = field(default_factory=Counter)
+    background_refused: int = 0
     bad_requests: int = 0
     over_capacity: int = 0
     bytes_in: int = 0
@@ -46,9 +51,13 @@ class ProxyStats:
 
 class FilteringProxy:
     def __init__(
-        self, resolver: Resolver = system_resolver, max_connections: int = MAX_CONNECTIONS
+        self,
+        resolver: Resolver = system_resolver,
+        max_connections: int = MAX_CONNECTIONS,
+        refuse_hosts: frozenset[str] = BACKGROUND_HOSTS,
     ) -> None:
         self.resolver = resolver
+        self.refuse_hosts = refuse_hosts
         self.max_connections = max_connections
         self.stats = ProxyStats()
         self._server: asyncio.base_events.Server | None = None
@@ -148,6 +157,10 @@ class FilteringProxy:
     async def _open(
         self, host: str, port: int, writer: asyncio.StreamWriter
     ) -> tuple[asyncio.StreamReader, asyncio.StreamWriter] | None:
+        if host.lower().rstrip(".") in self.refuse_hosts:
+            self.stats.background_refused += 1
+            await self._reply(writer, 403, "")
+            return None
         verdict, addresses = await resolve(host, port, self.resolver)
         if not verdict.allowed:
             await self._reply(writer, 403, verdict.category)
@@ -166,7 +179,7 @@ class FilteringProxy:
         return streams
 
     async def _reply(self, writer: asyncio.StreamWriter, status: int, why: str) -> None:
-        if status == 403:
+        if status == 403 and why:
             self.stats.refused[why] += 1
             log.info("Browser request refused (%s)", why)
         elif why == "bad_request":
