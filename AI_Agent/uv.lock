@@ -840,7 +840,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
-    { name = "faster-whisper", marker = "extra == 'voice'", specifier = ">=1.1" },
+    { name = "faster-whisper", marker = "extra == 'voice'", specifier = ">=1.2" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "huggingface-hub", marker = "extra == 'voice'", specifier = ">=0.24" },
     { name = "jeepney", marker = "extra == 'listener'", specifier = ">=0.8" },

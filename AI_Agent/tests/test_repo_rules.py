@@ -83,6 +83,12 @@ TRANSPORT_SEND_ALLOWED = {
         lines=("self._conn.send(message, serial=serial)",),
         never_imports=MAIL_IMPORTS + NETWORK_IMPORTS,
     ),
+    "src/sasha/listener/brain.py": SendExemption(
+        reason="WebSocket frames to the local brain (listener transport)",
+        lines=("await ws.send(await queue.get())",),
+        # httpx stays allowed: it does the loopback-only health check (review L4).
+        never_imports=(*MAIL_IMPORTS, "requests", "urllib"),
+    ),
 }
 NEVER_ALLOWED_DIRS = ("src/sasha/tools/", "src/sasha/connectors/")
 

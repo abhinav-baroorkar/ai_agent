@@ -19,7 +19,7 @@ dependencies = [
 [project.optional-dependencies]
 # Real speech models. `uv sync --extra voice`. CI and text-only work stay light without it.
 voice = [
-    "faster-whisper>=1.1",
+    "faster-whisper>=1.2",  # ships Silero VAD v6, which the wake listener needs
     "kokoro-onnx>=0.6.1",  # the version the stage was written and tested against
     "huggingface-hub>=0.24",
     "numpy>=1.26",
