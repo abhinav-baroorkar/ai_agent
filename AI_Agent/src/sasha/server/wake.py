@@ -84,9 +84,10 @@ class WakeMatcher:
                 return REJECTED_POSSESSIVE, None, index
             command = rest.lstrip(" \t,.;:!?-").strip()
             # "<name> is coming over" talks about the name; "<name>, is the light on?"
-            # addresses it. Speech-to-text writes the pause as punctuation, so the
-            # continuation rule applies only when nothing separates name and word.
-            addressed = re.match(r"\s*[,.;:!?-]", rest) is not None
+            # addresses it. Only a comma, "!" or "?" right after the name counts as
+            # addressing (T2): the transcriber writes "." and "..." for any pause, and
+            # "<name>... was here" or "<name> - is coming" still talk about the name.
+            addressed = re.match(r"\s*[,!?]", rest) is not None
             first = re.match(r"\w+", command.lower())
             if not addressed and first and first.group(0) in self._continuations:
                 return REJECTED_CONTINUATION, None, index
