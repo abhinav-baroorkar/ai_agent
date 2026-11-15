@@ -47,10 +47,20 @@ only for now; satellites on other devices come later.
 
 ## State of `main`
 
-- `main` is `0600003` (2026-11-14, late evening). 377 tests pass with all extras.
-- **Wake word:** the tray icon, `sasha listen` and `sasha autostart` are merged. The listener
-  can't open the microphone until `feat/wake-server` is on `main`. Nothing has run on real
-  audio yet.
+- `main` is `e233db4` (2026-11-14, night). 484 tests.
+- **Wake word:** all three parts are on `main` (`feat/wake-server` at `f0ce325`, three review
+  rounds). The window runs from `main` with `health.wake.available` true. The wake word has not
+  run on a real microphone: real-microphone checks are scheduled with the owner. **Rule: no
+  real-microphone run without the owner present** (the microphone is opened only with the owner
+  at the machine).
+- Also merged: `fix/tests-shared-temp` and `fix/tests-temp-nits` (a test failed when two runs
+  shared a checkout; each run now has its own temp folder).
+- In progress: `fix/wake-truthful-reply` (the server speaks a fixed factual sentence when a device
+  change was refused, unconfirmed or failed, or when the model claims a change with no successful
+  call; a gate for switching on device control by voice; a small clock tool), `feat/browser-core`
+  (first browser parts; address guard verified on the real Chrome; two blocking review fixes),
+  `fix/listener-confirm-race` (a listener test that failed under load is being checked for a real
+  ordering problem).
 - **Window runs from `main`; goal reached for typed input.** `sasha window` was started on
   the laptop. The server came up with voice on (`stt` and `tts` true), the window's page
   connected, and a typed question on a `speak=1` socket was answered in text and speech:
@@ -77,7 +87,10 @@ only for now; satellites on other devices come later.
 | `chore/env-tmpdir-notes` | | `env.sh` refuses to run outside a bash checkout of the repo and removes temp entries older than 7 days | merged and pushed (`f2bfae5`) |
 | `fix/warmup-timeouts` | | short connect timeout for the model warm-up; voice turns record the STT and TTS model versions in telemetry | merged and pushed |
 | `fix/stt-runtime-fallback` | | speech-to-text falls back to CPU for a request when the GPU fails | merged and pushed (`3f76eee`) |
-| `feat/wake-server` | Staff SDE | brain side of the wake word: gate, abuse limits, reserved socket, contract v0.2 | in its fix round (one blocking finding: a volume cap bypass through a string value; four smaller); not merged |
+| `feat/wake-server` | Staff SDE | brain side of the wake word: gate, abuse limits, reserved socket, contract v0.2 | merged and pushed (`f0ce325`) after three review rounds |
+| `fix/wake-truthful-reply` | | truthful spoken replies for refused or failed device changes; gate for voice device control; clock tool | in progress, not merged |
+| `feat/browser-core` | | the assistant's own browser, first parts | in progress; two blocking review fixes |
+| `fix/listener-confirm-race` | | a listener test that failed under load | in progress |
 | `feat/wake-listener` | Jack of all tasks | `sasha listen` (always-on listener), `sasha autostart` | merged and pushed after two review rounds; follow-up `fix/wake-listener-notes` merged |
 | `feat/wake-indicator` | Design expert | tray icon and chimes | merged and pushed; the send guard is stricter (exemptions pinned to exact lines, mail-sending calls forbidden in every file) |
 | `docs/scope-refresh` | Grunt work | plan.md, decisions.md, linkedin-notes.md, README, .env.example for the new scope | merged and pushed (`6fbc60d`, 86 tests pass) |
@@ -154,21 +167,46 @@ eyes; eyes stay as a switch.
 
 ## Next after these land
 
-Our own design. In order:
-0. **After the wake word: the assistant's own browser** (own profile inside the project, live
-   view, take over, approval before anything that changes something, no access to the local
-   network; voice-started requests are read-only there). Ideas from an earlier project of the
-   owner's only; own code.
-1. **Always-on wake word on this device** (design approved; three branches in progress, none
-   merged; opt-in until the measurement plan passes; see `decisions.md`).
-2. Check the full voice loop in the window with a real microphone.
-3. MCP connectors, with an approval step before any tool that changes something
-   (contract v0.3; a design note exists).
-4. Per-stage speech timings in telemetry.
-5. Marathi (Phase 2).
+Build order set by the owner on 2026-11-14 (night). Our own design.
 
-Later: per-bot avatar and tool groups; a browser-control bot with live view and take-over;
-a safe "open an app or page on this device" tool, allowlisted.
+- **First week: software only.** Device and robot work comes after that: Home Assistant with real
+  devices, cameras, pet devices, room-to-room announcements, satellites on other devices and the
+  robot body (all "device work, later"). Why: device work needs hands-on testing, scheduled after
+  the first week.
+- **No "fun" features** (games, trivia, stories, a music visualiser).
+- In flight next to Marathi: the assistant's own browser (own profile inside the project, live
+  view, take over, approval before anything that changes something, no access to the local
+  network; voice-started requests are read-only there). Ideas from an earlier project of the
+  owner's only; own code.
+- Check the full voice loop and the wake word on a real microphone (checks are scheduled with the owner).
+
+In order, unless the owner changes it:
+
+1. Marathi–English support (Phase 2). A facts-first research task is running (models, licences,
+   which are gated and need the owner's acceptance, sizes, CPU feasibility); design follows.
+2. Timers, alarms and reminders.
+3. Memory ("remember that...").
+4. A morning brief. It needs calendar and mail, so the parked send-guard question is asked
+   before the mail part.
+5. Media control for whatever is playing.
+6. Questions about the owner's own files (local search).
+7. Scheduled routines.
+8. "What's on my screen" with a vision model.
+9. Computer helpers: open apps and sites, dictation, local meeting and voice-note
+   transcription, clipboard summary.
+10. Web search with a spoken summary (through the assistant's own browser).
+11. Calculation tools.
+12. Speaker ID with per-person profiles.
+13. Lists.
+14. Proactive reminders.
+15. MCP connectors with approvals, bot templates, and multi-step tasks with a plan.
+16. An activity log, "forget the last 5 minutes", and a visible everything-is-local status.
+
+Four items on this list handle very private data. Each gets a short design note and a review before
+any code, like the wake word and the browser: questions about the owner's files, "what's on my
+screen", dictation and meeting or voice-note transcription together with the clipboard helper, and
+speaker profiles. Each note says which folders or screens, what is stored and for how long, the
+visible sign, and how to turn it off.
 
 ## Pending doc follow-ups
 
@@ -180,10 +218,9 @@ Ideas from an earlier project of the owner's: read-only, no copying (owner's dec
 
 ## Waiting on the owner
 
-- Docker install (sudo) for Home Assistant, then the HA account and `HA_TOKEN` in `.env`.
+- Docker install (sudo) for Home Assistant, then the HA account and `HA_TOKEN` in `.env`
+  (postponed by the owner; device work comes later).
 - What "Grok-bot-like" should mean beyond "several bots with their own chats".
-- Whether Claude's memory folder for this project is allowed (see the folder rule).
-  Memory notes are paused until the owner says so.
 - Which smart-display and TV devices to support.
 - Whether to keep eyes as a switch on the face (the default is without eyes).
 - **GPL text-to-phoneme packages for the English voice.** The voice is Kokoro-82M via
@@ -195,6 +232,9 @@ Ideas from an earlier project of the owner's: read-only, no copying (owner's dec
   worse on unknown words)?
 
 ## Ask the owner before...
+
+- **When the Marathi research lands:** the owner will probably need to accept terms on some model
+  pages and put a Hugging Face token into the secrets file personally. Details to follow.
 
 - **Before Gmail work merges (Phase 4):** is the narrow send-guard exception acceptable, or must
   the rule be absolute? The owner parked this on 2026-11-14; the exception stays as reviewed
