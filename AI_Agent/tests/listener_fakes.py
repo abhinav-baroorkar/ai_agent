@@ -112,6 +112,7 @@ class FakeIndicator:
         self.on_pause_toggle: Callable[[], None] | None = None
         self.on_lost: Callable[[], None] | None = None
         self.stopped = False
+        self.earcons: list[str] = []
 
     def start(self, on_pause_toggle: Callable[[], None], on_lost: Callable[[], None]) -> None:
         self.on_pause_toggle, self.on_lost = on_pause_toggle, on_lost
@@ -124,7 +125,8 @@ class FakeIndicator:
             self.states.append(state)
 
     def earcon(self, kind: str) -> SpeechAudio:
-        return SpeechAudio(pcm=b"\x01\x00" * 160, sample_rate=16000)
+        self.earcons.append(kind)
+        return SpeechAudio(pcm=b"\x01\x00" * 480, sample_rate=24000)
 
     def stop(self) -> None:
         self.stopped = True
@@ -149,3 +151,35 @@ def fake_mic_command(seconds: float = 30.0, riff: bool = False) -> list[str]:
         "    out.write(b'\\x01\\x00' * 320); out.flush(); time.sleep(0.02)\n"
     )
     return [sys.executable, "-c", code]
+
+
+def scripted_mic_command(pattern: list[tuple[int, int]], tail_s: float = 30.0) -> list[str]:
+    """A fake mic that plays `pattern` ([(amplitude, ms)], 220 Hz tone or near-silence)
+    as fast as it can, then near-silence in real time for `tail_s` seconds."""
+    code = (
+        "import math, struct, sys, time\n"
+        f"pattern = {pattern!r}\n"
+        "out = sys.stdout.buffer\n"
+        "def chunk(amp, n):\n"
+        "    return b''.join(struct.pack('<h', int(amp * math.sin(2 * math.pi * 220 *"
+        " (i + n * 320) / 16000))) for i in range(320))\n"
+        "n = 0\n"
+        "for amp, ms in pattern:\n"
+        "    for _ in range(ms // 20):\n"
+        "        out.write(chunk(amp, n)); n += 1\n"
+        "out.flush()\n"
+        f"end = time.time() + {tail_s!r}\n"
+        "while time.time() < end:\n"
+        "    out.write(chunk(30, n)); n += 1; out.flush(); time.sleep(0.02)\n"
+    )
+    return [sys.executable, "-c", code]
+
+
+def fake_player_command(play_s: float = 0.1) -> Callable[[int], list[str]]:
+    """Reads all of stdin, then 'plays' for `play_s` seconds."""
+
+    def command(sample_rate: int) -> list[str]:
+        code = f"import sys, time; sys.stdin.buffer.read(); time.sleep({play_s!r})"
+        return [sys.executable, "-c", code]
+
+    return command

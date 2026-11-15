@@ -23,12 +23,22 @@ class VoiceDetector(Protocol):
     def reset(self) -> None: ...
 
 
-def silero_model_path() -> str:
-    from faster_whisper.vad import get_assets_path
+class VadUnavailableError(RuntimeError):
+    """No usable VAD: the listener must refuse to start (never run without a gate)."""
 
+
+def silero_model_path() -> str:
+    """The Silero v6 model that faster-whisper >= 1.2 ships (`assets/silero_vad_v6.onnx`;
+    older releases ship v5 with a different input, which this wrapper does not accept)."""
+    try:
+        from faster_whisper.vad import get_assets_path
+    except ImportError as e:
+        raise VadUnavailableError("faster-whisper is not installed (uv sync --extra voice)") from e
     path = os.path.join(get_assets_path(), "silero_vad_v6.onnx")
     if not os.path.isfile(path):
-        raise FileNotFoundError("Silero VAD model not found in faster-whisper's assets")
+        raise VadUnavailableError(
+            "Silero VAD v6 not found in faster-whisper's assets (needs faster-whisper >= 1.2)"
+        )
     return path
 
 

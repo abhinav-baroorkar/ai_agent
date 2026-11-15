@@ -4,7 +4,8 @@ A chunk counts as speech when Silero's probability is >= 0.5 AND its loudness is
 least 10 dB over an adaptive noise floor (median level of the last 30 s of chunks the
 VAD called non-speech).
 A segment may only start after >= 300 ms of non-speech; it starts with a 1 s pre-roll
-and ends after 600 ms of non-speech. It is sent only if the speech in it spans
+and ends after `end_silence_ms` (600 ms by default; the main knob for how fast a
+command is taken) of non-speech. It is sent only if the speech in it spans
 0.4-8 s; anything longer is dropped as soon as it passes 8 s.
 
 Everything lives in RAM (bytes, a ring of chunks) and is dropped as soon as a segment
@@ -73,11 +74,14 @@ class _Segmenting:
 class Gate:
     """Feed 20 ms chunks; get a `Segment` back when one is complete and passes."""
 
-    def __init__(self, vad: VoiceDetector) -> None:
+    def __init__(self, vad: VoiceDetector, end_silence_ms: int = END_SILENCE_MS) -> None:
         import numpy as np
 
+        if end_silence_ms < CHUNK_MS:
+            raise ValueError("end_silence_ms must be at least one chunk")
         self._np = np
         self.vad = vad
+        self.end_silence_ms = end_silence_ms
         self.stats = GateStats()
         self._floor: deque[float] = deque(maxlen=_FLOOR_CHUNKS)
         self._floor_value = FLOOR_MIN_DB
@@ -146,7 +150,7 @@ class Gate:
             seg.since_speech_ms += CHUNK_MS
         if seg.speech_ms > MAX_SPEECH_MS and not seg.too_long:
             seg.too_long, seg.chunks = True, []  # drop the audio now; wait for silence
-        if seg.since_speech_ms < END_SILENCE_MS:
+        if seg.since_speech_ms < self.end_silence_ms:
             return None
         self._seg = None
         self._silence_ms = seg.since_speech_ms

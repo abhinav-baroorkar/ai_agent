@@ -1,4 +1,5 @@
-"""Command line: `sasha chat` (text loop), `doctor`, `serve` and `window` (brain server)."""
+"""Command line: `sasha chat` (text loop), `doctor`, `serve` and `window` (brain server),
+`listen` (wake word listener) and `autostart` (start both at login)."""
 
 from __future__ import annotations
 
@@ -154,7 +155,34 @@ def build_parser() -> argparse.ArgumentParser:
         cmd = sub.add_parser(name, help=text)
         cmd.add_argument("--host", help="Loopback address to use (default from the profile)")
         cmd.add_argument("--port", type=int, help="Port (default from the profile)")
+    listen = sub.add_parser("listen", help="Wake word listener (microphone; foreground)")
+    listen.add_argument(
+        "--debug-dump-audio",
+        action="store_true",
+        help="Save every segment sent to the brain under Data/debug-audio/ (this run only)",
+    )
+    listen.add_argument(
+        "--no-pause-on-battery", action="store_true", help="Keep listening on battery power"
+    )
+    listen.add_argument(
+        "--end-silence-ms", type=int, default=None, help="Silence that ends a command (600)"
+    )
+    auto = sub.add_parser("autostart", help="Start brain + listener at login: on|off|show")
+    auto.add_argument("action", choices=["on", "off", "show"])
+    auto.add_argument("--yes", action="store_true", help="With `on`: really link and enable")
     return p
+
+
+def run_listen_command(settings: Settings, args: argparse.Namespace) -> int:
+    from sasha.listener.app import ListenOptions, run_listen
+    from sasha.listener.gate import END_SILENCE_MS
+
+    options = ListenOptions(
+        debug_dump_audio=args.debug_dump_audio,
+        pause_on_battery=not args.no_pause_on_battery,
+        end_silence_ms=args.end_silence_ms or END_SILENCE_MS,
+    )
+    return run_listen(settings, options)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -166,6 +194,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     if args.command == "doctor":
         return run_doctor(settings)
+    if args.command == "listen":
+        return run_listen_command(settings, args)
+    if args.command == "autostart":
+        from sasha.listener.autostart import autostart
+        from sasha.pipeline.model_cache import project_root
+
+        return autostart(args.action, project_root(settings.paths.root), yes=args.yes)
     if args.command in ("serve", "window"):
         from sasha.server.launch import open_window, run_server  # FastAPI only when needed
 

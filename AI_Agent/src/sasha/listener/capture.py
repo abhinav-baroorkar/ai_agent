@@ -61,6 +61,7 @@ class CaptureProcess:
         self.command = list(command)
         self.proc: asyncio.subprocess.Process | None = None
         self._pid: int | None = None
+        self._killed = False
 
     async def start(self) -> None:
         self.proc = await asyncio.create_subprocess_exec(
@@ -79,7 +80,9 @@ class CaptureProcess:
 
     @property
     def running(self) -> bool:
-        return self.proc is not None and self.proc.returncode is None
+        """False as soon as `kill()` was called (SIGKILL can't be ignored), even before
+        the child has been reaped."""
+        return self.proc is not None and self.proc.returncode is None and not self._killed
 
     async def chunks(self) -> AsyncIterator[bytes]:
         assert self.proc is not None and self.proc.stdout is not None
@@ -102,6 +105,7 @@ class CaptureProcess:
 
     def kill(self) -> None:
         """Close the microphone now. Safe to call from any thread, any number of times."""
+        self._killed = True
         pid = self._pid
         if pid is not None and (self.proc is None or self.proc.returncode is None):
             with contextlib.suppress(ProcessLookupError, PermissionError):
