@@ -89,8 +89,12 @@ class BotStore:
         connector_ids: Callable[[], list[str]],
         main_connectors: list[str] | None = None,
         installed_models: Callable[[], list[str]] | None = None,
+        wake_control_allowed: Callable[[], bool] = lambda: False,
     ) -> None:
         self.store = store
+        # Gate (wake review): device control by voice can be switched on only while the
+        # server's truthful-reply path is present and on. Fails closed if not given.
+        self._wake_control_allowed = wake_control_allowed
         self.main_name = main_name
         self.main_prompt = with_safety_note(main_prompt)
         self.default_model = default_model
@@ -193,6 +197,10 @@ class BotStore:
             changes["connectors"] = self._check_connectors(changes["connectors"])
         if "wake_device_control" in changes and bot_id != VOICE_ID:
             raise BotError("wake_device_control can only be set on the voice bot")
+        if changes.get("wake_device_control") is True and not self._wake_control_allowed():
+            raise BotError(
+                "Device control by voice needs truthful replies on (wake.truthful_replies)"
+            )
         self._check_model(changes.get("model"))
         with self.store.lock:
             data = self.store.load()

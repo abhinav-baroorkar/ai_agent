@@ -24,7 +24,7 @@ from typing import Any
 from starlette.websockets import WebSocket
 
 from sasha.bots import VOICE_ID
-from sasha.config import WakeConfig
+from sasha.config import ReplyLines, WakeConfig
 from sasha.orchestrator import Assistant, Reply
 from sasha.server.deps import ServerDeps
 from sasha.server.speaking import ListenerPresence
@@ -33,6 +33,7 @@ from sasha.server.voice import MIC_SAMPLE_RATE, VoiceStages
 from sasha.server.wake import WakeGate, WakeMatcher
 from sasha.server.wake_confirm import ConfirmFlow, PlaybackClock
 from sasha.server.wake_policy import RateLimiter, WakeToolPolicy
+from sasha.server.wake_truth import TruthfulReply, wake_control_allowed
 from sasha.server.ws import Conversation, Frame
 from sasha.telemetry import TelemetryWriter
 
@@ -56,6 +57,8 @@ async def open_listener(
     for warning in warnings:
         log.warning("Bot %s: %s", bot.id, warning)
     wake_word, config = settings.assistant.wake_word, settings.profile.wake
+    # The wake turn's own prompt line: a hint; TruthfulReply is the guarantee.
+    assistant.system_prompt = f"{assistant.system_prompt.rstrip()}\n{config.prompt_note}"
     matcher = WakeMatcher(
         wake_word.phrase, wake_word.variants, config.fillers, config.continuations
     )
@@ -68,7 +71,10 @@ async def open_listener(
         config=config,
         gate=WakeGate(matcher, config.armed_window_s, config.min_confidence),
         limiter=deps.wake_limiter,
-        device_control=lambda: deps.bots.get(VOICE_ID).wake_device_control,
+        # Checked on every call: the opt-in, and truthful replies still on (the gate).
+        device_control=lambda: (
+            deps.bots.get(VOICE_ID).wake_device_control and wake_control_allowed(config)
+        ),
         telemetry=deps.telemetry,
         presence=deps.presence,
         recheck_placement=deps.recheck_placement,
@@ -101,6 +107,7 @@ class ListenerConversation(Conversation):
         self.paused = True  # fail closed until the listener says it is listening
         self.armed_timer: asyncio.TimerHandle | None = None
         self.turn_language = language
+        self.truth: TruthfulReply | None = None  # set while a wake turn's reply streams
         self.playback = PlaybackClock()
         self.confirm = ConfirmFlow(self)
         self.policy = WakeToolPolicy(
@@ -175,10 +182,37 @@ class ListenerConversation(Conversation):
             await super()._on_text_frame(raw)
 
     async def _ask(self, text: str, input_mode: str) -> Reply | None:
-        reply = await super()._ask(text, input_mode)
+        lines = self.config.reply_lines
+        line_set = lines.get(self.turn_language) or lines.get("en") or ReplyLines()
+        truth = self.truth = (
+            TruthfulReply(line_set, self.policy) if self.config.truthful_replies else None
+        )
+        try:
+            reply = await super()._ask(text, input_mode)
+        finally:
+            self.truth = None
+        if reply is not None and truth is not None:
+            tail, reply.text = truth.finish(reply.text)
+            if tail:
+                self._on_delta(tail)  # sent and spoken like any streamed text
+            if truth.overridden:
+                self.record_tool(truth.overridden)
         if reply is not None and _reloaded(reply):  # Ollama loaded the model again
             self._background(self.recheck_placement)
         return reply
+
+    def _on_delta_threadsafe(self, piece: str) -> None:
+        """Wake turns: only text the truthful-reply check lets through goes out.
+
+        The check runs here, in the LLM worker thread, because that is where text and
+        tool calls happen in order: a sentence written before a tool call must be judged
+        before the call marks the turn as having attempted a device change.
+        """
+        truth = self.truth
+        if truth is None:
+            super()._on_delta_threadsafe(piece)
+        elif released := truth.feed(piece):
+            super()._on_delta_threadsafe(released)
 
     def _on_wake_start(self, msg: dict[str, Any]) -> None:
         if self.stt is None:

@@ -68,6 +68,33 @@ class WakeConfig(BaseModel):
     no_words: list[str] = Field(
         default_factory=lambda: ["no", "nope", "nah", "don't", "dont", "stop", "cancel"]
     )
+    # Truthful replies (server/wake_truth.py): after a device change on a wake turn did
+    # not happen, the server says so itself. Device control by voice requires it.
+    truthful_replies: bool = True
+    reply_lines: dict[str, ReplyLines] = Field(default_factory=lambda: {"en": ReplyLines()})
+    prompt_note: str = (
+        "Say that a device changed only if a tool result says it did. If a tool result "
+        "is an error, say the device was not changed."
+    )
+
+
+class ReplyLines(BaseModel):
+    """The server's own sentences for wake turns, per language (Marathi comes later)."""
+
+    not_changed: str = "I didn't change: {names}."
+    changed: str = "I changed: {names}."
+    nothing_changed: str = "Nothing was changed."
+    more: str = "and {count} more"
+    joiner: str = ", "
+    # Words that claim a device was changed ("I've turned off ..."). A plain state
+    # report ("the hallway light is off") has none of them, so it is left alone.
+    claim_words: list[str] = Field(
+        default_factory=lambda: [
+            "turned", "turning", "switched", "switching", "dimmed", "brightened",
+            "activated", "deactivated", "started", "stopped", "paused", "changed",
+            "adjusted", "set", "done", "turn", "switch",
+        ]
+    )  # fmt: skip
 
 
 class Voice(BaseModel):

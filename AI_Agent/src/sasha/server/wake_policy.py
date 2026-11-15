@@ -117,6 +117,11 @@ class WakeToolPolicy:
     def begin_turn(self) -> None:
         self.turn_entities: set[str] = set()
         self.refused_rest = False
+        # What this turn really did, for the truthful reply (server/wake_truth.py):
+        # (domain, entity) pairs that changed, and those refused, unconfirmed or failed.
+        self.changed: list[tuple[str, str]] = []
+        self.not_changed: list[tuple[str, str]] = []
+        self.attempted = False
 
     def wrap(self, tools: ToolRegistry) -> ToolRegistry:
         """The wake-turn view of a bot's tools."""
@@ -136,6 +141,17 @@ class WakeToolPolicy:
 
     def _guard(self, handler: Callable[..., Any]) -> Callable[..., Any]:
         def call_service(domain: str, service: str, entity_id: Any, data: Any = None) -> Any:
+            self.attempted = True
+            targets = [(str(domain), e) for e in _entities(entity_id)] or [(str(domain), "")]
+            try:
+                result = checked(domain, service, entity_id, data)
+            except Exception:  # refused, unconfirmed or failed: nothing changed for these
+                self.not_changed += [t for t in targets if t not in self.not_changed]
+                raise
+            self.changed += [t for t in targets if t not in self.changed]
+            return result
+
+        def checked(domain: str, service: str, entity_id: Any, data: Any = None) -> Any:
             if not self.device_control():
                 raise self._refuse("refused_read_only", "Voice requests can't change devices")
             if self.refused_rest:

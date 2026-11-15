@@ -17,6 +17,7 @@ from sasha.pipeline.stt import Transcript
 from sasha.pipeline.tts import SpeechAudio
 from sasha.server.app import create_app
 from sasha.server.deps import ServerDeps, make_telemetry
+from sasha.server.wake_truth import wake_control_allowed
 from sasha.state import JsonStore
 from sasha.tools import Tool
 
@@ -177,6 +178,7 @@ class Harness:
             connector_ids=lambda: self.connectors.ids,
             main_connectors=["fake"],
             installed_models=lambda: [str(m["name"]) for m in self.models],
+            wake_control_allowed=lambda: wake_control_allowed(self.settings.profile.wake),
         )
         self.llms: dict[str, FakeLLM] = {}
         self.models: list[dict[str, Any]] = [{"name": "big-model", "size_gb": 6.6}]

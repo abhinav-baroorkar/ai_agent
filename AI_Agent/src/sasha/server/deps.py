@@ -19,6 +19,7 @@ from sasha.pipeline.tts import TextToSpeech
 from sasha.server.speaking import ListenerPresence
 from sasha.server.voice import load_voice_stages
 from sasha.server.wake_policy import RateLimiter
+from sasha.server.wake_truth import wake_control_allowed
 from sasha.server.warmup import (
     LLMPlacement,
     PlacementTelemetry,
@@ -111,6 +112,7 @@ def build_deps(settings: Settings, reload_env: bool = True) -> ServerDeps:
         connector_ids=lambda: connectors.ids,
         main_connectors=[HomeAssistantConnector.id],
         installed_models=lambda: [m["name"] for m in list_models()],
+        wake_control_allowed=lambda: wake_control_allowed(settings.profile.wake),
     )
     # LLM first, then the voice stages: otherwise Ollama may put part of the LLM on the
     # CPU because speech-to-text already holds GPU memory (see server/warmup.py).

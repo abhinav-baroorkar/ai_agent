@@ -46,14 +46,14 @@ def name(settings: Settings) -> str:
 def test_name_and_command_runs_a_turn(settings: Settings, tmp_path: Path, name: str) -> None:
     h, stt = make(settings, tmp_path)
     stt.say(f"{name}, turn on the light")
-    h.llm("big-model").responses = [resp("Done")]
+    h.llm("big-model").responses = [resp("Here you go")]  # no device claim: kept as is
     with h.client().websocket_connect(LISTENER) as ws:
         listen(ws)
         segment(ws)
         got = turn_frames(ws)
     assert got[0] == {"type": "wake", "heard": True, "command": True}
     assert {"type": "transcript", "text": "turn on the light", "final": True} in got
-    assert any(f.get("type") == "reply" and f["text"] == "Done" for f in got)
+    assert any(f.get("type") == "reply" and f["text"] == "Here you go" for f in got)
     user = [m["content"] for m in h.llm("big-model").seen[0][0] if m["role"] == "user"]
     assert user == ["turn on the light"]  # the name itself never reaches the LLM
 
