@@ -23,12 +23,21 @@ log = logging.getLogger(__name__)
 
 SOCKET_NAME = "assistant-window.sock"
 DESKTOP_ID = "assistant-window"  # the window class and the menu entry's file name
+MAX_LINE = 256  # a command plus an activation token
+READ_TIMEOUT_MS = 2000
 COMMANDS = frozenset({"raise", "wake", "ping"})  # ping: "are you open?", nothing shown
 _TOKEN = re.compile(r"[\w.:-]{1,200}")
 
 
+class NoRuntimeDir(RuntimeError):
+    """No $XDG_RUNTIME_DIR: no private place for the socket, so no window (no /tmp)."""
+
+
 def socket_path() -> Path:
-    return Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / SOCKET_NAME
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if not runtime or not Path(runtime).is_dir():
+        raise NoRuntimeDir("XDG_RUNTIME_DIR is not set; the window needs a desktop session")
+    return Path(runtime) / SOCKET_NAME
 
 
 def ask_window(path: Path, command: str, timeout: float = 1.0) -> bool:
@@ -66,6 +75,7 @@ class SingleInstance:
     def serve(self, app: Any, on_command: Callable[[str], None]) -> None:
         """Listen (Qt event loop); a stale socket file from a crashed shell is removed
         first, since `hand_over` found no one answering on it."""
+        from PySide6.QtCore import QTimer
         from PySide6.QtNetwork import QLocalServer
 
         with contextlib.suppress(FileNotFoundError):
@@ -82,10 +92,15 @@ class SingleInstance:
             if conn is None:
                 return
 
+            conn.setReadBufferSize(MAX_LINE)  # a caller can't make us buffer more
+            QTimer.singleShot(READ_TIMEOUT_MS, conn.abort)  # nor hold the connection open
+
             def read() -> None:
                 if not conn.canReadLine():
+                    if conn.bytesAvailable() >= MAX_LINE:
+                        conn.abort()  # a full buffer and still no line: not ours
                     return
-                got = parse(bytes(conn.readLine().data()))
+                got = parse(bytes(conn.readLine(MAX_LINE).data()))
                 conn.write(b"ok\n" if got else b"no\n")
                 conn.flush()
                 conn.disconnectFromServer()

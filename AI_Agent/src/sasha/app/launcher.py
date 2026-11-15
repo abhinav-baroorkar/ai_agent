@@ -19,10 +19,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from sasha.app.single import DESKTOP_ID, ask_window, socket_path
+from sasha.app.single import DESKTOP_ID, NoRuntimeDir, ask_window, socket_path
 from sasha.config import Settings
 
 Spawn = Callable[..., Any]
+SESSION_VARIABLES = ("DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY", "DBUS_SESSION_BUS_ADDRESS")
 ICON = Path(__file__).resolve().parents[1] / "avatar" / "web" / "assets" / "icon.svg"
 
 
@@ -71,8 +72,13 @@ def open_shell(
     spawn: Spawn = subprocess.Popen,
     ask: Callable[[Path, str], bool] = ask_window,
 ) -> str:
-    """'raised' (one was open), 'started', or 'no_display'."""
-    if ask(socket_path(), "wake" if wake else "raise"):
+    """'raised' (one was open), 'started', 'no_display', or 'no_session' (no
+    XDG_RUNTIME_DIR: no private place for the window's socket, so no window)."""
+    try:
+        path = socket_path()
+    except NoRuntimeDir:
+        return "no_session"
+    if ask(path, "wake" if wake else "raise"):
         return "raised"
     if not has_display():
         return "no_display"
@@ -80,7 +86,13 @@ def open_shell(
     env = {**os.environ, "SASHA_ROOT": str(settings.paths.root)}
     if as_unit and shutil.which("systemd-run"):
         unit = ["systemd-run", "--user", f"--unit={DESKTOP_ID}", "--collect", "--quiet"]
-        props = [f"--setenv=SASHA_ROOT={settings.paths.root}"]
+        # The unit gets the user manager's environment, which may lack the session's
+        # display or bus (e.g. an older login import): pass what this session has.
+        props = [f"--setenv=SASHA_ROOT={settings.paths.root}"] + [
+            f"--setenv={name}={os.environ[name]}"
+            for name in SESSION_VARIABLES
+            if os.environ.get(name)
+        ]
         spawn([*unit, *props, *cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     else:
         spawn(

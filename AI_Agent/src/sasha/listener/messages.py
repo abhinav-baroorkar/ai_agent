@@ -86,8 +86,12 @@ WINDOW = {
     "paused": "not raised (paused after false wakes)",
     "locked": "not opened (screen locked)",
     "no_display": "not opened (no display)",
+    "no_session": "not opened (no desktop session)",
     "unavailable": "not opened (the app extra isn't installed)",
 }
+
+
+_WINDOW_TASKS: set[asyncio.Task[None]] = set()  # kept referenced until they finish
 
 
 async def _window(lst: Listener, command: bool) -> None:
@@ -129,13 +133,16 @@ async def _on_wake(lst: Listener, msg: dict[str, Any]) -> None:
     print(wake_line(msg), flush=True)
     if not msg.get("heard"):
         return  # a miss: no sound, nothing kept
-    await _window(lst, bool(msg.get("command")))
-    if msg.get("command"):
+    command = bool(msg.get("command"))
+    if command:
         lst.busy = True
-        lst._changed()  # the mic closes while the brain answers
-        await _earcon(lst, "wake")
-    else:
-        await _earcon(lst, "armed")
+        lst._changed()  # the mic closes while the brain answers, before anything else
+    # The window comes up in the background: its socket and spawn never hold the
+    # microphone open or delay the sound (review A1).
+    task = asyncio.get_running_loop().create_task(_window(lst, command))
+    _WINDOW_TASKS.add(task)
+    task.add_done_callback(_WINDOW_TASKS.discard)
+    await _earcon(lst, "wake" if command else "armed")
 
 
 async def _earcon(lst: Listener, kind: EarconKind) -> None:

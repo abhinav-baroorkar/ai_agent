@@ -17,6 +17,7 @@ from sasha.app.single import DESKTOP_ID
 from sasha.config import Settings
 
 Out = Callable[[str], None]
+MARKER = "X-Assistant-Generated-By=sasha app-menu"
 
 
 def entry_path(home: Path) -> Path:
@@ -29,7 +30,8 @@ def _escape(value: str) -> str:
 
 
 def _exec_arg(value: str) -> str:
-    """Desktop-entry Exec quoting: double quotes, with \\ " ` $ escaped, % doubled."""
+    """One quoted Exec argument (Desktop Entry spec): \\ " ` $ escaped by a backslash,
+    % doubled. The whole Exec value is then escaped again as a string (`_escape`)."""
     for ch in ("\\", '"', "`", "$"):
         value = value.replace(ch, "\\" + ch)
     return '"' + value.replace("%", "%%") + '"'
@@ -48,13 +50,16 @@ def entry_text(settings: Settings, python: Path, root: Path) -> str:
             "Version=1.5",
             f"Name={_escape(name)}",
             f"Comment={_escape(comment)}",
-            f"Exec=env SASHA_ROOT={_exec_arg(str(root))} {exec_line}",
+            # the key-file layer reads the value as a string first, so its backslashes
+            # are doubled again: a path with a backslash survives both readings
+            f"Exec={_escape(f'env SASHA_ROOT={_exec_arg(str(root))} {exec_line}')}",
             f"Path={_escape(str(root))}",
             f"Icon={_escape(str(ICON))}",
             "Terminal=false",
             "Categories=Utility;",
             f"StartupWMClass={DESKTOP_ID}",
             "StartupNotify=true",
+            MARKER,  # `off` removes only a file it made
             "",
         ]
     )
@@ -72,11 +77,17 @@ def app_menu(
     home = home or Path.home()
     path = entry_path(home)
     if action == "off":
-        if path.is_symlink() or path.is_file():
-            path.unlink()
-            out(f"Removed {path}")
-        else:
+        if path.is_symlink():
+            out(f"[not removed] {path} is a link, not the file this command writes.")
+            return 1
+        if not path.is_file():
             out(f"Nothing to remove at {path}")
+            return 0
+        if MARKER not in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            out(f"[not removed] {path} wasn't written by `sasha app-menu` (no marker).")
+            return 1
+        path.unlink()
+        out(f"Removed {path}")
         return 0
     text = entry_text(settings, python or Path(sys.executable), root)
     out(f"The applications menu entry ({path}):")

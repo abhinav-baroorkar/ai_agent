@@ -104,7 +104,7 @@ def build_listener(settings: Settings, options: ListenOptions) -> Listener:
 def window_opener(settings: Settings, allowed: Callable[[], bool]) -> WindowOpener:
     """The wake phrase brings up the app shell (as its own user unit), if installed."""
     from sasha.app import launcher
-    from sasha.app.single import ask_window, socket_path
+    from sasha.app.single import NoRuntimeDir, ask_window, socket_path
 
     def open_window() -> str:
         if not launcher.available():
@@ -114,9 +114,13 @@ def window_opener(settings: Settings, allowed: Callable[[], bool]) -> WindowOpen
         port = settings.profile.server.port
         return launcher.open_shell(settings, port, dead_proxy_port(), wake=True, as_unit=True)
 
-    return WindowOpener(
-        settings.profile.window, allowed, open_window, lambda: ask_window(socket_path(), "ping")
-    )
+    def is_open() -> bool:
+        try:
+            return ask_window(socket_path(), "ping")
+        except NoRuntimeDir:
+            return False
+
+    return WindowOpener(settings.profile.window, allowed, open_window, is_open)
 
 
 def run_listen(settings: Settings, options: ListenOptions) -> int:

@@ -249,10 +249,10 @@ def open_window(
 
     if launcher.available():
         how = launcher.open_shell(settings, port, proxy_port, spawn=spawn)
-        if how != "no_display":
+        if how not in ("no_display", "no_session"):
             print("The assistant's window is open." if how == "raised" else f"Opened {url}.")
             return _wait_for(server)
-        print("No display found for the app window; trying the Chrome window.")
+        print("No display or desktop session for the app window; trying the Chrome window.")
     profile_dir = settings.paths.data_dir / "chrome-profile"
     window = browser_command(url, profile_dir, proxy_port)
     if window is None:

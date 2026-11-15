@@ -113,6 +113,12 @@ def test_the_launcher_raises_an_open_window_or_starts_one(
     unit = spawned[1][0]
     assert unit[:3] == ["systemd-run", "--user", f"--unit={single.DESKTOP_ID}"]
     assert unit[-1] == "--wake"
+    assert "--setenv=DISPLAY=:0" in unit  # the session's display reaches the unit
+    monkeypatch.delenv("XDG_RUNTIME_DIR", raising=False)
+    assert launcher.open_shell(settings, 8765, 9, spawn=spawn, ask=lambda p, c: False) == (
+        "no_session"  # never a socket in a shared folder such as /tmp
+    )
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(Path.home()))
     monkeypatch.delenv("DISPLAY")
     monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
     assert launcher.open_shell(settings, 8765, 9, spawn=spawn, ask=lambda p, c: False) == (
@@ -176,3 +182,91 @@ def test_the_menu_entry_with_a_fake_home(settings: Settings, tmp_path: Path) -> 
     assert [p.name for p in home.rglob("*") if p.is_file()] == [f"{single.DESKTOP_ID}.desktop"]
     app_menu("off", settings, root, home=home, out=lines.append)
     assert not entry_path(home).exists()
+
+
+def test_the_mic_closes_before_a_slow_window_step(settings: Settings) -> None:
+    """Review A1: busy is set and the mic closed at once; the window comes up later."""
+    import asyncio
+    import time as _time
+
+    from sasha.listener import messages
+
+    order: list[str] = []
+
+    class SlowOpener:
+        config = WindowConfig()
+
+        def on_wake(self, command: bool) -> str:
+            _time.sleep(0.5)  # a socket timeout plus a spawn
+            order.append("window")
+            return "started"
+
+        def check_closed(self) -> None:
+            pass
+
+    class Indicator:
+        def earcon(self, kind: str) -> Any:
+            raise RuntimeError("no sound in this test")
+
+    class Lst:
+        busy = False
+        window = SlowOpener()
+        indicator = Indicator()
+
+        def _changed(self) -> None:
+            order.append(f"changed busy={self.busy}")
+
+    async def main() -> float:
+        lst = Lst()
+        t0 = _time.perf_counter()
+        await messages._on_wake(lst, {"type": "wake", "heard": True, "command": True})  # type: ignore[arg-type]
+        took = _time.perf_counter() - t0
+        assert lst.busy and order == ["changed busy=True"]  # mic closed, window not yet
+        await asyncio.sleep(0.8)
+        return took
+
+    took = asyncio.run(main())
+    assert took < 0.2 and order[-1] == "window"
+
+
+def _read_exec(line: str) -> list[str]:
+    """Undo the Desktop Entry spec: the string layer, then Exec's quoting."""
+    value = line.removeprefix("Exec=").replace("\\\\", "\x00").replace("\x00", "\\")
+    args, cur, quoted, i = [], "", False, 0
+    while i < len(value):
+        c = value[i]
+        if quoted and c == "\\" and i + 1 < len(value):
+            cur, i = cur + value[i + 1], i + 2
+            continue
+        if c == '"':
+            quoted = not quoted
+        elif c == " " and not quoted:
+            args, cur = [*args, cur], ""
+        else:
+            cur += c
+        i += 1
+    return [*args, cur]
+
+
+def test_the_menu_entry_escapes_odd_paths_and_off_removes_only_its_own(
+    settings: Settings, tmp_path: Path
+) -> None:
+    from sasha.app.menu import MARKER, app_menu, entry_path
+
+    home, root = tmp_path / "home", tmp_path / 'pro$ject `x` \\ "q"'
+    py = Path("/opt/a\\b/py%env/bin/python")
+    app_menu("on", settings, root, yes=True, home=home, python=py, out=lambda _: None)
+    lines = entry_path(home).read_text().splitlines()
+    exec_line = next(x for x in lines if x.startswith("Exec="))
+    args = _read_exec(exec_line)
+    assert args[:2] == ["env", f"SASHA_ROOT={root}"]
+    assert args[2].replace("%%", "%") == str(py) and args[3:] == ["-m", "sasha", "window"]
+    assert MARKER in lines
+    other = entry_path(home)
+    other.write_text("[Desktop Entry]\nName=Something else\n")  # not ours
+    out: list[str] = []
+    assert app_menu("off", settings, root, home=home, out=out.append) == 1
+    assert other.exists() and "no marker" in out[-1]
+    other.unlink()
+    other.symlink_to(tmp_path / "elsewhere")
+    assert app_menu("off", settings, root, home=home, out=out.append) == 1

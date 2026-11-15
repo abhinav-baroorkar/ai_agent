@@ -19,12 +19,13 @@ from pathlib import Path
 from typing import Any
 
 from sasha.app import policy
-from sasha.app.single import notify, socket_path
+from sasha.app.single import NoRuntimeDir, notify, socket_path
 
 log = logging.getLogger(__name__)
 
 CHROMIUM_FLAGS = (
     "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
+    "--dns-prefetch-disable",
     "--disable-background-networking",
     "--disable-component-update",
     "--disable-domain-reliability",
@@ -44,6 +45,17 @@ def chromium_flags(dead_proxy: int) -> str:
     return " ".join((*CHROMIUM_FLAGS, f"--proxy-server=http://127.0.0.1:{dead_proxy}"))
 
 
+# Environment variables that would open a DevTools port (or inspector) into the window
+# that holds the microphone grant; removed before Qt starts (review A2).
+DEBUG_VARIABLES = ("QTWEBENGINE_REMOTE_DEBUGGING", "QTWEBENGINE_INSPECTOR_SERVER")
+
+
+def harden_environment(env: Any, dead_proxy: int) -> None:
+    for name in DEBUG_VARIABLES:
+        env.pop(name, None)
+    env["QTWEBENGINE_CHROMIUM_FLAGS"] = chromium_flags(dead_proxy)  # ours only, replaced
+
+
 @dataclass
 class Shell:
     window: Any
@@ -55,7 +67,13 @@ class Shell:
 
 
 def build(
-    app: Any, port: int, profile_dir: Path, title: str, icon: Path | None, start: str = "/"
+    app: Any,
+    port: int,
+    profile_dir: Path,
+    title: str,
+    icon: Path | None,
+    start: str = "/",
+    intercept: bool = True,  # False only for the probe that shows the dead proxy alone
 ) -> Shell:
     """The window, its page and profile. Qt imports are here, so the module imports
     without PySide6 (the launcher checks for it first)."""
@@ -86,6 +104,7 @@ def build(
             return None
 
     profile_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(profile_dir, 0o700)  # also an existing folder made with a looser mode
     profile = QWebEngineProfile("assistant-window", app)
     profile.setPersistentStoragePath(str(profile_dir))
     profile.setCachePath(str(profile_dir / "cache"))
@@ -98,7 +117,8 @@ def build(
             QWebEngineProfile.PersistentPermissionsPolicy.StoreInMemory
         )
     interceptor = Interceptor(profile)
-    profile.setUrlRequestInterceptor(interceptor)
+    if intercept:
+        profile.setUrlRequestInterceptor(interceptor)
 
     page = Page(profile, app)
     settings = page.settings()
@@ -174,10 +194,14 @@ def main(argv: list[str] | None = None) -> int:
     a = p.parse_args(argv)
     from sasha.app.single import SingleInstance
 
-    single = SingleInstance(socket_path())
+    try:
+        single = SingleInstance(socket_path())
+    except NoRuntimeDir as exc:  # never a socket in a shared folder such as /tmp
+        print(f"[refused] {exc}", file=sys.stderr)
+        return 2
     if single.hand_over("wake" if a.wake else "raise"):
         return 0  # the window is already open: it raised itself
-    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = chromium_flags(a.dead_proxy)
+    harden_environment(os.environ, a.dead_proxy)
     from PySide6.QtWidgets import QApplication
 
     app = QApplication(sys.argv[:1])

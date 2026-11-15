@@ -90,3 +90,38 @@ def test_the_real_shell_offscreen(tmp_path: Path) -> None:
     assert r["url_after_link"].startswith(f"http://127.0.0.1:{r['port']}/")  # stayed home
     assert r["blocked"] >= 3  # the other socket, the fetch, the image
     assert r["after_wake"] == "true #home"  # a wake switches to Home and plays the entrance
+
+
+def test_no_devtools_port_and_our_flags_only() -> None:
+    """Review A2: a DevTools port would reach into the window that holds the mic grant."""
+    from sasha.app.shell import harden_environment
+
+    env = {
+        "QTWEBENGINE_REMOTE_DEBUGGING": "9222",
+        "QTWEBENGINE_INSPECTOR_SERVER": "127.0.0.1:9222",
+        "QTWEBENGINE_CHROMIUM_FLAGS": "--remote-debugging-port=9222",
+    }
+    harden_environment(env, 9)
+    assert "QTWEBENGINE_REMOTE_DEBUGGING" not in env and "QTWEBENGINE_INSPECTOR_SERVER" not in env
+    flags = env["QTWEBENGINE_CHROMIUM_FLAGS"]
+    assert "remote-debugging" not in flags
+    assert "--dns-prefetch-disable" in flags and "--proxy-server=http://127.0.0.1:9" in flags
+
+
+@pytest.mark.skipif(not HAS_QT, reason="the `app` extra (PySide6) is not installed")
+def test_an_existing_loose_profile_folder_is_made_private(tmp_path: Path) -> None:
+    profile = tmp_path / "profile"
+    profile.mkdir(mode=0o755)
+    os.chmod(profile, 0o755)
+    code = (
+        "import sys; from PySide6.QtWidgets import QApplication; "
+        "from sasha.app.shell import build; app = QApplication([]); "
+        f"build(app, 9, __import__('pathlib').Path({str(profile)!r}), 't', None)"
+    )
+    env = {
+        **os.environ,
+        "QT_QPA_PLATFORM": "offscreen",
+        "QTWEBENGINE_CHROMIUM_FLAGS": "--disable-gpu",
+    }
+    subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, timeout=60)
+    assert (profile.stat().st_mode & 0o777) == 0o700

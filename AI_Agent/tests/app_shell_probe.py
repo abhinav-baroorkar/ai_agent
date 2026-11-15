@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 import threading
 from pathlib import Path
@@ -78,7 +79,8 @@ def run(profile: Path) -> dict[str, Any]:
     from sasha.app.shell import build
 
     app = QApplication(sys.argv[:1])
-    shell = build(app, port, profile, "probe", None)
+    intercept = os.environ.get("PROBE_NO_INTERCEPT") != "1"
+    shell = build(app, port, profile, "probe", None, intercept=intercept)
     result: dict[str, Any] = {}
 
     def title(t: str) -> None:
