@@ -47,7 +47,7 @@ only for now; satellites on other devices come later.
 
 ## State of `main`
 
-- `main` is `d45935b` (2026-11-14, late evening). 279 tests pass.
+- `main` is `95f584d` (2026-11-14, late evening). 279 tests passed at `d45935b`.
 - **Window runs from `main`; goal reached for typed input.** `sasha window` was started on
   the laptop. The server came up with voice on (`stt` and `tts` true), the window's page
   connected, and a typed question on a `speak=1` socket was answered in text and speech:
@@ -74,6 +74,9 @@ only for now; satellites on other devices come later.
 | `chore/env-tmpdir-notes` | | `env.sh` refuses to run outside a bash checkout of the repo and removes temp entries older than 7 days | merged and pushed (`f2bfae5`) |
 | `fix/warmup-timeouts` | | short connect timeout for the model warm-up; voice turns record the STT and TTS model versions in telemetry | merged and pushed |
 | `fix/stt-runtime-fallback` | | speech-to-text falls back to CPU for a request when the GPU fails | merged and pushed (`3f76eee`) |
+| `feat/wake-server` | Staff SDE | brain side of the wake word: gate, abuse limits, reserved socket, contract v0.2 | in progress, not merged |
+| `feat/wake-listener` | Jack of all tasks | `sasha listen` (always-on listener), `sasha autostart` | in progress, not merged |
+| `feat/wake-indicator` | Design expert | tray icon and two short sounds | in progress, not merged |
 | `docs/scope-refresh` | Grunt work | plan.md, decisions.md, linkedin-notes.md, README, .env.example for the new scope | merged and pushed (`6fbc60d`, 86 tests pass) |
 | `docs/handoff` | Documentation engineer | this file, `team.md`, devlog; owner notes in `User_reference/` | merged and pushed (`main` is `5bd49eb`); work continues on this branch with new commits. Also owns `plan.md`, `decisions.md`, `linkedin-notes.md`, `README.md`, `.env.example` |
 
@@ -82,7 +85,9 @@ are touched by several branches; rebase the later one and re-lock.
 
 ## Agreed interfaces
 
-- **API contract v0.1** (v0.2 will add adding and removing MCP connectors): a `speak=0|1`
+- **API contract v0.2 (wake word) is written;** the server and listener sessions build against
+  it. The MCP connector endpoints (add and remove) move to planned v0.3. For voice requests,
+  volume is capped at 0.6. Base v0.1: a `speak=0|1`
   parameter on the WebSocket (Home speaks every answer, bot chat tabs are silent); one
   conversation per socket; `PUT` connector returns the Connector; `pronouns` is an
   object; `voice.tts_languages`.
@@ -104,7 +109,20 @@ flowing particles in the orb's own style: mist that breathes at idle, particles 
 when listening, currents when thinking, rising embers when speaking. Default is without
 eyes; eyes stay as a switch.
 
+## Decided by the owner (2026-11-14)
+
+- The wake phrase is the name alone, read from config.
+- Voice control is read-only by default; after the owner switches on device control for voice
+  once in the Bots screen, limits apply (see `decisions.md`).
+- A session may create the start-at-login link, under the rule in `team.md`.
+- Device control by voice, after the one opt-in: a spoken yes for "all", any scene, or more
+  than 3 distinct devices in one turn (counted across all its calls).
+
 ## Risks
+
+- **Limits of the wake word v1:** anyone in earshot or a television can trigger it. A false
+  wake on the name alone makes the next sentence a command. In a fullscreen app only the
+  sound shows a wake.
 
 - **Load order decides GPU placement.** With speech-to-text on the GPU first, the LLM
   spilled 17% onto the CPU (36 tokens/s). With the LLM first everything fits (7.35 of
@@ -122,10 +140,11 @@ eyes; eyes stay as a switch.
 ## Next after these land
 
 Our own design. In order:
-1. **Always-on wake word on this device.** The owner asked for an always-on wake word on this device: a listener that starts at login, hears the wake phrase, answers, and shows a small icon on screen. Status: design note requested from the server author; the reviewer checks the design before any code; no code yet. Rules already set: no listening without a visible sign and a one-click pause; audio that doesn't begin with the wake phrase is dropped and never stored or logged; the first version detects the phrase with the existing speech-to-text, and a trained wake-word model can replace it later; the start-at-login file lives outside the project folder, so the owner must approve it or run the install command personally.
+1. **Always-on wake word on this device** (design approved; three branches in progress, none
+   merged; opt-in until the measurement plan passes; see `decisions.md`).
 2. Check the full voice loop in the window with a real microphone.
 3. MCP connectors, with an approval step before any tool that changes something
-   (contract v0.2; a design note exists).
+   (contract v0.3; a design note exists).
 4. Per-stage speech timings in telemetry.
 5. Marathi (Phase 2).
 
@@ -147,9 +166,6 @@ Ideas from an earlier project of the owner's: read-only, no copying (owner's dec
 - Whether Claude's memory folder for this project is allowed (see the folder rule).
   Memory notes are paused until the owner says so.
 - Which smart-display and TV devices to support.
-- May a session create the one start-at-login file under the home config folder (outside
-  the project), or will the owner run the install command personally?
-- Is the wake phrase the name alone, or "Hey <name>"?
 - Whether to keep eyes as a switch on the face (the default is without eyes).
 - `CLAUDE.md` "Current phase" says to stop and check with the owner before adding voice.
   Only the owner changes that line. `CLAUDE.md` step 3 ("once the owner says go") also

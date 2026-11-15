@@ -109,6 +109,18 @@ One role per session. Add or drop roles as the work needs.
 - If a session already wrote something outside the folder, it does not delete it. It
   tells Primary the path.
 
+### One allowed write outside the project: the start-at-login link (owner, 2026-11-14)
+
+- The owner allowed a session to create the start-at-login entry for the assistant under
+  the home config folder (`~/.config/systemd/user/`).
+- Only this: symlinks to the unit files that live inside the project (`systemctl --user
+  link <file in the project>`, then `enable`). No other file, no edits to existing files,
+  nothing else under the home directory.
+- Only the session Primary names does it, only when Primary says the feature is reviewed and
+  merged, and it reports the exact paths created and how to undo them (`systemctl --user
+  disable --now ...`).
+- Everything else in the Stay-inside rule is unchanged.
+
 ## Ideas from an earlier project of the owner's: read-only, no copying
 
 The owner first allowed copying on 2026-11-14 and withdrew it the same evening. Now:
