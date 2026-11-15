@@ -100,6 +100,8 @@ def setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
         [connector], JsonStore(tmp_path / "connectors.json")
     )
     client = TestClient(create_app(harness.deps, web_dir=None), base_url=BASE_URL, client=LOCAL)
+    client.harness = harness  # type: ignore[attr-defined]
+    client.connector = connector  # type: ignore[attr-defined]
     with client:
         yield client, service, chrome
 
@@ -278,3 +280,26 @@ def test_owner_stop_fails_the_turns_next_step() -> None:
         conv._turn()  # the next turn may start it again
     finally:
         current_turn.reset(token)
+
+
+def test_state_names_the_bot_using_the_browser(setup: Any) -> None:
+    from sasha.conversation import building_for_bot
+
+    client, service, _ = setup
+    token = building_for_bot.set("main")  # as make_assistant does while building tools
+    try:
+        client.connector.build_tools({})
+    finally:
+        building_for_bot.reset(token)
+    holder = next(iter(client.connector.holders))
+    view = client.app.state.browser_view
+
+    async def while_held() -> dict[str, Any]:
+        async with service.acquire(holder):
+            return dict(await view.state())
+
+    state = client.portal.call(while_held)
+    main = client.harness.bots.get("main")
+    assert state["agent"] == "working" and state["holder"] == holder
+    assert state["holder_bot"] == {"id": "main", "name": main.name}
+    assert client.get("/api/browser").json()["holder_bot"] is None  # not held now

@@ -14,6 +14,7 @@ from sasha.browser.chrome import find_chrome
 from sasha.browser.origin import normalise
 from sasha.browser.tools import BrowserBridge, BrowserConversation, browser_tools
 from sasha.connectors.base import ConnectorError, SetupCheck, TestResult
+from sasha.conversation import building_for_bot
 from sasha.tools import Tool
 
 TOOL_NAMES = [
@@ -27,6 +28,7 @@ TOOL_NAMES = [
     "switch_tab",
 ]
 _conversations = itertools.count(1)
+MAX_HOLDERS = 256
 # DuckDuckGo's plain HTML results page (no scripts needed), chosen by the owner.
 DEFAULT_SEARCH = "https://html.duckduckgo.com/html/?q={q}"
 
@@ -51,6 +53,7 @@ class BrowserConnector:
 
     def __init__(self, bridge: BrowserBridge) -> None:
         self.bridge = bridge
+        self.holders: dict[str, str] = {}  # browser holder id -> the bot it serves
 
     @property
     def secret_env(self) -> list[str]:
@@ -77,9 +80,15 @@ class BrowserConnector:
         return list(TOOL_NAMES)
 
     def build_tools(self, settings: dict[str, Any]) -> list[Tool]:
+        holder = f"conversation-{next(_conversations)}"
+        bot = building_for_bot.get()
+        if bot is not None:  # for the live view's holder_bot; the newest MAX_HOLDERS only
+            self.holders[holder] = bot
+            while len(self.holders) > MAX_HOLDERS:
+                self.holders.pop(next(iter(self.holders)))
         conv = BrowserConversation(
             self.bridge,
-            holder=f"conversation-{next(_conversations)}",
+            holder=holder,
             search_template=settings.get("search_template") or None,
         )
         return browser_tools(conv)

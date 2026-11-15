@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
@@ -30,13 +31,20 @@ log = logging.getLogger(__name__)
 BROWSER_SOCKETS = 1  # the live view's own slot, apart from max_sockets and the listener
 STATE_POLL_S = 0.5
 TITLE_CHARS = 80
+SITE_CHARS = 255
 SAFE_FETCH_SITES = {None, "same-origin", "none"}
 
 
 class BrowserView:
-    def __init__(self, service: BrowserService | None, enabled: Any) -> None:
+    def __init__(
+        self,
+        service: BrowserService | None,
+        enabled: Callable[[], bool],
+        holder_bot: Callable[[str], dict[str, str] | None] = lambda holder: None,
+    ) -> None:
         self.service = service
-        self.enabled = enabled  # () -> bool: the connector is switched on
+        self.enabled = enabled  # the connector's switch in Settings
+        self.holder_bot = holder_bot  # holder id -> {id, name} of the bot, from the store
         self.viewers = 0
 
     def running(self) -> bool:
@@ -51,6 +59,7 @@ class BrowserView:
             "running": False,
             "agent": "idle",
             "holder": None,
+            "holder_bot": None,
             "tabs": [],
             "guard": guard,
         }
@@ -61,6 +70,7 @@ class BrowserView:
         out["running"] = True
         out["agent"] = "working" if service.holder is not None else "idle"
         out["holder"] = service.holder
+        out["holder_bot"] = self.holder_bot(service.holder) if service.holder else None
         if service.proxy is not None:
             s = service.proxy.stats
             guard.update(
@@ -75,7 +85,7 @@ class BrowserView:
             out["tabs"].append(
                 {
                     "tab": n,
-                    "site": domain_of(str(info.get("url", ""))),
+                    "site": clean(domain_of(str(info.get("url", ""))), SITE_CHARS),
                     "title": clean(str(info.get("title", "")), TITLE_CHARS),
                     "current": target == chrome.current_target,
                 }
@@ -181,6 +191,13 @@ def _local(host: str | None) -> bool:
     return host is not None and is_loopback(host)
 
 
+def _browser_connector(connectors: Any) -> Any:
+    try:
+        return connectors.get("browser")
+    except Exception:
+        return None
+
+
 def add_browser_routes(app: FastAPI, deps: Any) -> BrowserView:
     bridge = find_bridge(deps.connectors)
 
@@ -188,7 +205,18 @@ def add_browser_routes(app: FastAPI, deps: Any) -> BrowserView:
         rows = [c for c in deps.connectors.all() if c.get("id") == "browser"]
         return bool(rows and rows[0].get("enabled"))
 
-    view = BrowserView(bridge.service if bridge is not None else None, enabled)
+    def holder_bot(holder: str) -> dict[str, str] | None:
+        connector = _browser_connector(deps.connectors)
+        bot_id = getattr(connector, "holders", {}).get(holder)
+        if bot_id is None:
+            return None
+        try:
+            bot = deps.bots.get(bot_id)  # the owner's own name for it, never page text
+        except Exception:
+            return None
+        return {"id": bot.id, "name": bot.name}
+
+    view = BrowserView(bridge.service if bridge is not None else None, enabled, holder_bot)
 
     def refused(request: Request) -> JSONResponse | None:
         if not _local(request.client.host if request.client else None):

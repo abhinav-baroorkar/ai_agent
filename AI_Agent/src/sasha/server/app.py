@@ -181,7 +181,7 @@ def create_app(deps: ServerDeps, web_dir: Path | None = WEB_DIR) -> FastAPI:
         result = deps.connectors.test(connector_id)
         return {"ok": result.ok, "message": result.message}
 
-    add_browser_routes(app, deps)  # the live view (v0.4), before the static mount
+    app.state.browser_view = add_browser_routes(app, deps)  # v0.4, before the static mount
 
     # --- conversation ----------------------------------------------------------
     async def refuse(websocket: WebSocket, reason: str, code: int = 1008) -> None:
