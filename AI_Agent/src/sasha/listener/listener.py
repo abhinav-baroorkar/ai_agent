@@ -22,12 +22,13 @@ import asyncio
 import contextlib
 import logging
 import threading
+import time
 from collections.abc import Callable
 from typing import Any
 
 from sasha.listener.brain import CLOSE_SLOT_TAKEN, HealthCheck, frame, segment_frames, writer
 from sasha.listener.capture import Backoff, CaptureProcess
-from sasha.listener.confirm import ConfirmWindow
+from sasha.listener.confirm import ConfirmWindow, StopWindow
 from sasha.listener.contracts import Connect, Indicator, ListenerSettings, SegmentSink, State
 from sasha.listener.gate import ANSWER_MIN_SPEECH_MS, MIN_SPEECH_MS, Gate, Segment
 from sasha.listener.guards import Guards
@@ -62,6 +63,10 @@ class Listener:
         self.connect = connect
         self.debug_sink = debug_sink
         self.confirm = ConfirmWindow(self._changed)
+        self.stop_window = StopWindow(self._changed)
+        # After the "armed" tone the next command may start at once, but only if the mic
+        # reopens right away: a reopen minutes later (after a pause) is a fresh start.
+        self.prime_until = 0.0
         self.paused = False
         self.online = False
         self.server_paused = False
@@ -75,6 +80,7 @@ class Listener:
         self._out: asyncio.Queue[str | bytes] | None = None  # one writer keeps frame order
         self._capture: CaptureProcess | None = None
         self._capture_task: asyncio.Task[None] | None = None
+        self._tearing_down = False  # a cancelled capture task is still cleaning up
         self._loop: asyncio.AbstractEventLoop | None = None
         self._stop = asyncio.Event()
         self._sent_drops = 0
@@ -85,6 +91,8 @@ class Listener:
             (self._shown and not self._lost.is_set(), "indicator not shown"),
             (not self.paused, "paused"),
             (self.online, "brain offline"),
+            # Only a confirm window may open the mic during a turn; the brain sends
+            # `stop_window` only when it isn't busy, so that one never overrides busy.
             (not self.busy or self.confirm.is_open, "brain is answering"),
             (not self.server_paused, "brain is speaking"),
             (not self.playing, "playing a reply"),
@@ -94,32 +102,58 @@ class Listener:
                 return False, reason
         return self.guards.allowed()
 
+    @property
+    def answer_window_open(self) -> bool:
+        """A one-segment window the brain opened: a spoken yes/no, or "stop" for a ring."""
+        return self.confirm.is_open or self.stop_window.is_open
+
     def _changed(self) -> None:
-        """Re-decide now. Closing (and showing it) is synchronous; opening is scheduled."""
-        # A spoken yes/no is often shorter than the usual minimum; only then accept it.
-        self.gate.min_speech_ms = ANSWER_MIN_SPEECH_MS if self.confirm.is_open else MIN_SPEECH_MS
+        """Re-decide now. Closing (and showing it) is synchronous; opening is scheduled,
+        with the mic-open sign shown in this same step, before the child exists."""
+        # A spoken yes/no or "stop" is often shorter than the usual minimum.
+        short = self.answer_window_open
+        self.gate.min_speech_ms = ANSWER_MIN_SPEECH_MS if short else MIN_SPEECH_MS
         allowed, _ = self.mic_allowed()
         if not allowed:
             self._close_mic()
         elif self._loop is not None and (self._capture_task is None or self._capture_task.done()):
             self._capture_task = self._loop.create_task(self._capture_loop())
+            self._show(mic_open=True)
+            return
+        elif self._tearing_down:
+            # The previous capture is still being torn down (its child already killed);
+            # it re-decides when done (see _close_mic), so show the sign now.
+            self._show(mic_open=True)
+            return
         self._show()
 
     def _close_mic(self) -> None:
         if self._capture is not None:
             self._capture.kill()
-        if self._capture_task is not None and not self._capture_task.done():
-            self._capture_task.cancel()
+        task = self._capture_task
+        if task is not None and not task.done() and not self._tearing_down:
+            task.cancel()
+            self._tearing_down = True
+            task.add_done_callback(self._torn_down)
         self.gate.reset()
+
+    def _torn_down(self, task: asyncio.Task[None]) -> None:
+        """A cancelled capture finished its cleanup: decide again, so a reopen asked for
+        meanwhile (a confirm or stop window) isn't lost until the next 2 s check."""
+        self._tearing_down = False
+        if self._loop is not None and not self._stop.is_set():
+            self._loop.call_soon(self._changed)
 
     def _show(self, mic_open: bool | None = None) -> None:
         if mic_open is None:
-            mic_open = self._capture is not None and self._capture.running
+            # A capture still being spawned counts as open: a `_changed()` during the
+            # spawn must not put a closed state on the tray just before the child runs.
+            mic_open = self._capture is not None and self._capture.live_or_starting
         state: State
         if mic_open:
             if self.debug_sink is not None:
                 state = "debug"
-            elif self.confirm.is_open or self.server_state == "listening":
+            elif self.answer_window_open or self.server_state == "listening":
                 state = "listening"
             else:
                 state = "waiting"
@@ -161,6 +195,7 @@ class Listener:
             proc = self.capture_factory()
             if proc is None:
                 log.error("No capture program (arecord or pw-record): microphone stays closed")
+                self._show(mic_open=False)  # take down the mic-open sign _changed() put up
                 return
             self._show(mic_open=True)  # the sign goes up before the microphone opens
             self._capture = proc
@@ -168,6 +203,10 @@ class Listener:
                 await proc.start()
                 if not self.mic_allowed()[0]:  # changed while starting
                     break
+                self._show()  # the child runs now: make sure a mic-open state is shown
+                if time.monotonic() <= self.prime_until:  # closed only for our "armed" tone
+                    self.gate.prime()
+                self.prime_until = 0.0
                 async for chunk in proc.chunks():
                     backoff.reset()
                     if self._lost.is_set() or not self.mic_allowed()[0]:
@@ -189,9 +228,10 @@ class Listener:
     def _on_segment(self, segment: Segment) -> None:
         if self._ws is None:
             return
-        if self.confirm.is_open:
-            self._forward_segment(segment)  # read by the brain only as yes or no
+        if self.answer_window_open:
+            self._forward_segment(segment)  # read by the brain only as yes/no or stop
             self.confirm.close()
+            self.stop_window.close()
             return
         if self.busy:
             return  # nothing is sent while the brain answers

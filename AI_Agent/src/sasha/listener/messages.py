@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from typing import TYPE_CHECKING, Any
 
 from sasha.listener.indicator.base import EarconKind
@@ -21,6 +22,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 AFTER_SPEECH_S = 0.3  # half-duplex: the mic stays closed this long after playback
+PRIME_S = 1.0  # how soon after the "armed" tone a reopen still counts as "right away"
 
 
 async def handle_message(lst: Listener, message: str | bytes) -> None:
@@ -34,6 +36,8 @@ async def handle_message(lst: Listener, message: str | bytes) -> None:
     kind = msg.get("type")
     if kind == "tts_start":
         lst.playing = True
+        lst.confirm.speech_started()  # a window that opened early waits for this speech
+        lst.stop_window.close()  # the next tone ends a stop window
         lst._changed()  # closes the mic before the first sound
         await lst.player.start(int(msg.get("sample_rate") or 24000))
     elif kind == "tts_end":
@@ -44,6 +48,10 @@ async def handle_message(lst: Listener, message: str | bytes) -> None:
         lst._changed()
     elif kind == "wake":
         await _on_wake(lst, msg)
+    elif kind == "stop_window":
+        lst.stop_window.open(msg.get("timeout_s") or 8.0)  # explicit event only
+    elif kind in ("stop_result", "timer_stopped"):
+        lst.stop_window.close()
     elif kind == "confirm":
         lst.confirm.announce(msg.get("timeout_s") or 5.0, lambda: lst.playing)
         lst._changed()
@@ -85,4 +93,15 @@ async def _earcon(lst: Listener, kind: EarconKind) -> None:
     except Exception as e:
         log.warning("Earcon %s unavailable (%s)", kind, type(e).__name__)
         return
-    await Player(lst.player.command).play(clip.pcm, clip.sample_rate)
+    # Half-duplex for earcons too: the mic is closed while our own sound plays and
+    # for the usual tail after it, so the tone is never sent as speech.
+    lst.playing = True
+    lst._changed()
+    try:
+        await Player(lst.player.command).play(clip.pcm, clip.sample_rate)
+        await asyncio.sleep(AFTER_SPEECH_S)
+    finally:
+        lst.playing = False
+        if kind == "armed":
+            lst.prime_until = time.monotonic() + PRIME_S  # the command may follow at once
+        lst._changed()

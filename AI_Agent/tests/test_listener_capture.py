@@ -74,8 +74,11 @@ def _alive(pid: int) -> bool:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
-    with open(f"/proc/{pid}/stat") as f:  # a zombie is dead for our purpose
-        return f.read().split()[2] != "Z"
+    try:
+        with open(f"/proc/{pid}/stat") as f:  # a zombie is dead for our purpose
+            return f.read().split()[2] != "Z"
+    except OSError:  # reaped between the two checks
+        return False
 
 
 def test_kill_9_of_the_listener_leaves_no_capture_child() -> None:
@@ -154,3 +157,27 @@ def test_children_may_only_be_spawned_from_the_main_thread() -> None:
         with pytest.raises(RuntimeError, match="main thread"):
             future.result()
     assert with_death_signal(["arecord"])[0][-1] == "arecord"  # main thread: fine
+
+
+def test_a_kill_during_the_spawn_keeps_the_child_live_until_it_is_gone() -> None:
+    """Review LC1, with a real short-lived child: killed while asyncio is still waiting
+    for the pipes (no pid yet), the capture counts as live until the child is really
+    gone, and the kill is carried out as soon as the pid exists."""
+
+    async def main() -> None:
+        proc = CaptureProcess([sys.executable, "-c", "import time; time.sleep(30)"])
+        task = asyncio.create_task(proc.start())
+        await asyncio.sleep(0)  # the fork and exec happen in this step; pid not set yet
+        assert proc.pid is None and proc._starting
+        proc.kill()  # e.g. a pause click: nothing to signal yet
+        assert proc.live_or_starting, "a closed state now would hide a live child"
+        await task
+        child = proc.pid
+        assert child is not None and not proc.live_or_starting  # killed right after spawn
+        deadline = time.monotonic() + 2
+        while _alive(child) and time.monotonic() < deadline:
+            await asyncio.sleep(0.01)
+        assert not _alive(child), "the child survived a kill issued during its spawn"
+        await proc.stop()
+
+    asyncio.run(main())

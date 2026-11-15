@@ -105,6 +105,12 @@ class Gate:
         self._silence_ms = 0
         self._seg: _Segmenting | None = None
 
+    def prime(self) -> None:
+        """Treat the time before now as silence: the mic was closed only for our own
+        sound (the "armed" tone), not in the middle of someone's sentence, so speech
+        may start a segment at once instead of after 300 ms of fresh silence."""
+        self._silence_ms = SILENCE_BEFORE_MS
+
     def _speech_probability(self, samples: Any) -> float:
         np = self._np
         self._pending = np.concatenate([self._pending, samples.astype(np.float32) / 32768.0])

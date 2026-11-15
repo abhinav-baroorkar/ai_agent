@@ -154,7 +154,9 @@ def fake_mic_command(seconds: float = 30.0, riff: bool = False) -> list[str]:
     return [sys.executable, "-c", code]
 
 
-def scripted_mic_command(pattern: list[tuple[int, int]], tail_s: float = 30.0) -> list[str]:
+def scripted_mic_command(
+    pattern: list[tuple[int, int]], tail_s: float = 30.0, marker: str = "fake-mic"
+) -> list[str]:
     """A fake mic that plays `pattern` ([(amplitude, ms)], 220 Hz tone or near-silence)
     as fast as it can, then near-silence in real time for `tail_s` seconds."""
     code = (
@@ -173,7 +175,7 @@ def scripted_mic_command(pattern: list[tuple[int, int]], tail_s: float = 30.0) -
         "while time.time() < end:\n"
         "    out.write(chunk(30, n)); n += 1; out.flush(); time.sleep(0.02)\n"
     )
-    return [sys.executable, "-c", code]
+    return [sys.executable, "-c", code, marker]  # the marker lets tests find it
 
 
 def fake_player_command(play_s: float = 0.1) -> Callable[[int], list[str]]:

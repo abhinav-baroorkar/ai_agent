@@ -178,6 +178,7 @@ class Harness:
             main_prompt=self.settings.assistant.render_system_prompt(),
             default_model="big-model",
             connector_ids=lambda: self.connectors.ids,
+            connector_kinds=lambda: self.connectors.kinds,
             main_connectors=["fake"],
             installed_models=lambda: [str(m["name"]) for m in self.models],
             wake_control_allowed=lambda: wake_control_allowed(self.settings.profile.wake),

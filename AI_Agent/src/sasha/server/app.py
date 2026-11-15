@@ -17,6 +17,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from sasha import __version__
 from sasha.bots import BOT_ID_RE, MAIN_ID, VOICE_ID, BotError, BotNotFound, parse_fields
+from sasha.browser.hooks import attach_browser
 from sasha.connectors import ConnectorError
 from sasha.pipeline.llm import OllamaError
 from sasha.server.deps import ServerDeps
@@ -86,6 +87,7 @@ def create_app(deps: ServerDeps, web_dir: Path | None = WEB_DIR) -> FastAPI:
     voice = VoiceStages(stt=deps.stt, tts=deps.tts, speaking=speaking)  # shared by sockets
     open_sockets = 0
     open_listeners = 0  # the reserved slot(s); never counted in max_sockets
+    attach_browser(app, deps.connectors)  # the browser runs on this server's loop
     app.add_middleware(
         LocalOnlyMiddleware,
         hosts=allowed_hosts(server.port),

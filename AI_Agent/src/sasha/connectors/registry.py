@@ -10,6 +10,7 @@ import logging
 from collections.abc import Iterable
 from typing import Any
 
+from sasha.browser.policy import BrowserCombinationError, check_combination
 from sasha.connectors.base import Connector, ConnectorError, Status, TestResult
 from sasha.state import JsonStore
 from sasha.tools import ToolRegistry
@@ -44,6 +45,10 @@ class ConnectorRegistry:
     @property
     def ids(self) -> list[str]:
         return list(self._connectors)
+
+    @property
+    def kinds(self) -> dict[str, str]:
+        return {cid: c.kind for cid, c in self._connectors.items()}
 
     def get(self, connector_id: str) -> Connector:
         try:
@@ -122,6 +127,14 @@ class ConnectorRegistry:
         """Tools from the given connectors that are enabled and set up, plus warnings."""
         registry = ToolRegistry()
         warnings: list[str] = []
+        connector_ids = list(connector_ids)
+        try:
+            # B4 again at run time, whatever was saved, on the connectors' real kinds
+            check_combination(
+                {c: getattr(self._connectors.get(c), "kind", None) for c in connector_ids}
+            )
+        except BrowserCombinationError as exc:
+            return registry, [str(exc)]
         for cid in connector_ids:
             connector = self._connectors.get(cid)
             if connector is None:

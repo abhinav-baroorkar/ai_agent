@@ -11,11 +11,12 @@ from __future__ import annotations
 
 import re
 import secrets
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+from sasha.browser.policy import BrowserCombinationError, check_combination
 from sasha.state import JsonStore
 
 MAIN_ID = "main"
@@ -87,6 +88,7 @@ class BotStore:
         main_prompt: str,
         default_model: str,
         connector_ids: Callable[[], list[str]],
+        connector_kinds: Callable[[], Mapping[str, str]] = dict,
         main_connectors: list[str] | None = None,
         installed_models: Callable[[], list[str]] | None = None,
         wake_control_allowed: Callable[[], bool] = lambda: False,
@@ -99,6 +101,8 @@ class BotStore:
         self.main_prompt = with_safety_note(main_prompt)
         self.default_model = default_model
         self._connector_ids = connector_ids
+        # id -> kind, for the browser rule (B4); a missing kind fails closed
+        self._connector_kinds = connector_kinds
         # Fixed default: connectors added later are opt-in per bot, the main bot included.
         self.main_connectors = list(main_connectors or [])
         self._installed_models = installed_models
@@ -154,6 +158,11 @@ class BotStore:
         unknown = [c for c in ids if c not in known]
         if unknown:
             raise BotError(f"Unknown connector(s): {', '.join(unknown)}")
+        try:
+            kinds = self._connector_kinds()
+            check_combination({c: kinds.get(c) for c in ids})  # B4, on the real kinds
+        except BrowserCombinationError as exc:
+            raise BotError(str(exc)) from None
         return list(dict.fromkeys(ids))  # drop duplicates, keep order
 
     def _check_model(self, model: str | None) -> None:
