@@ -16,6 +16,7 @@ import logging
 import os
 import shutil
 import signal
+import threading
 from collections.abc import AsyncIterator, Callable, Sequence
 
 log = logging.getLogger(__name__)
@@ -43,7 +44,15 @@ def with_death_signal(command: Sequence[str]) -> tuple[list[str], Callable[[], N
 
     Preferred: `setpriv --pdeathsig KILL` plus a parent check, with no pre-exec hook
     (a Python `preexec_fn` can deadlock when other threads are alive). Fallback when
-    setpriv is missing: a minimal pre-exec hook using the already-resolved prctl."""
+    setpriv is missing: a minimal pre-exec hook using the already-resolved prctl.
+
+    Spawn only from the main (event-loop) thread, never from `asyncio.to_thread` or
+    another worker: the death signal fires when the *thread* that forked the child
+    exits, not the whole process, so a child forked by a short-lived worker thread
+    would be killed as soon as that thread ends (or, with the setpriv parent check,
+    refuse to start). This is checked here and refused."""
+    if threading.current_thread() is not threading.main_thread():
+        raise RuntimeError("Capture and playback children must be spawned from the main thread")
     parent = os.getpid()
     if _SETPRIV:
         script = ["/bin/sh", "-c", _PARENT_CHECK, "sh", str(parent)]
