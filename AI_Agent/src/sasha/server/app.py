@@ -236,7 +236,7 @@ def create_app(deps: ServerDeps, web_dir: Path | None = WEB_DIR) -> FastAPI:
         if chosen is None:
             await refuse(websocket, f"Unknown bot '{bot[:64]}'")
             return
-        assistant, warnings = await run_in_threadpool(deps.make_assistant, chosen)
+        assistant, warnings = await run_in_threadpool(deps.make_assistant, chosen, speak == "1")
         for warning in warnings:
             log.warning("Bot %s: %s", chosen.id, warning)
         language = settings.assistant.languages.default
