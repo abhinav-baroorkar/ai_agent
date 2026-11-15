@@ -24,7 +24,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sasha.listener.brain import CLOSE_SLOT_TAKEN, HealthCheck, frame, segment_frames, writer
 from sasha.listener.capture import Backoff, CaptureProcess
@@ -34,6 +34,9 @@ from sasha.listener.gate import ANSWER_MIN_SPEECH_MS, MIN_SPEECH_MS, Gate, Segme
 from sasha.listener.guards import Guards
 from sasha.listener.messages import handle_message
 from sasha.listener.playback import Player
+
+if TYPE_CHECKING:
+    from sasha.listener.window_open import WindowOpener
 
 log = logging.getLogger(__name__)
 
@@ -62,6 +65,7 @@ class Listener:
         self.health = health
         self.connect = connect
         self.debug_sink = debug_sink
+        self.window: WindowOpener | None = None  # set by build_listener (the app shell)
         self.confirm = ConfirmWindow(self._changed)
         self.stop_window = StopWindow(self._changed)
         # After the "armed" tone the next command may start at once, but only if the mic

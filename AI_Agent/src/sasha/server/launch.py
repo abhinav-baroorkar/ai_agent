@@ -245,6 +245,14 @@ def open_window(
             server.terminate()
             return 1
 
+    from sasha.app import launcher  # the app shell, if the `app` extra is installed
+
+    if launcher.available():
+        how = launcher.open_shell(settings, port, proxy_port, spawn=spawn)
+        if how not in ("no_display", "no_session"):
+            print("The assistant's window is open." if how == "raised" else f"Opened {url}.")
+            return _wait_for(server)
+        print("No display or desktop session for the app window; trying the Chrome window.")
     profile_dir = settings.paths.data_dir / "chrome-profile"
     window = browser_command(url, profile_dir, proxy_port)
     if window is None:
@@ -265,6 +273,10 @@ def open_window(
         )
         print(f"Opened {url} in an app window.")
 
+    return _wait_for(server)
+
+
+def _wait_for(server: subprocess.Popen[bytes] | None) -> int:
     if server is None:
         return 0
     print("Server is running here; press Ctrl-C to stop it.")

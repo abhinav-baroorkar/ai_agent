@@ -5,6 +5,7 @@ import { Stage, mix, rand } from './stage.js';
 import { WHITE, glow, Spring } from './parts.js';
 import { Sphere } from './sphere.js';
 import { Mist } from './mist.js';
+import { ENTRANCE, entranceAt } from './entrance.js';
 
 class Spirit extends Stage {
   constructor(root) {
@@ -29,6 +30,14 @@ class Spirit extends Stage {
 
   setRinging(on) {
     this.ringing = !!on;
+  }
+
+  // The wake phrase brought the window up: play the entrance (not under reduced motion).
+  // (Stage.wake() is the frame loop's restart; this is a different thing.)
+  enter() {
+    this.wake(); // make sure the frame loop runs: the window may just have appeared
+    if (this.calm) return;
+    this.entering = performance.now();
   }
 
   setState(state) {
@@ -80,7 +89,11 @@ class Spirit extends Stage {
     const px = this.x.step(away ? this.goal.x : 0, dt) + Math.sin(t * 0.43) * 0.04 * still;
     const py = this.y.step(away ? this.goal.y : 0.04 * w.thinking, dt) + Math.sin(t * 0.9) * 0.035 * still - 0.05 * this.glee * Math.abs(Math.sin(t * 9));
     const scale = this.size.step(1 + 0.08 * w.listening - 0.06 * w.thinking + 0.05 * lvl * w.speaking, dt);
-    const R = R0 * scale;
+    const enter = this.entering == null ? null : entranceAt(this.entering, now);
+    if (enter && enter.done) this.entering = null;
+    this.gather = enter ? 1 - enter.k : 0; // 1 = fully scattered, 0 = in place
+    const R = R0 * scale * (enter ? ENTRANCE.startScale + (1 - ENTRANCE.startScale) * enter.k : 1);
+    ctx.globalAlpha = enter ? enter.alpha : 1; // the canvas keeps it between frames
     const speed = Math.hypot(this.x.vel, this.y.vel);
 
     // light on the floor stays put while the being moves above it
@@ -127,10 +140,11 @@ class Spirit extends Stage {
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     for (const m of this.motes) {
-      const a = m.a + this.orbit * m.sp;
+      const a = m.a + this.orbit * m.sp + ENTRANCE.twist * (this.gather || 0) * (m.sp > 0 ? 1 : -1);
       const z = Math.sin(a);
       if (z > 0 !== front) continue;
-      const r = m.r * (1 - 0.26 * w.listening - 0.12 * w.thinking) + 0.7 * this.burst * Math.sin(Math.PI * this.burst) +
+      const r = m.r * (1 - 0.26 * w.listening - 0.12 * w.thinking) * (1 + (ENTRANCE.scatter - 1) * (this.gather || 0)) +
+        0.7 * this.burst * Math.sin(Math.PI * this.burst) +
         0.16 * lvl * w.speaking * Math.sin(t * 9 + m.ph);
       const tilt = m.tilt * (1 - 0.85 * w.thinking);
       const x = Math.cos(a) * r;

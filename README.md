@@ -192,6 +192,7 @@ Software the brain server depends on:
 | starlette (via fastapi) | Web framework under fastapi | BSD-3-Clause |
 | opentelemetry-api (via fastapi) | API only, no network | Apache-2.0 |
 | jeepney | Tray icon over D-Bus for the wake word listener (optional `listener` extra only) | MIT |
+| PySide6 (Qt 6, Qt WebEngine) | The assistant's own window, an app shell around the web UI (optional `app` extra only; about 673 MB installed, `uv sync --extra app`; without it `sasha window` uses Chrome) | LGPL-3.0 (dynamically linked wheels) |
 
 More rows get added as models land (openWakeWord,
 IndicConformer, IndicTrans2, Indic Parler-TTS).
