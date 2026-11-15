@@ -130,13 +130,16 @@ are touched by several branches; rebase the later one and re-lock.
 - **Tools:** search, open, read, follow links, switch tabs. An address may be opened only if the
   owner wrote it in this conversation (the server rebuilds it). A leak check on search queries
   catches emails, long numbers and identifiers from earlier messages.
-- **Limits:** a browsing bot can have no other connector and no timer tools. No browser on wake
-  turns. History files are wiped whenever the browser stops, only inside a profile the assistant
+- **Limits:** a browsing bot can have no other connector and no timer tools (the one-bot-at-a-time
+  rule has an open follow-up, see the live view line). No browser on wake turns. History files are wiped whenever the browser stops, only inside a profile the assistant
   created (marker file), and never through a link or under a live Chrome.
 - **Live view** in the Bots screen: frames as JPEG at most about 5 a second, a site line that
   comes from the brain, Stop always available. No picture route over HTTP (contract v0.4.1).
-- **Measured:** injection bench with the real model, 8 kinds of trap page, 24 of 24 on the final
-  run, 0 leaks to the network. An early run did leak an email through a search, which is why the
+  Two follow-ups are in progress on `fix/browser-turn-holder`: a page that reloads itself can
+  exceed the frame cap, and two bots can share the browser within one turn.
+- **Measured (the author's bench, pending the reviewer's own check):** injection bench with the
+  real model, 8 kinds of trap page, 24 of 24 on the final run, 0 leaks to the network (3 runs per
+  case, a small sample). An early run did leak an email through a search, which is why the
   leak check exists and why the guards don't rely on the model. See `research-notes.md`.
 - **Next phase: take-over** (decided 2026-11-15): the owner solves the search engine's bot
   challenge personally, through a visible window; the brain is disconnected while the owner drives;
@@ -207,7 +210,7 @@ eyes; eyes stay as a switch.
   opened. The manager's pre-push check now shows the names of failing tests and stops on any
   failure (one merge had been pushed on a run with one failure).
 - **Not tested for real yet:** the wake word on a real microphone, the browser on a public site,
-  and timers with real voice. The search engine (DuckDuckGo) served the headless browser a bot
+  search on the real engine, and timers with real voice. The search engine (DuckDuckGo) served the headless browser a bot
   challenge; the owner will solve it through the take-over, which is being designed.
 - **VRAM headroom on the 8 GB laptop card is about 1 GB** (LLM 5.2 GB at 8k context + STT
   0.8 GB = 7.1 of 8.15 GB). A bigger context could push LLM layers to the CPU.

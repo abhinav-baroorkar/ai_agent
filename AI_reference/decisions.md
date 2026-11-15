@@ -585,3 +585,21 @@ Summary of the design that passed review (two rounds). Opt-in until the measurem
   186 runs: 117 right, 54 asked correctly, 15 asked needlessly, 0 wrong. One more change is being
   made (an answer is also read together with the previous message when the assistant's own reply
   was a question) and the bench will be re-run. Numbers in `research-notes.md`.
+
+## 2026-11-15 — Corrections after the documentation review (appended)
+
+- **Correction to "Timers, alarms and reminders" (bench).** "Met" says more than was verified. The
+  bar "0 silent wrong times" was met on the author's own bench (62 phrasings, 3 runs each, the
+  author's numbers). The reviewer's last review of the server branch found silent wrong times
+  outside the bench (a number inside the reminder text read as the time; a morning cue with pm set
+  for the evening; answers to the tool's own question failing). These are reported fixed, but the
+  branch is not re-reviewed or merged. So: met on the author's bench; final review open; the server
+  branch is not merged.
+- **Correction to "The microphone sign must agree with the capture process".** The test oracle that
+  tracks the real child process is a test, not a run-time guarantee. Read the sentence as: any
+  disagreement between the sign and the process fails the tests.
+- **Addition to "The assistant's own browser, phase 1" (live view and limits).** The frame cap
+  ("at most about 5 a second") and "one bot at a time" each have a follow-up still open: two follow-ups are in progress on `fix/browser-turn-holder`: a page that reloads itself can exceed the frame cap, and two bots can share the browser within one turn.
+  Both are fixed only when that branch is reviewed and merged.
+- **Rule for these documents:** a number or a "met" is attributed (whose run, at which commit) and
+  marked pending until the branch it belongs to is reviewed and merged.
