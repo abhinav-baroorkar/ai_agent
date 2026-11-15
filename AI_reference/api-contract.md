@@ -22,9 +22,9 @@ per-device token; v0 has no auth because it only listens on localhost.
 | `PUT /api/connectors/{id}` | body `{enabled?, settings?}`; returns the updated Connector; secrets are never returned |
 | `POST /api/connectors/{id}/test` | `{ok, message}` connectivity check |
 | `GET /api/timers` | `{now, timers:[Timer]}` (v0.3; missed and done items are kept 7 days) |
-| `DELETE /api/timers/{id}` | cancel an item, `{ok:true}` |
+| `DELETE /api/timers/{id}` | cancel a scheduled item, or remove a missed or done one; `{ok:true}`. A ringing or pending item answers 409: end it with dismiss |
 | `POST /api/timers/{id}/dismiss` | stop a ringing or pending item; returns the Timer |
-| `POST /api/timers/{id}/snooze` | body `{minutes: 1–60}`; returns the Timer |
+| `POST /api/timers/{id}/snooze` | body `{minutes: 1–60}` (the UI sends 5, 10 or 15); returns the Timer |
 | `POST /api/timers/{id}/say` | speak this item's text now (the owner tapped it); `{ok:true}` |
 
 `Bot` = `{id, name, model, system_prompt, connectors:[connector ids], builtin:bool,
@@ -162,10 +162,15 @@ All HTTP routes above sit behind the same Host, Origin and JSON content-type che
 as every other route.
 
 WebSocket, server → every socket:
-- `{type:"timers", now, timers:[Timer]}`: on connect and after every change.
+- `{type:"timers", now, timers:[Timer]}`: on connect, and after every change (create,
+  cancel, snooze, dismiss, removal, any state change). A snapshot always follows
+  `timer_stopped`, so the UI takes real values (such as the new `due_at` after a
+  snooze) from it.
 - `{type:"timer_ringing", id, kind, created_by, say}`: an item rings. `say` is the
-  plain-text sentence being spoken (for late or pending items only a generic line,
-  e.g. "You have 2 missed reminders."; their text is spoken only on `say`).
+  plain-text sentence being spoken. For late and pending items it is only the generic
+  line (e.g. "You have 2 missed reminders.") and never contains the label or text;
+  their text is spoken only on `POST …/say`. The UI shows `say` as given and never
+  builds its own sentence from `text`.
 - `{type:"timer_stopped", id, how:"dismissed"|"snoozed"|"cancelled"|"timeout"}`.
 Exactly one socket speaks a ring: the Home socket (`speak=1`) if open, else the
 listener. The announcement and the repeating tone (every 10 s; up to 2 min, alarms 5
