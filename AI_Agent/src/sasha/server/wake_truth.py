@@ -38,6 +38,7 @@ def wake_control_allowed(config: WakeConfig) -> bool:
 
 _SENTENCE_END = re.compile(r"[.!?]+(?:\s+|$)")
 STATE_NEAR = 3  # a state word within this many words of a device word
+SHORT_COMMAND = 3  # a command this short with any state word is a request ("off.")
 
 
 def names_text(
@@ -82,6 +83,8 @@ def requests_change(command: str, lines: ReplyLines) -> bool:
     words = _words(command)
     if not words:
         return False
+    if words[0] in {w.lower() for w in lines.wh_words}:
+        return False  # "when does the sun set?", "how do I turn it off?": questions
     if set(words) & {w.lower() for w in lines.change_verbs}:
         return True
     question = words[0] in {w.lower() for w in lines.question_words} or command.strip().endswith(
@@ -91,6 +94,8 @@ def requests_change(command: str, lines: ReplyLines) -> bool:
         return False
     states = {w.lower() for w in lines.state_words}
     devices = {w.lower() for w in lines.device_words}
+    if len(words) <= SHORT_COMMAND and set(words) & states:
+        return True  # "off." after an armed name, "all off", "lights out please"
     at_state = [i for i, w in enumerate(words) if w in states]
     at_device = [i for i, w in enumerate(words) if w in devices]
     return any(abs(s - d) <= STATE_NEAR for s in at_state for d in at_device)
