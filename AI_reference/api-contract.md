@@ -108,8 +108,10 @@ Server → client (listener only):
 - `{type:"confirm", action, timeout_s}`: a device change needs a spoken yes. The
   question is also spoken (`tts_*`). The listener then opens its microphone for
   exactly one segment and sends it as a normal `audio_start {wake:true}` segment.
-  The window counts `timeout_s` from the end of the question's speech (`tts_end`
-  plus the 300 ms tail). The server reads that segment only as yes or no (its text is
+  The window counts `timeout_s` from the end of the question's *playback* plus the
+  300 ms tail (speech frames go out faster than real time; the server estimates the
+  end from `tts_start` and the audio it sent). An answer that arrives a little early
+  is accepted too. Expect short answer segments here (from about 0.2 s). The server reads that segment only as yes or no (its text is
   treated like other wake audio: not logged, not stored) and answers:
 - `{type:"confirm_result", accepted:bool, reason:"yes"|"no"|"timeout"|"unclear"}`.
   Only a clear yes accepts; anything else is a no (`unclear` when it was neither).
