@@ -113,6 +113,7 @@ class ListenerPresence:
     def __init__(self, keep_alive_while_listening: int | str = -1) -> None:
         self.value = keep_alive_while_listening
         self._listening: set[int] = set()
+        self._overridden: set[str] = set()  # models that were sent the override
         # Ollama keeps the last keep_alive it was sent, so when the last listener goes
         # it must be told the normal value again (S4). Set by deps; must not raise.
         self.on_idle: Callable[[], None] | None = None
@@ -133,3 +134,16 @@ class ListenerPresence:
 
     def keep_alive(self) -> int | str | None:
         return self.value if self._listening else None
+
+    def keep_alive_for(self, model: str) -> int | str | None:
+        """Like `keep_alive`, and remember `model` was sent the override."""
+        value = self.keep_alive()
+        if value is not None:
+            self._overridden.add(model)
+        return value
+
+    def take_overridden(self) -> list[str]:
+        """Every model sent the override since the last call (to restore each)."""
+        models = sorted(self._overridden)
+        self._overridden.clear()
+        return models

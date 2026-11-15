@@ -219,9 +219,22 @@ def test_restore_keep_alive_sends_a_no_prompt_generate(
     sent.clear()  # the startup warm-up
     done.clear()
     deps.presence.set(7, True)
+    main_model = settings.profile.llm.model
+    for model in (main_model, "other-bot-model"):  # two bots' models got the override
+        llm = deps.make_llm(model)
+        assert llm.build_payload([])["keep_alive"] == -1  # type: ignore[attr-defined]
     deps.presence.set(7, False)
-    assert done.wait(5)
-    assert sent == [(settings.profile.llm.model, str(settings.profile.llm.keep_alive))]
+    for _ in range(50):
+        if len(sent) == 2:
+            break
+        done.wait(0.1)
+    normal = str(settings.profile.llm.keep_alive)
+    assert sorted(sent) == sorted([(main_model, normal), ("other-bot-model", normal)])
+    sent.clear()
+    deps.presence.set(8, True)
+    deps.presence.set(8, False)  # no model was sent the override this time: nothing to restore
+    done.wait(0.3)
+    assert sent == []
 
 
 def test_listener_connect_rechecks_placement(settings: Settings, tmp_path: Path) -> None:

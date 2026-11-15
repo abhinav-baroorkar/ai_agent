@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 import threading
 from collections.abc import Callable
@@ -93,7 +94,7 @@ def build_deps(settings: Settings, reload_env: bool = True) -> ServerDeps:
             if model not in llms:
                 cfg = settings.profile.llm
                 llm = OllamaLLM(cfg, host=settings.secrets.ollama_host, model=model)
-                llm.keep_alive_override = presence.keep_alive
+                llm.keep_alive_override = functools.partial(presence.keep_alive_for, model)
                 llms[model] = llm
             return llms[model]
 
@@ -131,15 +132,17 @@ def build_deps(settings: Settings, reload_env: bool = True) -> ServerDeps:
     }
 
     def restore_keep_alive() -> None:
-        """Last listener gone: one no-prompt generate with the profile's keep_alive,
-        so Ollama stops keeping the model forever. In a thread, off the event loop."""
+        """Last listener gone: one no-prompt generate with the profile's keep_alive for
+        every model that was sent the never-unload override, so Ollama stops keeping
+        them forever. In a thread, off the event loop."""
 
         def restore() -> None:
-            try:
-                if warning := warm_up_llm(settings.profile.llm, host, bots.get("main").model):
-                    log.warning("keep_alive restore: %s", warning)
-            except Exception as exc:  # never raises
-                log.warning("keep_alive restore failed: %s", type(exc).__name__)
+            for overridden in presence.take_overridden():
+                try:
+                    if warning := warm_up_llm(settings.profile.llm, host, overridden):
+                        log.warning("keep_alive restore: %s", warning)
+                except Exception as exc:  # never raises
+                    log.warning("keep_alive restore failed: %s", type(exc).__name__)
 
         threading.Thread(target=restore, name="keep-alive-restore", daemon=True).start()
 
