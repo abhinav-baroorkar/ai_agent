@@ -156,13 +156,17 @@ request with `Sec-Fetch-Site` other than `same-origin` or `none` gets 403):
 | `POST /api/browser/stop` | stop the browser now (Chrome and its proxy); `{ok:true}`, also when it wasn't running. No body needed; a body that is sent must be JSON |
 
 `BrowserState` = `{enabled:bool, running:bool, agent:"idle"|"working", holder:string|null,
-tabs:[{tab:int, site:string, title:string, current:bool}], guard:{allowed:int,
-refused:{<category>:int}, background_refused:int}}`.
-- `enabled`: the browser connector is switched on in Settings.
+holder_bot:{id, name}|null, tabs:[{tab:int, site:string, title:string, current:bool}],
+guard:{allowed:int, refused:{<category>:int}, background_refused:int}}`.
+- `enabled`: the browser connector's switch in Settings, nothing more. Whether a given
+  bot may browse is up to the UI to work out from that bot's `connectors` list.
 - `agent`: `working` while a conversation is using the browser for a turn; `holder` is
-  an opaque id of that conversation, or null.
+  an opaque id of that conversation, or null. `holder_bot` is the bot of that
+  conversation: its id and its own name from the bot store (text the owner set, never
+  page text), or null when nobody holds the browser or the bot is gone.
 - `tabs`: numbered as the model sees them. `site` is the hostname only, never a full
-  URL; `title` is page text, at most 80 characters, cleaned of control characters.
+  URL; `title` is page text. Before sending, the server strips control and invisible
+  format characters from both and caps `title` at 80 characters and `site` at 255.
   Show both with `textContent`, never as markup.
 - `guard`: counts from the filtering proxy since the browser started (0 when stopped).
 
@@ -210,6 +214,6 @@ WebSocket `/ws/browser` (one viewer):
 - v0.4 (2026-11-15): browser live view: `GET /api/browser`, `GET /api/browser/frame`,
   `POST /api/browser/stop`; `/ws/browser` with `browser_state`, `browser_frame`,
   `browser_stopped`, `browser_watch`, `browser_ack`, `browser_stop`; health
-  `limits.browser_sockets`.
+  `limits.browser_sockets`; `BrowserState.holder_bot`.
 - Planned for v0.5 (not built yet): `POST /api/connectors` and
   `DELETE /api/connectors/{id}` to add and remove MCP connectors from Settings.
