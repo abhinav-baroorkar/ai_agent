@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import shutil
 import threading
 from collections.abc import Iterator
 from pathlib import Path
@@ -104,15 +103,13 @@ def test_tts_errors_never_contain_the_text() -> None:
 
 
 @pytest.fixture
-def voice_dir(monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
-    """A scratch HF cache inside the project's git-ignored Data/, removed afterwards."""
-    base = REPO_ROOT / "Data" / "test-voice-npz"
-    shutil.rmtree(base, ignore_errors=True)
+def voice_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A scratch HF cache under this run's own temp folder (inside the project's Data/)."""
+    base = tmp_path / "voice-npz"
     (base / "hub").mkdir(parents=True)
     monkeypatch.setenv("HF_HOME", str(base))
     monkeypatch.setenv("HF_HUB_CACHE", str(base / "hub"))
-    yield base
-    shutil.rmtree(base, ignore_errors=True)
+    return base
 
 
 def test_voices_npz_is_built_validated_and_rebuilt(voice_dir: Path) -> None:
