@@ -454,3 +454,11 @@ Summary of the design that passed review (two rounds). Opt-in until the measurem
   mail-sending calls are forbidden in every file. Why: the rule is that no send function
   exists anywhere; the test must not have loose exceptions.
 
+- **Correction to the secrets bullet in "Owner decisions, night" above.** It said sessions
+  "don't open it unless a task needs it and Primary agrees". The rule has no such exception. The
+  wording is: (code and tests load it at run time; sessions never open, print, search, copy or paste it or any value; a block means stop and tell Primary). The decision stands: the owner allows access for now and will say
+  when that stops.
+- **The phase-gate checkpoint** ("stop and show the owner at each phase gate") is kept in
+  `CLAUDE.md`. It was added in `59e21a7` after the reviewer's note on `4e71b41`. Both `CLAUDE.md`
+  commits were made on `main` at the owner's instruction and reviewed afterwards.
+

@@ -47,7 +47,7 @@ only for now; satellites on other devices come later.
 
 ## State of `main`
 
-- `main` is `4e71b41` (2026-11-14, late evening). 377 tests pass with all extras.
+- `main` is `59e21a7` (2026-11-14, late evening). 377 tests pass with all extras.
 - **Wake word:** the tray icon, `sasha listen` and `sasha autostart` are merged. The listener
   can't open the microphone until `feat/wake-server` is on `main`. Nothing has run on real
   audio yet.
@@ -122,13 +122,16 @@ eyes; eyes stay as a switch.
   than 3 distinct devices in one turn (counted across all its calls).
 
 - The listener does not listen while the screen is locked.
-- Sessions may access the project's secrets file for now; team practice stays as written in
-  `team.md`. The owner tells Primary when that stops.
+- Sessions may access the project's secrets file for now (code and tests load it at run time; sessions never open, print, search, copy or paste it or any value; a block means stop and tell Primary). The owner tells Primary
+  when that stops.
 - Claude's own memory folder for this project may be used for notes.
 - The GPL text-to-phoneme question stays open; features come first.
 - The real-light test (Docker and Home Assistant) is postponed for a few days.
 - `CLAUDE.md` "Current phase" (Phase 1, Phase 0 gate open and postponed) and step 3 (the
-  manager merges after the reviewer approves) were edited on the owner's instruction.
+  manager merges after the reviewer approves) were edited on the owner's instruction. The
+  phase-gate checkpoint ("stop and show the owner at each phase gate") is kept in `CLAUDE.md`,
+  added in `59e21a7` after the reviewer's note on `4e71b41`. Both `CLAUDE.md` commits were made
+  on `main` at the owner's instruction and reviewed afterwards.
 
 ## Risks
 
