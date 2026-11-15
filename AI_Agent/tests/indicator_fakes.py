@@ -11,6 +11,7 @@ from sasha.listener.indicator.sni import WATCHER, SniItem
 
 WHO = Persona(name="Testbot", wake_phrase="Hey Testbot")
 ME = ":1.77"
+TRAY = ":1.5"  # the bus name of the fake tray (it owns the watcher name)
 
 
 class FakeBus:
@@ -26,6 +27,7 @@ class FakeBus:
         self.incoming: list[Incoming] = []
         self.closed = False
         self.dead = False
+        self.poll_error: Exception | None = None
 
     def call(
         self,
@@ -39,6 +41,8 @@ class FakeBus:
     ) -> Body:
         if self.dead:
             raise BusError("Bus connection lost")
+        if dest == "org.freedesktop.DBus" and member == "GetNameOwner" and self.watcher:
+            return (TRAY,)
         if dest != WATCHER or not self.watcher:
             raise BusError("org.freedesktop.DBus.Error.ServiceUnknown")
         if member == "RegisterStatusNotifierItem":
@@ -63,6 +67,8 @@ class FakeBus:
     def poll(self, timeout: float) -> Incoming | None:
         if self.dead:
             raise BusError("Bus connection lost")
+        if self.poll_error is not None:
+            raise self.poll_error
         if self.incoming:
             return self.incoming.pop(0)
         time.sleep(min(timeout, 0.002))
@@ -87,11 +93,13 @@ def signal(interface: str, member: str, body: Body) -> Incoming:
 class Call:
     """A method call on the item, keeping what was answered."""
 
-    def __init__(self, path: str, interface: str, member: str, *body: Any) -> None:
+    def __init__(
+        self, path: str, interface: str, member: str, *body: Any, sender: str = TRAY
+    ) -> None:
         self.replies: list[tuple[str, Body]] = []
         self.errors: list[str] = []
         self.msg = Incoming(
-            "call", ":1.9", path, interface, member, body,
+            "call", sender, path, interface, member, body,
             reply=lambda sig, b: self.replies.append((sig, b)),
             fail=lambda name, text: self.errors.append(name),
         )  # fmt: skip

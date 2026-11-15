@@ -63,7 +63,7 @@ class JeepneyBus:
 
     def __init__(self) -> None:
         try:
-            from jeepney.io.blocking import open_dbus_connection  # type: ignore[import-untyped]
+            from jeepney.io.blocking import open_dbus_connection
 
             self._conn = open_dbus_connection(bus="SESSION")
         except Exception as exc:  # no jeepney, no session bus, refused
@@ -99,7 +99,7 @@ class JeepneyBus:
         body: Body = (),
         timeout: float = 1.0,
     ) -> Body:
-        from jeepney import (  # type: ignore[import-untyped]
+        from jeepney import (
             DBusAddress,
             HeaderFields,
             MessageType,

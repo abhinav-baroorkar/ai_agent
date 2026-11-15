@@ -50,6 +50,13 @@ class Indicator(Protocol):
 
     The listener opens the microphone only while `available()` is true, and stops
     capture as soon as `on_lost` is called.
+
+    Threads: the indicator runs its own thread. `on_pause_toggle` and `on_lost` are
+    called on that thread, so they must be quick and thread-safe (set a flag, put on a
+    queue), and must not call back into the indicator. `available()` asks that thread
+    and blocks until it answers, for up to 1.5 seconds: never call it on an event loop;
+    use a worker thread or an executor. `set_state()` and `earcon()` return at once
+    and are safe from any thread. `start()` and `stop()` are for the owning thread.
     """
 
     def start(self, on_pause_toggle: Callable[[], None], on_lost: Callable[[], None]) -> None: ...

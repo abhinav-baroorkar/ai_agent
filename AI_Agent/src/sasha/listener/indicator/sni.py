@@ -81,6 +81,7 @@ class SniItem:
         self.state: State = "offline"
         self.registered = False
         self.revision = 1
+        self.tray: str | None = None  # the tray's bus name: the only one whose clicks count
 
     # --- registration and "is it really shown" -----------------------------------
     def setup(self) -> None:
@@ -93,9 +94,12 @@ class SniItem:
 
     def register(self) -> None:
         self.registered = False
+        self.tray = None
+        owner = self.bus.call(DBUS, "/org/freedesktop/DBus", DBUS, "GetNameOwner", "s", (WATCHER,))
         self.bus.call(
             WATCHER, WATCHER_PATH, WATCHER, "RegisterStatusNotifierItem", "s", (ITEM_PATH,)
         )
+        self.tray = str(owner[0])
         self.registered = True
 
     def check_shown(self) -> bool:
@@ -195,6 +199,7 @@ class SniItem:
                 self._try_register()  # a tray (re)appeared
                 return True
             self.registered = False
+            self.tray = None
             return False
         if msg.interface != WATCHER:
             return True
@@ -228,16 +233,27 @@ class SniItem:
                 msg.reply("v", (props[msg.body[1]],))
             else:
                 msg.fail("org.freedesktop.DBus.Error.UnknownProperty", str(msg.body[1]))
-        elif key in ((ITEM, "Activate"), (ITEM, "SecondaryActivate")):
-            msg.reply("", ())
-            if msg.member == "Activate":
+        elif key == (ITEM, "Activate"):
+            if self._from_tray(msg):
+                msg.reply("", ())
                 self.on_pause_toggle()
-        elif key in ((ITEM, "ContextMenu"), (ITEM, "Scroll")):
+        elif key in ((ITEM, "SecondaryActivate"), (ITEM, "ContextMenu"), (ITEM, "Scroll")):
             msg.reply("", ())
         elif msg.interface == MENU:
             self._menu_call(msg)
         else:
             msg.fail("org.freedesktop.DBus.Error.UnknownMethod", f"{msg.interface}.{msg.member}")
+
+    def _from_tray(self, msg: Incoming) -> bool:
+        """Clicks count only when they come from the tray itself.
+
+        Any program on the session bus can call these methods. Without this check one
+        of them could switch listening back on after the owner paused it.
+        """
+        if self.tray is not None and msg.sender == self.tray:
+            return True
+        msg.fail("org.freedesktop.DBus.Error.UnknownMethod", f"{msg.interface}.{msg.member}")
+        return False
 
     def menu_properties(self) -> dict[str, Variant]:
         return {
@@ -259,13 +275,15 @@ class SniItem:
         elif msg.member == "GetProperty":
             msg.reply("v", (self.row(int(body[0])).get(str(body[1]), ("s", "")),))
         elif msg.member == "Event":
-            msg.reply("", ())
-            if body[0] == TOGGLE_ROW and body[1] == "clicked":
-                self.on_pause_toggle()
+            if self._from_tray(msg):
+                msg.reply("", ())
+                if body[0] == TOGGLE_ROW and body[1] == "clicked":
+                    self.on_pause_toggle()
         elif msg.member == "EventGroup":
-            msg.reply("ai", ([],))
-            if any(e[0] == TOGGLE_ROW and e[1] == "clicked" for e in body[0]):
-                self.on_pause_toggle()
+            if self._from_tray(msg):
+                msg.reply("ai", ([],))
+                if any(e[0] == TOGGLE_ROW and e[1] == "clicked" for e in body[0]):
+                    self.on_pause_toggle()
         elif msg.member == "AboutToShow":
             msg.reply("b", (False,))
         elif msg.member == "AboutToShowGroup":

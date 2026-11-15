@@ -24,6 +24,7 @@ log = logging.getLogger(__name__)
 POLL_S = 0.02  # how long the thread waits for a bus message before looking at its inbox
 RETRY_S = 2.0  # how often it looks for a bus or a tray while there is none
 ANSWER_S = 1.5  # how long available() waits for the thread
+RECHECK_S = 2.0  # how often the thread itself asks the bus whether we are still shown
 
 
 class _Check:
@@ -79,21 +80,28 @@ class TrayIndicator:
     # --- the thread ----------------------------------------------------------------
     def _run(self) -> None:
         item: SniItem | None = None
-        retry_at = 0.0
+        retry_at = 0.0  # when to next look for a bus or a tray
+        check_at = 0.0  # when to next ask the bus if we are still shown
         while not self._stop.is_set():
+            now = time.monotonic()
             if item is None:
                 self._drain(None)
-                if time.monotonic() >= retry_at:
+                if now >= retry_at:
                     item = self._connect()
-                    retry_at = time.monotonic() + RETRY_S
+                    retry_at = now + RETRY_S
+                    check_at = now + RECHECK_S
                 if item is None:
                     self._stop.wait(POLL_S)
                     continue
             try:
-                if not item.registered and time.monotonic() >= retry_at:
-                    retry_at = time.monotonic() + RETRY_S
+                if not item.registered and now >= retry_at:
+                    retry_at = now + RETRY_S
                     with contextlib.suppress(BusError):
                         item.register()  # the tray was gone; look for it again
+                    self._note(item.check_shown())
+                elif item.registered and now >= check_at:
+                    # ask again even with no signal: a tray can drop an item silently
+                    check_at = now + RECHECK_S
                     self._note(item.check_shown())
                 self._drain(item)
                 msg = item.bus.poll(POLL_S)
@@ -101,13 +109,18 @@ class TrayIndicator:
                     self._note(False)
                 elif msg is not None and msg.kind == "signal":
                     self._note(item.check_shown())
-            except BusError as exc:  # the bus connection itself is gone
-                log.warning("Tray indicator: %s", exc)
+            except Exception as exc:
+                # Fail closed. A lost connection, or anything unexpected at all, means we
+                # can no longer vouch for the sign: say it is lost, drop the connection
+                # and start again after the retry delay. Logged once per reconnect.
+                if isinstance(exc, BusError):
+                    log.warning("Tray indicator: %s", exc)
+                else:
+                    log.exception("Tray indicator: unexpected error; treating the sign as lost")
+                self._note(False)
                 item.bus.close()
                 item = None
-                self._note(False)
-            except Exception:  # a bug in a reply must be loud, and must not kill the sign
-                log.exception("Tray indicator: could not handle a message")
+                retry_at = time.monotonic() + RETRY_S
         if item is not None:
             item.bus.close()
         self._shown = False

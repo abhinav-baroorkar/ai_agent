@@ -13,7 +13,7 @@ from sasha.listener.indicator.bus import BusError
 from sasha.listener.indicator.icons import pixmaps
 from sasha.listener.indicator.sni import ITEM, ITEM_PATH, MENU, MENU_PATH, PROPS, WATCHER, SniItem
 from sasha.listener.indicator.tray import TrayIndicator
-from tests.indicator_fakes import ME, WHO, Call, FakeBus, make_item, signal
+from tests.indicator_fakes import ME, TRAY, WHO, Call, FakeBus, make_item, signal
 
 
 # --- the tray item over a fake bus -------------------------------------------------------
@@ -65,6 +65,31 @@ def test_activate_and_menu_click_both_toggle_pause() -> None:
     item.handle(Call(MENU_PATH, MENU, "Event", 2, "hovered", ("i", 0), 0).msg)
     item.handle(Call(ITEM_PATH, ITEM, "SecondaryActivate", 1, 1).msg)
     assert clicks == ["toggle", "toggle"]
+
+
+def test_clicks_from_any_other_program_are_refused() -> None:
+    """Only the tray may toggle: nobody else can switch listening back on."""
+    item, bus, clicks = make_item()
+    assert item.tray == TRAY
+    stranger = ":1.99"
+    attempts = [
+        Call(ITEM_PATH, ITEM, "Activate", 1, 1, sender=stranger),
+        Call(MENU_PATH, MENU, "Event", 2, "clicked", ("i", 0), 0, sender=stranger),
+        Call(MENU_PATH, MENU, "EventGroup", [(2, "clicked", ("i", 0), 0)], sender=stranger),
+        Call(ITEM_PATH, ITEM, "Activate", 1, 1, sender=ME),  # not even ourselves
+    ]
+    for attempt in attempts:
+        assert item.handle(attempt.msg) is True
+        assert attempt.errors == ["org.freedesktop.DBus.Error.UnknownMethod"]
+        assert not attempt.replies
+    assert clicks == []
+    item.handle(Call(MENU_PATH, MENU, "EventGroup", [(2, "clicked", ("i", 0), 0)]).msg)
+    assert clicks == ["toggle"]
+    bus.tray_vanishes()  # no tray: nobody's clicks count
+    item.handle(bus.incoming.pop(0))
+    gone = Call(ITEM_PATH, ITEM, "Activate", 1, 1)
+    item.handle(gone.msg)
+    assert gone.errors and clicks == ["toggle"]
 
 
 def test_what_the_tray_asks_for_is_answered() -> None:
@@ -187,6 +212,42 @@ def test_bus_dying_is_also_lost_and_no_bus_is_never_available() -> None:
         assert nothing._thread is not None and nothing._thread.is_alive()
     finally:
         nothing.stop()
+
+
+def test_unexpected_error_in_the_thread_fails_closed() -> None:
+    """Anything unexpected counts as losing the sign: on_lost once, not available."""
+    bus = FakeBus()
+    lost: list[int] = []
+    tray = TrayIndicator(lambda: bus, WHO)
+    tray.start(lambda: None, lambda: lost.append(1))
+    try:
+        assert _wait(tray.available)
+        bus.poll_error = ValueError("something nobody planned for")
+        assert _wait(lambda: bool(lost))
+        assert tray.available() is False
+        assert bus.closed and lost == [1]
+        time.sleep(0.1)
+        assert lost == [1]  # said once, not on every loop
+        assert tray._thread is not None and tray._thread.is_alive()  # still there to recover
+    finally:
+        tray.stop()
+
+
+def test_silently_dropped_item_is_noticed_without_anyone_asking(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The thread re-checks by itself, so a tray that forgets us without a signal is caught."""
+    monkeypatch.setattr("sasha.listener.indicator.tray.RECHECK_S", 0.05)
+    bus = FakeBus()
+    lost = threading.Event()
+    tray = TrayIndicator(lambda: bus, WHO)
+    tray.start(lambda: None, lost.set)
+    try:
+        assert _wait(tray.available)
+        bus.items.clear()  # no signal, no call to available()
+        assert lost.wait(1.0)
+    finally:
+        tray.stop()
 
 
 def test_no_tray_waits_then_appears() -> None:
