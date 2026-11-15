@@ -170,6 +170,7 @@ class DBusBackend:
                 stack.push_async_callback(
                     _cancel, asyncio.create_task(_forward(kind, inner, queue))
                 )
+            yield GuardEvent("ready", True)  # every AddMatch succeeded
             while True:
                 kind, msg = await queue.get()
                 if (event := _to_event(kind, msg.body)) is not None:

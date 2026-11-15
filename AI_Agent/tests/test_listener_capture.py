@@ -108,3 +108,34 @@ def test_kill_9_of_the_listener_leaves_no_capture_child() -> None:
     finally:
         if parent.poll() is None:
             parent.kill()
+
+
+def test_capture_is_wrapped_with_setpriv_and_a_parent_check() -> None:
+    """Review L6: no Python pre-exec hook when setpriv exists; the parent is compared with
+    the listener's own pid (a subreaper is not pid 1)."""
+    import shutil
+
+    from sasha.listener.capture import with_death_signal
+
+    if shutil.which("setpriv") is None:
+        import pytest
+
+        pytest.skip("setpriv not installed")
+    argv, hook = with_death_signal(["arecord", "-q"])
+    assert hook is None
+    assert argv[:4] == [shutil.which("setpriv"), "--pdeathsig", "KILL", "--"]
+    assert argv[-3:] == [str(os.getpid()), "arecord", "-q"]
+
+
+def test_wrong_parent_never_starts_the_recorder() -> None:
+    """If the listener died before the death signal was set, the child must not record."""
+    import shutil
+
+    from sasha.listener.capture import with_death_signal
+
+    argv, _ = with_death_signal([sys.executable, "-c", "print('recording')"])
+    if shutil.which("setpriv") is None:
+        return
+    argv[argv.index(str(os.getpid()))] = "1"  # pretend the parent is someone else
+    out = subprocess.run(argv, capture_output=True, text=True, timeout=10)
+    assert out.returncode == 127 and "recording" not in out.stdout

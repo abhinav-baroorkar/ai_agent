@@ -1,6 +1,6 @@
 """Play speech and earcons: `aplay -q -t raw -f S16_LE -c 1 -r <rate>` fed on stdin.
 
-Each reply (or earcon) gets its own short-lived child with PR_SET_PDEATHSIG, so a
+Each reply (or earcon) gets its own short-lived child with a death signal, so a
 crashed listener never leaves a player behind. `finish()` waits until the audio has
 actually been played, which the half-duplex rule needs (the microphone stays closed
 until 300 ms after the end of playback, not the end of the network stream).
@@ -13,7 +13,7 @@ import contextlib
 import logging
 from collections.abc import Callable
 
-from sasha.listener.capture import die_with_parent
+from sasha.listener.capture import with_death_signal
 
 log = logging.getLogger(__name__)
 
@@ -36,12 +36,13 @@ class Player:
     async def start(self, sample_rate: int) -> None:
         await self.stop()
         try:
+            argv, hook = with_death_signal(self.command(sample_rate))
             self._proc = await asyncio.create_subprocess_exec(
-                *self.command(sample_rate),
+                *argv,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
-                preexec_fn=die_with_parent,
+                preexec_fn=hook,
             )
         except OSError as e:
             log.warning("Playback could not start (%s)", type(e).__name__)

@@ -16,10 +16,12 @@ from dataclasses import dataclass
 from sasha.config import Settings
 from sasha.listener.brain import http_health, listener_url
 from sasha.listener.capture import CaptureProcess, capture_command
+from sasha.listener.contracts import ListenerSettings
 from sasha.listener.gate import END_SILENCE_MS, Gate
 from sasha.listener.guards import Guards
-from sasha.listener.listener import Listener, ListenerSettings
+from sasha.listener.listener import Listener
 from sasha.listener.playback import Player
+from sasha.server.security import is_loopback
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +42,13 @@ def _require(what: str, error: BaseException) -> ListenerUnavailableError:
 
 
 def build_listener(settings: Settings, options: ListenOptions) -> Listener:
+    server = settings.profile.server
+    if not is_loopback(server.host):
+        # Every gated room segment goes to this address: never off this machine.
+        raise ListenerUnavailableError(
+            f"The brain address {server.host!r} is not a loopback address; the listener "
+            "only talks to a brain on this machine"
+        )
     try:
         from sasha.listener.indicator import make_indicator
     except ImportError as e:
@@ -64,7 +73,6 @@ def build_listener(settings: Settings, options: ListenOptions) -> Listener:
 
     import websockets
 
-    server = settings.profile.server
     debug_sink = None
     if options.debug_dump_audio:
         from sasha.listener.debug_dump import DebugDump

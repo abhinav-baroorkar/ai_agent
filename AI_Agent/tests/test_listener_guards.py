@@ -113,11 +113,11 @@ def test_sleep_closes_the_mic_before_releasing_the_inhibitor() -> None:
 
         b.release_sleep_inhibitor = release  # type: ignore[method-assign]
         b.events_q.put_nowait(GuardEvent("sleep", True))
-        await asyncio.sleep(0.001)
-        assert order == ["change:False", "release"]
+        await asyncio.sleep(0.01)
+        assert order[:2] == ["change:False", "release"]
         assert not b.inhibitor and not g.allowed()[0]
         b.events_q.put_nowait(GuardEvent("sleep", False))
-        await asyncio.sleep(0.001)
+        await asyncio.sleep(0.05)
         assert b.inhibitor and g.allowed()[0]
 
     run_guards(body)
@@ -132,3 +132,68 @@ def test_stop_releases_everything() -> None:
         assert not b.inhibitor and "close" in b.log
 
     asyncio.run(main())
+
+
+def test_lost_inhibitor_after_resume_fails_closed_until_retaken() -> None:
+    """Review L1: a good read must not reopen the mic while no inhibitor is held."""
+
+    async def body(g: Guards, b: FakeBackend, calls: list[str]) -> None:
+        b.events_q.put_nowait(GuardEvent("sleep", True))
+        await asyncio.sleep(0.01)
+        b.fail.add("inhibit")
+        b.events_q.put_nowait(GuardEvent("sleep", False))
+        await asyncio.sleep(0.1)  # several 20 ms polls with good reads
+        ok, why = g.allowed()
+        assert not ok and "no sleep inhibitor" in why and not g.state.inhibited
+        b.fail.clear()  # the next poll retries and takes it
+        await asyncio.sleep(0.08)
+        assert g.allowed() == (True, "ok") and b.inhibitor
+
+    run_guards(body)
+
+
+def test_subscribed_only_after_the_backend_says_ready() -> None:
+    """Review L7: no "subscribed" before every AddMatch has succeeded."""
+
+    async def main() -> None:
+        gate = asyncio.Event()
+
+        class SlowBackend(FakeBackend):
+            async def events(self):  # type: ignore[no-untyped-def,override]
+                await gate.wait()  # AddMatch still running
+                async for event in super().events():
+                    yield event
+
+        b = SlowBackend()
+        g = Guards(b, lambda: None, poll_s=0.02)
+        await g.start()
+        await asyncio.sleep(0.05)
+        ok, why = g.allowed()
+        assert not ok and "subscription" in why
+        gate.set()
+        await asyncio.sleep(0.02)
+        assert g.allowed()[0]
+        await g.stop()
+
+    asyncio.run(main())
+
+
+def test_inhibitor_is_taken_off_the_event_loop() -> None:
+    """Review L9: the blocking Inhibit call runs in a worker thread."""
+    import threading
+
+    threads: list[str] = []
+
+    async def body(g: Guards, b: FakeBackend, calls: list[str]) -> None:
+        assert threads and all(t != "MainThread" for t in threads)
+
+    def setup(b: FakeBackend) -> None:
+        real = b.take_sleep_inhibitor
+
+        def take() -> None:
+            threads.append(threading.current_thread().name)
+            real()
+
+        b.take_sleep_inhibitor = take  # type: ignore[method-assign]
+
+    run_guards(body, setup=setup)

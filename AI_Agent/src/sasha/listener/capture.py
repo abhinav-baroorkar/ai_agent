@@ -1,9 +1,10 @@
 """Microphone capture as a child process: raw 16 kHz mono s16le, read in 20 ms chunks.
 
 The child is `arecord` (PipeWire's ALSA bridge) or, as a fallback, `pw-record` writing
-to stdout. It gets `PR_SET_PDEATHSIG=SIGKILL`, so it dies with the listener even on a
-`kill -9`. Stopping kills it (the microphone is closed, not muted). Nothing is written
-to disk: chunks go straight from the pipe to the caller.
+to stdout. It is started through `setpriv --pdeathsig KILL` and a parent check, so it
+dies with the listener even on a `kill -9`. Stopping kills it (the microphone is
+closed, not muted). Nothing is written to disk: chunks go straight from the pipe to
+the caller.
 """
 
 from __future__ import annotations
@@ -28,13 +29,31 @@ ARECORD = ["arecord", "-q", "-t", "raw", "-f", "S16_LE", "-r", str(SAMPLE_RATE),
 PW_RECORD = ["pw-record", "--rate", str(SAMPLE_RATE), "--channels", "1", "--format", "s16", "-"]
 
 
-def die_with_parent() -> None:
-    """Pre-exec hook (runs in the child): get SIGKILL when the listener dies."""
-    libc = ctypes.CDLL("libc.so.6", use_errno=True)
-    if libc.prctl(PR_SET_PDEATHSIG, signal.SIGKILL, 0, 0, 0) != 0:
-        os._exit(127)  # never record without the guarantee
-    if os.getppid() == 1:  # the parent died before prctl took effect
-        os._exit(127)
+_SETPRIV = shutil.which("setpriv")
+# Runs after setpriv has set the death signal: if the listener died in between, the
+# child now has another parent (a subreaper such as the systemd user manager, not
+# necessarily pid 1), so compare with the listener's real pid and refuse to record.
+_PARENT_CHECK = 'test "$PPID" = "$1" || exit 127; shift; exec "$@"'
+_LIBC = ctypes.CDLL("libc.so.6", use_errno=True)  # resolved once, in the parent
+_PRCTL = _LIBC.prctl
+
+
+def with_death_signal(command: Sequence[str]) -> tuple[list[str], Callable[[], None] | None]:
+    """The command wrapped so the child gets SIGKILL when the listener dies.
+
+    Preferred: `setpriv --pdeathsig KILL` plus a parent check, with no pre-exec hook
+    (a Python `preexec_fn` can deadlock when other threads are alive). Fallback when
+    setpriv is missing: a minimal pre-exec hook using the already-resolved prctl."""
+    parent = os.getpid()
+    if _SETPRIV:
+        script = ["/bin/sh", "-c", _PARENT_CHECK, "sh", str(parent)]
+        return [_SETPRIV, "--pdeathsig", "KILL", "--", *script, *command], None
+
+    def hook() -> None:  # pragma: no cover - only without setpriv
+        if _PRCTL(PR_SET_PDEATHSIG, signal.SIGKILL, 0, 0, 0) != 0 or os.getppid() != parent:
+            os._exit(127)
+
+    return list(command), hook
 
 
 def capture_command(which: Callable[[str], str | None] = shutil.which) -> list[str] | None:
@@ -64,13 +83,13 @@ class CaptureProcess:
         self._killed = False
 
     async def start(self) -> None:
+        argv, hook = with_death_signal(self.command)
         self.proc = await asyncio.create_subprocess_exec(
-            *self.command,
+            *argv,
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
-            preexec_fn=die_with_parent,
-            start_new_session=False,
+            preexec_fn=hook,
         )
         self._pid = self.proc.pid
 

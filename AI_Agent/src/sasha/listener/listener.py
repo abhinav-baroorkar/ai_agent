@@ -1,74 +1,43 @@
 """The listener's main loop: one microphone, one brain socket, one visible indicator.
 
 The microphone (the capture child) runs only while ALL of these hold, re-checked on
-every change and every 2 s, and the indicator flag on every 20 ms chunk:
-- the indicator is shown (`available()`) and was not lost;
-- the guards say yes (unlocked, session active, not suspending, not on battery);
+every change and every 2 s:
+- the indicator is shown (`available()`, polled in a worker thread) and was not lost;
+- the guards say yes (unlocked, session active, sleep inhibitor held, not on battery);
 - the owner has not paused it;
-- the brain is online, healthy and accepts wake audio;
+- the brain is online (after its first `state` frame), healthy and accepts wake audio;
+- the brain is not answering a wake turn, except for the one-segment confirm window;
 - no reply is playing (half-duplex: from `tts_start` until 300 ms after playback ends)
   and the brain has not sent `pause_capture`.
 Anything else kills the child: the microphone is closed, not muted.
+
+Visible-sign invariant: the capture child is alive only while the indicator shows a
+state in `MIC_OPEN_STATES`. A mic-open state is shown before the child starts; a closed
+state is shown only after the child was killed, in the same synchronous step.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 
 from sasha.listener.brain import CLOSE_SLOT_TAKEN, HealthCheck, frame, segment_frames, writer
 from sasha.listener.capture import Backoff, CaptureProcess
-from sasha.listener.gate import END_SILENCE_MS, Gate, Segment
+from sasha.listener.confirm import ConfirmWindow
+from sasha.listener.contracts import Connect, Indicator, ListenerSettings, SegmentSink
+from sasha.listener.gate import Gate, Segment
 from sasha.listener.guards import Guards
 from sasha.listener.playback import Player
 
 log = logging.getLogger(__name__)
 
-RECONNECT_S = (1.0, 2.0, 5.0, 10.0, 30.0)
-CHECK_S = 2.0
 AFTER_SPEECH_S = 0.3
 STATS_EVERY_S = 60.0
-
-
-class Clip(Protocol):
-    """An earcon: 16-bit little-endian mono PCM."""
-
-    pcm: bytes
-    sample_rate: int
-
-
-class Indicator(Protocol):
-    """Built by the design session (`sasha.listener.indicator`). Its callbacks run on its
-    own thread; `available()` makes bus calls (up to ~1.5 s), so it is only called from
-    the 2 s check, in a worker thread, never per audio chunk."""
-
-    def start(self, on_pause_toggle: Callable[[], None], on_lost: Callable[[], None]) -> None: ...
-
-    def available(self) -> bool: ...
-
-    def set_state(self, state: str) -> None: ...
-
-    def earcon(self, kind: str) -> Clip: ...
-
-    def stop(self) -> None: ...
-
-
-@dataclass
-class ListenerSettings:
-    ws_url: str
-    pause_on_battery: bool = True
-    end_silence_ms: int = END_SILENCE_MS
-    check_s: float = CHECK_S
-    reconnect_s: tuple[float, ...] = RECONNECT_S
-
-
-Connect = Callable[[str], Any]  # url -> async context manager yielding a websocket
-SegmentSink = Callable[[Segment], None]  # the debug dump (CLI flag only)
 
 
 class Listener:
@@ -93,11 +62,12 @@ class Listener:
         self.health = health
         self.connect = connect
         self.debug_sink = debug_sink
+        self.confirm = ConfirmWindow(self._changed)
         self.paused = False
         self.online = False
         self.server_paused = False
         self.playing = False  # half-duplex: a reply is playing (or just ended)
-        self.busy = False  # a wake turn is running on the brain
+        self.busy = False  # the brain is answering a wake turn
         self.server_state = "idle"
         self.final_error: str | None = None
         self._lost = threading.Event()  # set from the indicator's thread
@@ -116,6 +86,7 @@ class Listener:
             (self._shown and not self._lost.is_set(), "indicator not shown"),
             (not self.paused, "paused"),
             (self.online, "brain offline"),
+            (not self.busy or self.confirm.is_open, "brain is answering"),
             (not self.server_paused, "brain is speaking"),
             (not self.playing, "playing a reply"),
         ]
@@ -125,7 +96,7 @@ class Listener:
         return self.guards.allowed()
 
     def _changed(self) -> None:
-        """Re-decide now. Closing happens synchronously; opening is scheduled."""
+        """Re-decide now. Closing (and showing it) is synchronous; opening is scheduled."""
         allowed, _ = self.mic_allowed()
         if not allowed:
             self._close_mic()
@@ -140,23 +111,27 @@ class Listener:
             self._capture_task.cancel()
         self.gate.reset()
 
-    def _show(self) -> None:
-        mic_open = self._capture is not None and self._capture.running
-        if not self.online:
+    def _show(self, mic_open: bool | None = None) -> None:
+        if mic_open is None:
+            mic_open = self._capture is not None and self._capture.running
+        if mic_open:
+            if self.debug_sink is not None:
+                state = "debug"
+            elif self.confirm.is_open or self.server_state == "listening":
+                state = "listening"
+            else:
+                state = "waiting"
+        elif not self.online:
             state = "offline"
         elif self.playing or self.server_state == "speaking":
             state = "speaking"
         elif self.busy or self.server_state == "thinking":
             state = "thinking"
-        elif not mic_open:
-            state = "paused"
-        elif self.debug_sink is not None:
-            state = "debug"
         else:
-            state = "listening" if self.server_state == "listening" else "waiting"
+            state = "paused"
         self.indicator.set_state(state)
 
-    # --- callbacks from the indicator (any thread) ------------------------------------
+    # --- callbacks from the indicator (its own thread) -------------------------------
     def on_lost(self) -> None:
         self._lost.set()
         if self._capture is not None:
@@ -169,6 +144,8 @@ class Listener:
             self._loop.call_soon_threadsafe(self._toggle_pause)
 
     def _toggle_pause(self) -> None:
+        """Kill (one syscall) and show the new state in one synchronous step, before
+        control returns to the loop; the indicator reads the direction from it."""
         self.paused = not self.paused
         self._changed()
         self._queue_frame(frame("listener_state", paused=self.paused))
@@ -181,10 +158,12 @@ class Listener:
             if proc is None:
                 log.error("No capture program (arecord or pw-record): microphone stays closed")
                 return
+            self._show(mic_open=True)  # the sign goes up before the microphone opens
             self._capture = proc
             try:
                 await proc.start()
-                self._show()
+                if not self.mic_allowed()[0]:  # changed while starting
+                    break
                 async for chunk in proc.chunks():
                     backoff.reset()
                     if self._lost.is_set() or not self.mic_allowed()[0]:
@@ -194,17 +173,27 @@ class Listener:
             except OSError as e:
                 log.warning("Capture failed to start (%s)", type(e).__name__)
             finally:
-                await proc.stop()
+                proc.kill()
                 self._capture = None
                 self.gate.reset()
                 self._show()
+                await proc.stop()
             if not self.mic_allowed()[0]:
                 return
             await asyncio.sleep(backoff.next_delay())  # the child ended on its own
 
     def _on_segment(self, segment: Segment) -> None:
-        if self.busy or self._ws is None:
-            return  # nothing is sent while the brain runs a turn
+        if self._ws is None:
+            return
+        if self.confirm.is_open:
+            self._send_segment(segment)  # read by the brain only as yes or no
+            self.confirm.close()
+            return
+        if self.busy:
+            return  # nothing is sent while the brain answers
+        self._send_segment(segment)
+
+    def _send_segment(self, segment: Segment) -> None:
         if self.debug_sink is not None:
             self.debug_sink(segment)
         for part in segment_frames(segment.pcm):
@@ -245,7 +234,8 @@ class Listener:
         # Online (mic may open) only after the brain's first `state` frame: a refused
         # socket (e.g. close 1013, slot taken) gets an `error` and a close instead.
         self._ws, self.online = ws, False
-        self.server_paused = self.busy = False
+        self.server_paused = self.busy = self.playing = False
+        await self.player.stop()
         self._out = asyncio.Queue()
         writer_task = asyncio.create_task(writer(ws, self._out))
         self._queue_frame(frame("listener_state", paused=self.paused))
@@ -262,15 +252,16 @@ class Listener:
         if self.online:
             log.warning("Brain offline (%s): microphone closed", why)
         self.server_state = "idle"
-        self._ws, self.online, self.busy = None, False, False
+        self._ws, self.online, self.busy, self.playing = None, False, False, False
+        self.confirm.close()
+        if self._loop is not None and self.player.playing:
+            self._loop.create_task(self.player.stop())
         self._changed()
 
     async def _on_message(self, message: str | bytes) -> None:
         if isinstance(message, bytes):
             await self.player.write(message)
             return
-        import json
-
         try:
             msg = json.loads(message)
         except ValueError:
@@ -284,14 +275,20 @@ class Listener:
             await self.player.finish()
             await asyncio.sleep(AFTER_SPEECH_S)
             self.playing = False
+            self.confirm.speech_done()  # a pending confirmation opens its window now
             self._changed()
         elif kind == "wake":
             await self._on_wake(msg)
-        elif kind == "pause_capture":
-            self.server_paused = True
+        elif kind == "confirm":
+            self.confirm.announce(msg.get("timeout_s") or 5.0, lambda: self.playing)
             self._changed()
-        elif kind == "resume_capture":
-            self.server_paused = False
+        elif kind == "confirm_result":
+            self.confirm.close()
+        elif kind == "armed_expired":
+            log.info("Armed window ended")
+            self._changed()
+        elif kind in ("pause_capture", "resume_capture"):
+            self.server_paused = kind == "pause_capture"
             self._changed()
         elif kind == "state":
             if not self.online and self._ws is not None:
@@ -300,6 +297,7 @@ class Listener:
             self.server_state = str(msg.get("state"))
             if self.server_state == "idle":
                 self.busy = False
+                self.confirm.close()
             self._changed()
         elif kind == "error":
             log.warning("Brain error: %s", str(msg.get("message", ""))[:200])
@@ -309,7 +307,7 @@ class Listener:
             return  # a miss: no sound, nothing kept
         if msg.get("command"):
             self.busy = True
-            self._changed()
+            self._changed()  # the mic closes while the brain answers
             await self._earcon("wake")
         else:
             await self._earcon("armed")
@@ -322,6 +320,7 @@ class Listener:
             return
         await Player(self.player.command).play(clip.pcm, clip.sample_rate)
 
+    # --- background checks -----------------------------------------------------------
     async def _stats_loop(self) -> None:
         while True:
             await asyncio.sleep(STATS_EVERY_S)
@@ -363,6 +362,7 @@ class Listener:
             self._close_mic()
             for task in tasks:
                 task.cancel()
+            await self.confirm.aclose()
             await self.player.stop()
             await self.guards.stop()
             self.indicator.stop()

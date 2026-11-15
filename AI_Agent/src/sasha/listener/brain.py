@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 from collections.abc import Awaitable, Callable, Iterator
 from dataclasses import dataclass
 from typing import Any
@@ -16,6 +17,8 @@ from typing import Any
 import httpx
 
 from sasha.listener.capture import CHUNK_BYTES, SAMPLE_RATE
+
+log = logging.getLogger(__name__)
 
 HEALTH_TIMEOUT_S = 3.0
 CLOSE_SLOT_TAKEN = 1013  # another listener already holds the reserved slot: final
@@ -71,7 +74,15 @@ def segment_frames(pcm: bytes) -> Iterator[str | bytes]:
 
 async def writer(ws: Any, queue: asyncio.Queue[str | bytes]) -> None:
     """The one place the listener puts frames on the brain's WebSocket, in order.
-    (Transport to the local brain only: nothing here sends messages for anyone.)"""
-    with contextlib.suppress(Exception):
+    (Transport to the local brain only: nothing here sends messages for anyone.)
+    A failed send is logged once and closes the socket, so the session ends and the
+    listener reconnects instead of silently dropping frames."""
+    try:
         while True:
             await ws.send(await queue.get())
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        log.warning("Sending to the brain failed (%s); closing the socket", type(e).__name__)
+        with contextlib.suppress(Exception):
+            await ws.close()

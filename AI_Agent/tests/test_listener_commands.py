@@ -38,11 +38,11 @@ def test_unit_files_follow_the_design(tmp_path: Path) -> None:
         ):
             assert line in text, (name, line)
         for var in ("SASHA_ROOT", "HF_HOME", "XDG_CACHE_HOME", "TMPDIR", "UV_CACHE_DIR"):
-            value = next(ln for ln in text.splitlines() if ln.startswith(f"Environment={var}="))
-            assert value.split("=", 2)[2].startswith(str(root)), value
+            value = next(ln for ln in text.splitlines() if ln.startswith(f'Environment="{var}='))
+            assert value.split("=", 2)[2].strip('"').startswith(str(root)), value
         assert "HOME=" not in text.replace("_HOME=", "")
-    assert f"ExecStart={python} -m sasha serve" in units[BRAIN]
-    assert f"ExecStart={python} -m sasha listen" in units[LISTEN]
+    assert f'ExecStart="{python}" -m sasha serve' in units[BRAIN]
+    assert f'ExecStart="{python}" -m sasha listen' in units[LISTEN]
     assert f"Wants={BRAIN}" in units[LISTEN]
     assert (
         f"After={BRAIN} graphical-session.target pipewire.service wireplumber.service"
@@ -157,3 +157,62 @@ def test_vad_missing_is_a_refusal(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("faster_whisper.vad.get_assets_path", lambda: "/nonexistent")
     with pytest.raises(vad.VadUnavailableError, match=r"faster-whisper >= 1\.2"):
         vad.silero_model_path()
+
+
+def test_worktree_python_is_refused(tmp_path: Path) -> None:
+    root, _ = _root(tmp_path)
+    wt = root / "Dependencies" / "worktrees" / "feat-x" / "AI_Agent" / ".venv" / "bin" / "python"
+    out: list[str] = []
+    assert autostart("show", root, python=wt, out=out.append) == 2
+    assert "worktree" in out[0]
+
+
+def test_paths_are_quoted_and_next_login_is_said(tmp_path: Path) -> None:
+    root = tmp_path / "my proj"
+    python = root / "Dependencies" / ".venv" / "bin" / "python"
+    python.parent.mkdir(parents=True)
+    text = unit_texts(root, python)[LISTEN]
+    assert f'ExecStart="{python}" -m sasha listen' in text
+    assert f'Environment="SASHA_ROOT={root}"' in text
+    assert f"WorkingDirectory={root}" in text
+    out: list[str] = []
+    autostart("on", root, yes=True, python=python, home=tmp_path, run=lambda c: 0, out=out.append)
+    assert any("next graphical login" in line for line in out)
+
+
+def test_listener_refuses_a_brain_that_is_not_on_this_machine() -> None:
+    """Review L4: gated room audio never leaves the machine."""
+    from sasha.config import load_settings
+    from sasha.listener.app import ListenerUnavailableError, ListenOptions, build_listener
+    from tests.conftest import REPO_ROOT
+
+    settings = load_settings(root=REPO_ROOT, load_env_file=False)
+    for host in ("192.168.1.20", "brain.example.com", "0.0.0.0"):
+        settings.profile.server.host = host
+        with pytest.raises(ListenerUnavailableError, match="not a loopback address"):
+            build_listener(settings, ListenOptions())
+
+
+def test_writer_closes_the_socket_when_a_send_fails() -> None:
+    """Review L8: a failed send ends the session (so it reconnects), it isn't swallowed."""
+    import asyncio
+
+    from sasha.listener.brain import writer
+
+    class BrokenSocket:
+        closed = False
+
+        async def send(self, message: object) -> None:
+            raise ConnectionResetError
+
+        async def close(self) -> None:
+            self.closed = True
+
+    async def main() -> bool:
+        ws = BrokenSocket()
+        queue: asyncio.Queue[str | bytes] = asyncio.Queue()
+        queue.put_nowait("x")
+        await asyncio.wait_for(writer(ws, queue), 2)
+        return ws.closed
+
+    assert asyncio.run(main())

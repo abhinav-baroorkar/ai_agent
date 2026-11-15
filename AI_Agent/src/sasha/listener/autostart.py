@@ -20,25 +20,32 @@ UNDO = f"systemctl --user disable --now {LISTEN} {BRAIN}"
 Runner = Callable[[Sequence[str]], int]
 
 
+def _quote(value: object) -> str:
+    """systemd double-quoting: backslash, double quote and `%` (a specifier) escaped."""
+    text = str(value).replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%")
+    return f'"{text}"'
+
+
 def _environment(root: Path) -> list[str]:
     deps = root / "Dependencies"
-    return [
-        f"Environment=SASHA_ROOT={root}",
-        f"Environment=HF_HOME={deps / 'hf'}",
-        f"Environment=XDG_CACHE_HOME={deps / 'cache'}",
-        f"Environment=TMPDIR={deps / 'tmp'}",
-        f"Environment=UV_CACHE_DIR={deps / 'uv-cache'}",
-    ]
+    values = {
+        "SASHA_ROOT": root,
+        "HF_HOME": deps / "hf",
+        "XDG_CACHE_HOME": deps / "cache",
+        "TMPDIR": deps / "tmp",
+        "UV_CACHE_DIR": deps / "uv-cache",
+    }
+    return [f"Environment={_quote(f'{k}={v}')}" for k, v in values.items()]
 
 
 def _service(root: Path, python: Path, command: str) -> list[str]:
     return [
         "[Service]",
         "Type=simple",
-        f"WorkingDirectory={root}",
+        f"WorkingDirectory={str(root).replace('%', '%%')}",  # a path: no quotes here
         *_environment(root),
         "UMask=0077",
-        f"ExecStart={python} -m sasha {command}",
+        f"ExecStart={_quote(python)} -m sasha {command}",
         "KillMode=control-group",
         "Restart=on-failure",
         "RestartSec=5",
@@ -93,11 +100,14 @@ def link_paths(home: Path) -> list[Path]:
 def check_python(root: Path, python: Path) -> None:
     # Not resolved: a venv's bin/python is a symlink to uv's interpreter outside the
     # project, and the unit must start the venv's own path.
-    if not Path(os.path.abspath(python)).is_relative_to(Path(os.path.abspath(root))):
+    path, base = Path(os.path.abspath(python)), Path(os.path.abspath(root))
+    hint = "Run from the main checkout after `source AI_Agent/scripts/env.sh`."
+    if not path.is_relative_to(base):
         raise ValueError(
-            f"The Python running this ({python}) is outside the project {root}. "
-            "Run from the main checkout after `source AI_Agent/scripts/env.sh`."
+            f"The Python running this ({python}) is outside the project {root}. {hint}"
         )
+    if path.is_relative_to(base / "Dependencies" / "worktrees"):
+        raise ValueError(f"The Python running this ({python}) belongs to a worktree. {hint}")
 
 
 def write_units(root: Path, python: Path) -> list[Path]:
@@ -142,6 +152,7 @@ def autostart(
     for link in link_paths(home):
         out(f"  {link}")
     out(f"Undo: {UNDO}  (or: sasha autostart off)")
+    out("`enable` takes effect at the next graphical login; nothing starts now.")
     if action == "show":
         return 0
     if not yes:
@@ -150,4 +161,7 @@ def autostart(
     for path in paths:
         if (rc := run(["systemctl", "--user", "link", str(path)])) != 0:
             return rc
-    return run(["systemctl", "--user", "enable", BRAIN, LISTEN])
+    rc = run(["systemctl", "--user", "enable", BRAIN, LISTEN])
+    if rc == 0:
+        out("Enabled. They start at your next graphical login (nothing was started now).")
+    return rc

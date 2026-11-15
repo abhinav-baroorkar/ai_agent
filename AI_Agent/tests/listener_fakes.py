@@ -98,6 +98,7 @@ class FakeBackend:
 
     async def events(self) -> AsyncIterator[GuardEvent]:
         self._check("subscribe")
+        yield GuardEvent("ready", True)
         while True:
             yield await self.events_q.get()
 
