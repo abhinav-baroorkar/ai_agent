@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from collections import Counter
 from collections.abc import Callable
 from typing import Any
 
@@ -21,6 +22,7 @@ from fastapi.responses import JSONResponse
 from sasha.browser.cdp import CDPError
 from sasha.browser.hooks import find_bridge
 from sasha.browser.pages import domain_of
+from sasha.browser.proxy import FilteringProxy
 from sasha.browser.reader import clean
 from sasha.browser.screencast import Screencast
 from sasha.browser.service import BrowserService
@@ -69,14 +71,12 @@ class BrowserView:
         chrome = service.chrome
         assert chrome is not None
         out["running"] = True
-        out["agent"] = "working" if service.holder is not None else "idle"
-        out["holder"] = service.holder
-        out["holder_bot"] = self.holder_bot(service.holder) if service.holder else None
+        holder = service.turn_holder or service.holder  # working for the whole turn
+        out["agent"] = "working" if holder is not None else "idle"
+        out["holder"] = holder
+        out["holder_bot"] = self.holder_bot(holder) if holder else None
         if service.proxy is not None:
-            s = service.proxy.stats
-            guard.update(
-                allowed=s.allowed, refused=dict(s.refused), background_refused=s.background_refused
-            )
+            guard.update(_guard_counts(service.proxy, chrome.page_hosts))
         infos: dict[str, dict[str, Any]] = {}
         with contextlib.suppress(CDPError):
             listed = await chrome.pipe.call("Target.getTargets", timeout=3)
@@ -159,8 +159,17 @@ class BrowserView:
                         with contextlib.suppress(Exception):
                             await websocket.close(code=1011, reason="Live view failed")
                         return
-                await asyncio.sleep(STATE_POLL_S)
+                with contextlib.suppress(asyncio.TimeoutError):
+                    await asyncio.wait_for(poke.wait(), STATE_POLL_S)
+                poke.clear()
 
+        poke = asyncio.Event()  # the service changed: look now, not at the next poll
+
+        def changed() -> None:
+            poke.set()
+
+        if self.service is not None:
+            self.service.listeners.append(changed)
         follower = asyncio.create_task(follow())
         try:
             while True:
@@ -181,11 +190,31 @@ class BrowserView:
         except (WebSocketDisconnect, ValueError, RuntimeError):
             pass
         finally:
+            if self.service is not None and changed in self.service.listeners:
+                self.service.listeners.remove(changed)
             follower.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await follower
             await end_cast()
             log.info("Browser view closed: %d frames sent, %d dropped", *counts.values())
+
+
+def _guard_counts(proxy: FilteringProxy, page_hosts: set[str]) -> dict[str, Any]:
+    """`refused`: refusals of hosts one of the agent's pages asked for, by category.
+    `background_refused`: everything else refused (Chrome's own background calls, by
+    name or by the guard), which the owner shouldn't read as "the page tried this"."""
+    page: Counter[str] = Counter()
+    other = 0
+    for host, category in list(proxy.refusals):
+        if host in page_hosts:
+            page[category] += 1
+        else:
+            other += 1
+    return {
+        "allowed": proxy.stats.allowed,
+        "refused": dict(page),
+        "background_refused": proxy.stats.background_refused + other,
+    }
 
 
 def _fetch_site_ok(request: Request) -> bool:

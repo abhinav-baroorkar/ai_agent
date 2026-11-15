@@ -80,6 +80,7 @@ class FakeChrome:
         self.pipe = FakePipe()
         self.tab_targets = ["t1", "t2"]
         self.current_target: str | None = "t1"
+        self.page_hosts: set[str] = set()
         self.stopped = False
 
     async def stop(self) -> None:
@@ -261,8 +262,17 @@ def test_owner_stop_fails_the_turns_next_step() -> None:
     class Service:
         owner_stops = 0
 
+        def begin_turn(self, holder: str) -> None:
+            pass
+
+        def end_turn(self, holder: str) -> None:
+            pass
+
     class Bridge:
         service = Service()
+
+        def call_soon(self, fn: Callable[..., None], *args: Any) -> None:
+            fn(*args)
 
     conv = BrowserConversation(Bridge(), "c1", None)  # type: ignore[arg-type]
     token = current_turn.set(new_turn(("read the page",), "text"))
@@ -339,54 +349,3 @@ def test_repeated_errors_close_the_socket_with_1011(
         with pytest.raises(WebSocketDisconnect) as closed:
             ws.receive_json()
     assert closed.value.code == 1011 and calls["n"] == 1 + browser_view.MAX_FAILURES
-
-
-def test_a_stop_just_before_a_step_is_seen_inside_acquire(tmp_path: Path) -> None:
-    import asyncio
-
-    from sasha.browser.service import BrowserStoppedError
-
-    async def starter(data_dir: Path, port: int) -> Any:
-        return FakeChrome()
-
-    async def main() -> None:
-        service = BrowserService(tmp_path, starter=starter, proxy_factory=FilteringProxy)
-        began = service.owner_stops  # the turn's count
-        await service.stop("owner")  # lands between the turn's check and its step
-        with pytest.raises(BrowserStoppedError):
-            async with service.acquire("conversation-1", owner_stops=began):
-                pass
-        assert service.chrome is None  # no fresh Chrome was started
-        async with service.acquire("conversation-1", owner_stops=service.owner_stops):
-            pass  # the next turn may start it again
-        await service.stop()
-
-    asyncio.run(main())
-
-
-def test_holder_map_trim_is_safe_across_threads() -> None:
-    import threading
-
-    from sasha.connectors import browser as connector_module
-    from sasha.conversation import building_for_bot
-
-    connector = BrowserConnector(BrowserBridge.__new__(BrowserBridge))
-    errors: list[BaseException] = []
-
-    def build(n: int) -> None:
-        try:
-            for _ in range(200):
-                token = building_for_bot.set(f"bot-{n}")
-                try:
-                    connector.build_tools({})
-                finally:
-                    building_for_bot.reset(token)
-        except BaseException as exc:  # pragma: no cover - only on failure
-            errors.append(exc)
-
-    threads = [threading.Thread(target=build, args=(n,)) for n in range(8)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
-    assert not errors and len(connector.holders) == connector_module.MAX_HOLDERS

@@ -31,7 +31,7 @@ from sasha.browser.leaks import QueryLeakError, check_query
 from sasha.browser.origin import SearchRefusedError, check_open_url, search_url
 from sasha.browser.pages import BrowserTabs, PageError, TabHook
 from sasha.browser.service import BrowserBusyError, BrowserService, BrowserStoppedError
-from sasha.conversation import current_turn
+from sasha.conversation import current_turn, on_turn_end
 from sasha.tools import Tool, ToolError
 
 STEPS_PER_TURN = 12
@@ -58,6 +58,13 @@ class BrowserBridge:
     def attach(self, loop: asyncio.AbstractEventLoop) -> None:
         """Called on the brain's loop at startup."""
         self.loop, self._loop_thread = loop, threading.get_ident()
+
+    def call_soon(self, fn: Callable[..., None], *args: Any) -> None:
+        """Run `fn` on the brain's loop (the service lives there); at once if no loop."""
+        if self.loop is None or self.loop.is_closed() or threading.get_ident() == self._loop_thread:
+            fn(*args)
+        else:
+            self.loop.call_soon_threadsafe(fn, *args)
 
     async def stop(self) -> None:
         await self.service.stop()
@@ -104,6 +111,10 @@ class BrowserConversation:
             self.turn_id, self.steps, self.started = ctx.turn_id, 0, time.monotonic()
             self.queries = []
             self.owner_stops = self.bridge.service.owner_stops
+            # "working" in the live view from this first step until the turn ends
+            service, holder = self.bridge.service, self.holder
+            self.bridge.call_soon(service.begin_turn, holder)
+            on_turn_end(ctx.turn_id, lambda: self.bridge.call_soon(service.end_turn, holder))
         if self.bridge.service.owner_stops != self.owner_stops:
             raise ToolError("The owner stopped the browser")
         self.steps += 1

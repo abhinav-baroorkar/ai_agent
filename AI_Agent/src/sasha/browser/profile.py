@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import os
 import time
@@ -71,6 +72,34 @@ def prepare_profile(data_dir: Path) -> Path:
         if path.is_dir() and not any(path.iterdir()):
             (path / MARKER).write_text("Made by the assistant's browser; safe to delete.\n")
     return verify_profile(path)
+
+
+def seed_preferences(root: Path) -> None:
+    """Turn off Chrome's network prediction (`net.network_prediction_options` = 2,
+    never) in our own profile before each start: otherwise Chrome preconnects to hosts
+    it expects to load, and the guard counts those as refusals the page never made.
+    Written through a temporary file and os.replace, so a link is replaced, never
+    followed; skipped (logged) if `Default` isn't a plain folder in the profile."""
+    default = root / "Default"
+    if default.is_symlink():
+        log.warning("Browser preferences not set: Default is a link")
+        return
+    default.mkdir(mode=0o700, exist_ok=True)
+    if default.resolve(strict=True) != default:
+        log.warning("Browser preferences not set: Default is under a link")
+        return
+    path = default / "Preferences"
+    prefs: dict[str, object] = {}
+    if path.is_file() and not path.is_symlink():
+        with contextlib.suppress(OSError, ValueError):
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+            prefs = loaded if isinstance(loaded, dict) else {}
+    net = prefs.get("net")
+    prefs["net"] = {**(net if isinstance(net, dict) else {}), "network_prediction_options": 2}
+    tmp = default / ".Preferences.sasha-tmp"
+    tmp.unlink(missing_ok=True)
+    tmp.write_text(json.dumps(prefs), encoding="utf-8")
+    os.replace(tmp, path)
 
 
 def _pids() -> list[int]:

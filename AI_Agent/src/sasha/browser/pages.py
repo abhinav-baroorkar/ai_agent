@@ -22,6 +22,7 @@ from sasha.browser.reader import PageView, clean, read_tree
 from sasha.browser.redirects import unwrap
 
 LOAD_TIMEOUT_S = 20.0
+MAX_PAGE_HOSTS = 4096  # hosts remembered per browser run, for the live view's counts
 MAX_DESTINATIONS = 150  # links whose destination is looked up per read
 MAX_TABS = 3
 TabHook = Callable[[CDPPipe, str], Awaitable[None]]  # tests serve pages via Fetch
@@ -99,6 +100,9 @@ class BrowserTabs:
     def _request(self, params: dict[str, Any]) -> None:
         if self._tab_for(params.get("_session")) is not None:
             self.backstop.on_request_will_be_sent(params)  # methods only (B8)
+            host = domain_of(str(params.get("request", {}).get("url", ""))).rstrip(".")
+            if host and len(self.chrome.page_hosts) < MAX_PAGE_HOSTS:
+                self.chrome.page_hosts.add(host)
 
     async def _new_tab(self) -> Tab:
         if len(self.tabs) >= MAX_TABS:

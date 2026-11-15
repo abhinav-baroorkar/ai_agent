@@ -24,7 +24,7 @@ from pathlib import Path
 
 from sasha.browser.cdp import CDPError, CDPPipe
 from sasha.browser.history import forget_when_free
-from sasha.browser.profile import ProfileError, prepare_profile
+from sasha.browser.profile import ProfileError, prepare_profile, seed_preferences
 from sasha.listener.capture import with_death_signal
 from sasha.server.launch import CHROMIUM_BROWSERS, ISOLATION_FLAGS, browser_env
 
@@ -150,6 +150,9 @@ class Chrome:
     # the agent's tabs in the model's numbering, and the current one (for the live view)
     tab_targets: list[str] = field(default_factory=list)
     current_target: str | None = None
+    # hosts the agent's pages asked for (Network.requestWillBeSent), to tell the page's
+    # refusals from Chrome's own; in memory only, never logged
+    page_hosts: set[str] = field(default_factory=set)
 
     async def stop(self) -> None:
         with contextlib.suppress(Exception):
@@ -171,6 +174,7 @@ async def start_chrome(data_dir: Path, proxy_port: int, exe: str | None = None) 
         raise BrowserUnavailableError("No Chrome or Chromium found")
     try:
         profile = prepare_profile(data_dir)  # our own marked folder, never a link (H1)
+        seed_preferences(profile)  # no preconnects (they'd count as refusals)
     except ProfileError as exc:
         raise BrowserUnavailableError(str(exc)) from None
     (profile / "home").mkdir(parents=True, exist_ok=True, mode=0o700)

@@ -129,6 +129,9 @@ def test_live_view_frames_of_a_test_page_arrive(tmp_path: Path) -> None:
             async with service.acquire("c1") as chrome:
                 tabs = BrowserTabs(chrome, LogOnlyBackstop(), serve_pages(PAGES))
                 await tabs.navigate("https://test.invalid/home")
+                assert service.proxy is not None
+                # no preconnects to the test host (they'd look like refusals of the page)
+                assert "local_name" not in service.proxy.stats.refused
                 assert chrome.current_target is not None and chrome.tab_targets == [
                     chrome.current_target
                 ]
