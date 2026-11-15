@@ -7,7 +7,10 @@ pronouns:
   possessive: her
 wake_word:
   phrase: Sasha        # the name alone; it must be the first word of what is said
-  variants: [Sacha, Sascha, Saasha, Sashaa]  # other spellings speech-to-text may write
+  # Other spellings speech-to-text writes for the name, from measurements only. With 5
+  # synthetic voices x 3 speeds, Whisper small wrote the name exactly every time it was
+  # followed by a command (45/45); add spellings seen in the owner-voice test here.
+  variants: []
   model: null          # path to a trained openWakeWord .onnx (later, on-device)
   threshold: 0.5
 voice:

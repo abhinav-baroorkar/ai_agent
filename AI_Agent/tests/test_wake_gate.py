@@ -22,7 +22,7 @@ def matcher(settings: Settings) -> WakeMatcher:
 
 def test_phrase_is_the_name_alone(settings: Settings, name: str) -> None:
     assert name == settings.assistant.name
-    assert settings.assistant.wake_word.variants  # spellings speech-to-text may write
+    assert isinstance(settings.assistant.wake_word.variants, list)  # filled from measurements
 
 
 @pytest.mark.parametrize(
@@ -54,10 +54,13 @@ def test_matcher_rules(
     assert (got_outcome, got_command) == (outcome, command)
 
 
-def test_variant_spellings_match(settings: Settings, matcher: WakeMatcher) -> None:
-    for index, variant in enumerate(settings.assistant.wake_word.variants, start=1):
+def test_variant_spellings_match(name: str) -> None:
+    variants = [f"Z{name[1:]}", f"{name}a"]  # spellings derived from the configured name
+    matcher = WakeMatcher(name, variants, WakeConfig().fillers)
+    for index, variant in enumerate(variants, start=1):
         outcome, command, matched = matcher.match(f"{variant}, lights on")
         assert (outcome, command, matched) == (wake.ACCEPTED_WITH_COMMAND, "lights on", index)
+    assert matcher.match(f"{name}, lights on")[2] == 0
 
 
 class Clock:
