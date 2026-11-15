@@ -14,16 +14,19 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from sasha import __version__
-from sasha.bots import BOT_ID_RE, BotError, BotNotFound, parse_fields
+from sasha.bots import BOT_ID_RE, MAIN_ID, VOICE_ID, BotError, BotNotFound, parse_fields
 from sasha.connectors import ConnectorError
 from sasha.pipeline.llm import OllamaError
 from sasha.server.deps import ServerDeps
 from sasha.server.security import LocalOnlyMiddleware, allowed_hosts, allowed_origins
+from sasha.server.speaking import SpeakingTracker
 from sasha.server.voice import VoiceStages
+from sasha.server.wake_session import open_listener
 from sasha.server.ws import Conversation
 
 log = logging.getLogger(__name__)
 WEB_DIR = Path(__file__).resolve().parents[1] / "avatar" / "web"
+RESERVED_SOCKETS = 1  # one extra /ws slot, only for the wake listener (`wake=1`)
 
 
 class ApiError(Exception):
@@ -60,8 +63,11 @@ def create_app(deps: ServerDeps, web_dir: Path | None = WEB_DIR) -> FastAPI:
     settings = deps.settings
     server = settings.profile.server
     app = FastAPI(title="brain", version=__version__, docs_url=None, redoc_url=None)
-    voice = VoiceStages(stt=deps.stt, tts=deps.tts)  # shared by every socket
+    wake = settings.profile.wake
+    speaking = SpeakingTracker(wake.speaking_tail_s, wake.cooldown_s)
+    voice = VoiceStages(stt=deps.stt, tts=deps.tts, speaking=speaking)  # shared by sockets
     open_sockets = 0
+    open_listeners = 0  # the reserved slot(s); never counted in max_sockets
     app.add_middleware(
         LocalOnlyMiddleware,
         hosts=allowed_hosts(server.port),
@@ -112,7 +118,8 @@ def create_app(deps: ServerDeps, web_dir: Path | None = WEB_DIR) -> FastAPI:
                 "tts": voice.tts is not None,
                 "tts_languages": voice.languages,
             },
-            "limits": {"max_sockets": server.max_sockets},
+            "wake": {"available": voice.stt is not None},
+            "limits": {"max_sockets": server.max_sockets, "reserved_sockets": RESERVED_SOCKETS},
         }
 
     @app.get("/api/models")
@@ -173,9 +180,22 @@ def create_app(deps: ServerDeps, web_dir: Path | None = WEB_DIR) -> FastAPI:
         await websocket.close(code=code, reason=reason)
 
     @app.websocket("/ws")
-    async def ws(websocket: WebSocket, bot: str = "main", speak: str = "0") -> None:
-        nonlocal open_sockets
+    async def ws(websocket: WebSocket, bot: str = "", speak: str = "0", wake: str = "0") -> None:
+        nonlocal open_sockets, open_listeners
         await websocket.accept()
+        if wake not in ("0", "1"):
+            await refuse(websocket, "wake must be 0 or 1")
+            return
+        if wake == "1":  # the listener: its own reserved slot (local-trust model)
+            if open_listeners >= RESERVED_SOCKETS:
+                await refuse(websocket, "A listener is already connected", 1013)
+                return
+            open_listeners += 1
+            try:
+                await listener(websocket, bot, speak)
+            finally:
+                open_listeners -= 1
+            return
         if open_sockets >= server.max_sockets:
             await refuse(websocket, f"Too many connections (max {server.max_sockets})", 1013)
             return
@@ -185,10 +205,21 @@ def create_app(deps: ServerDeps, web_dir: Path | None = WEB_DIR) -> FastAPI:
         finally:
             open_sockets -= 1
 
+    async def listener(websocket: WebSocket, bot: str, speak: str) -> None:
+        if speak not in ("0", "1"):
+            await refuse(websocket, "speak must be 0 or 1")
+            return
+        if bot not in ("", VOICE_ID):
+            await refuse(websocket, "A listener socket always uses the voice bot")
+            return
+        conv = await open_listener(websocket, deps, voice, speak == "1")
+        await conv.run()
+
     async def conversation(websocket: WebSocket, bot: str, speak: str) -> None:
         if speak not in ("0", "1"):
             await refuse(websocket, "speak must be 0 or 1")
             return
+        bot = bot or MAIN_ID
         try:
             chosen = deps.bots.get(bot) if BOT_ID_RE.fullmatch(bot) else None
         except BotNotFound:

@@ -1,7 +1,10 @@
-"""Bots: the built-in `main` bot plus user-made ones, stored in `Data/state/bots.json`.
+"""Bots: built-in `main` and `voice`, plus user-made ones, in `Data/state/bots.json`.
 
-The main bot's name and prompt always come from `assistant.yaml`; only its model and
-connectors can be changed. A bot only gets the tools of its own connectors.
+The built-in bots' names and prompts always come from `assistant.yaml`; only their
+model and connectors can be changed. A bot only gets the tools of its own connectors.
+`voice` serves wake-word turns; its model and connectors default to `main`'s, and only
+it can carry `wake_device_control` (the owner's opt-in to change devices by voice; the
+wake path enforces the limits in server/wake_policy.py whatever this says).
 """
 
 from __future__ import annotations
@@ -16,6 +19,8 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 from sasha.state import JsonStore
 
 MAIN_ID = "main"
+VOICE_ID = "voice"
+BUILTIN_IDS = (MAIN_ID, VOICE_ID)
 MAX_PROMPT = 8000
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 BOT_ID_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,63}")
@@ -43,6 +48,7 @@ class Bot(BaseModel):
     system_prompt: str
     connectors: list[str]
     builtin: bool = False
+    wake_device_control: bool = False
 
 
 class BotFields(BaseModel):
@@ -54,6 +60,7 @@ class BotFields(BaseModel):
     model: str | None = Field(default=None, min_length=1, max_length=200)
     system_prompt: str | None = Field(default=None, max_length=MAX_PROMPT)
     connectors: list[str] | None = None
+    wake_device_control: bool | None = None  # only on the `voice` bot
 
     @field_validator("name", "model")
     @classmethod
@@ -104,18 +111,32 @@ class BotStore:
             builtin=True,
         )
 
+    def _voice(self, data: dict[str, Any]) -> Bot:
+        main = self._main(data)
+        saved = data.get(VOICE_ID) or {}
+        return Bot(
+            id=VOICE_ID,
+            name=f"{self.main_name} (wake word)",
+            model=str(saved.get("model") or main.model),
+            system_prompt=self.main_prompt,
+            connectors=list(saved.get("connectors", main.connectors)),
+            builtin=True,
+            wake_device_control=saved.get("wake_device_control") is True,
+        )
+
     def _user_bots(self, data: dict[str, Any]) -> list[Bot]:
         bots: list[Bot] = []
         for raw in data.get("bots") or []:
             try:
-                bots.append(Bot.model_validate({**raw, "builtin": False}))
+                fixed = {"builtin": False, "wake_device_control": False}
+                bots.append(Bot.model_validate({**raw, **fixed}))
             except ValidationError:
                 continue  # skip a hand-edited broken entry rather than fail every request
         return bots
 
     def all(self) -> list[Bot]:
         data = self.store.load()
-        return [self._main(data), *self._user_bots(data)]
+        return [self._main(data), self._voice(data), *self._user_bots(data)]
 
     def get(self, bot_id: str) -> Bot:
         for bot in self.all():
@@ -147,6 +168,8 @@ class BotStore:
     def create(self, fields: BotFields) -> Bot:
         if not fields.name:
             raise BotError("name: required")
+        if fields.wake_device_control is not None:
+            raise BotError("wake_device_control can only be set on the voice bot")
         self._check_model(fields.model)
         with self.store.lock:
             data = self.store.load()
@@ -157,7 +180,8 @@ class BotStore:
                 system_prompt=fields.system_prompt or "",
                 connectors=self._check_connectors(fields.connectors or []),
             )
-            data["bots"] = [*(data.get("bots") or []), bot.model_dump(exclude={"builtin"})]
+            stored = bot.model_dump(exclude={"builtin", "wake_device_control"})
+            data["bots"] = [*(data.get("bots") or []), stored]
             self.store.save(data)
         return bot
 
@@ -167,31 +191,33 @@ class BotStore:
             raise BotError("fields can't be set to null")
         if "connectors" in changes:
             changes["connectors"] = self._check_connectors(changes["connectors"])
+        if "wake_device_control" in changes and bot_id != VOICE_ID:
+            raise BotError("wake_device_control can only be set on the voice bot")
         self._check_model(changes.get("model"))
         with self.store.lock:
             data = self.store.load()
-            if bot_id == MAIN_ID:
+            if bot_id in BUILTIN_IDS:
                 fixed = sorted({"name", "system_prompt"} & changes.keys())
                 if fixed:
                     raise BotError(
                         f"The built-in bot's {' and '.join(fixed)} come from assistant.yaml"
                     )
-                data[MAIN_ID] = {**(data.get(MAIN_ID) or {}), **changes}
+                data[bot_id] = {**(data.get(bot_id) or {}), **changes}
                 self.store.save(data)
-                return self._main(data)
+                return self._main(data) if bot_id == MAIN_ID else self._voice(data)
             bots = data.get("bots") or []
             for i, raw in enumerate(bots):
                 if raw.get("id") == bot_id:
                     bot = Bot.model_validate({**raw, **changes, "builtin": False})
-                    bots[i] = bot.model_dump(exclude={"builtin"})
+                    bots[i] = bot.model_dump(exclude={"builtin", "wake_device_control"})
                     data["bots"] = bots
                     self.store.save(data)
                     return bot
         raise BotNotFound(f"Unknown bot '{bot_id}'")
 
     def delete(self, bot_id: str) -> None:
-        if bot_id == MAIN_ID:
-            raise BotError("The built-in bot can't be deleted")
+        if bot_id in BUILTIN_IDS:
+            raise BotError("Built-in bots can't be deleted")
         with self.store.lock:
             data = self.store.load()
             bots = data.get("bots") or []
@@ -204,7 +230,7 @@ class BotStore:
     @staticmethod
     def _new_id(name: str, data: dict[str, Any]) -> str:
         slug = _SLUG_RE.sub("-", name.lower()).strip("-")[:40] or "bot"
-        taken = {b.get("id") for b in data.get("bots") or []} | {MAIN_ID}
+        taken = {b.get("id") for b in data.get("bots") or []} | set(BUILTIN_IDS)
         while True:
             candidate = f"{slug}-{secrets.token_hex(3)}"
             if candidate not in taken:

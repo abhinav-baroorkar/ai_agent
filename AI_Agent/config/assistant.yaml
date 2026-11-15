@@ -6,8 +6,12 @@ pronouns:
   object: her
   possessive: her
 wake_word:
-  phrase: Hey Sasha
-  model: null          # path to a trained openWakeWord .onnx (Phase 1)
+  phrase: Sasha        # the name alone; it must be the first word of what is said
+  # Other spellings speech-to-text writes for the name, from measurements only. With 5
+  # synthetic voices x 3 speeds, Whisper small wrote the name exactly every time it was
+  # followed by a command (45/45); add spellings seen in the owner-voice test here.
+  variants: []
+  model: null          # path to a trained openWakeWord .onnx (later, on-device)
   threshold: 0.5
 voice:
   tts_speaker: Sunita  # Indic Parler-TTS named voice (Phase 2)

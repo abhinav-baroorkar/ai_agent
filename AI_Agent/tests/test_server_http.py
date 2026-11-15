@@ -28,7 +28,8 @@ def test_health_reports_persona_from_config_and_no_voice(h: Harness, client: Tes
     assert body["profile"] == h.settings.profile.name
     assert body["default_bot"] == "main"
     assert body["voice"] == {"stt": False, "tts": False, "tts_languages": []}
-    assert body["limits"] == {"max_sockets": 4}  # ServerConfig default
+    assert body["limits"] == {"max_sockets": 4, "reserved_sockets": 1}  # defaults
+    assert body["wake"] == {"available": False}  # no speech-to-text stage here
 
 
 def test_health_voice_true_when_stages_configured(settings: Settings, tmp_path: Path) -> None:
@@ -52,7 +53,7 @@ def test_models_when_ollama_down(h: Harness, client: TestClient) -> None:
 
 def test_main_bot_is_built_in(h: Harness, client: TestClient) -> None:
     bots = client.get("/api/bots").json()["bots"]
-    assert len(bots) == 1
+    assert [b["id"] for b in bots] == ["main", "voice"]  # the two built-in bots
     main = bots[0]
     assert main["id"] == "main" and main["builtin"] is True
     assert main["name"] == h.settings.assistant.name
@@ -69,11 +70,11 @@ def test_bot_create_edit_delete(client: TestClient) -> None:
 
     r = client.patch(f"/api/bots/{bot['id']}", json={"model": "other", "connectors": ["fake"]})
     assert r.json()["model"] == "other" and r.json()["connectors"] == ["fake"]
-    assert len(client.get("/api/bots").json()["bots"]) == 2
+    assert len(client.get("/api/bots").json()["bots"]) == 3  # main, voice, Chef
 
     assert client.delete(f"/api/bots/{bot['id']}").json() == {"ok": True}
     assert client.delete(f"/api/bots/{bot['id']}").status_code == 404
-    assert len(client.get("/api/bots").json()["bots"]) == 1
+    assert len(client.get("/api/bots").json()["bots"]) == 2  # the built-ins remain
 
 
 def test_bot_validation_errors(client: TestClient) -> None:
@@ -106,7 +107,7 @@ def test_bots_persist_in_state_dir(h: Harness, client: TestClient) -> None:
     client.post("/api/bots", json={"name": "Chef"})
     assert (h.settings.paths.state_dir / "bots.json").is_file()
     again = h.client().get("/api/bots").json()["bots"]
-    assert [b["name"] for b in again][1] == "Chef"
+    assert [b["name"] for b in again][2] == "Chef"
 
 
 def test_connectors_list_and_status(client: TestClient) -> None:

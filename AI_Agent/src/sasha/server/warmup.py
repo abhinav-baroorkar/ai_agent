@@ -138,7 +138,7 @@ class PlacementTelemetry(TelemetryWriter):
             trace.models["llm_gpu_share_at_start"] = (
                 f"{self.placement.model}:{share_label(self.placement.gpu_share)}"
             )
-        if input_mode == "voice" and self.voice_models:
+        if input_mode in ("voice", "wake") and self.voice_models:
             for name, version in self.voice_models.items():
                 try:
                     trace.models[name] = version()

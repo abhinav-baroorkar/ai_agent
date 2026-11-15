@@ -73,6 +73,11 @@ class Conversation:
 
     # --- sending -------------------------------------------------------------
     def emit(self, frame: Frame) -> None:
+        if isinstance(frame, dict):  # brain-wide speaking state, for the wake listener
+            if frame.get("type") == "tts_start":
+                self.voice.speaking.started(id(self))
+            elif frame.get("type") == "tts_end":
+                self.voice.speaking.ended(id(self))
         self.outbox.put_nowait(frame)
 
     def emit_threadsafe(self, frame: Frame) -> None:
@@ -119,6 +124,7 @@ class Conversation:
                 self.speaker.cancel()
             if self.turn is not None:
                 self.turn.cancel()
+            self.voice.speaking.ended(id(self))  # in case speech was cut before tts_end
             self.outbox.put_nowait(None)
             with contextlib.suppress(asyncio.CancelledError):
                 await writer
@@ -189,8 +195,10 @@ class Conversation:
         self.loop.call_soon_threadsafe(self._on_delta, piece)
 
     async def _turn(self, text: str, language: str, input_mode: str) -> None:
-        # Kept in self.speaker until speech is over, so a disconnect can cancel it.
-        speaker = self.speaker = self._make_speaker(language)
+        # Kept in self.speaker until speech is over, so a disconnect can cancel it. A
+        # wake confirmation may swap it mid-turn (server/wake_confirm.py), so the end of
+        # the turn always uses the current one.
+        self.speaker = self._make_speaker(language)
         spoken = False
         try:
             self.state("thinking")
@@ -205,16 +213,18 @@ class Conversation:
                         "timing": _timing(reply),
                     }
                 )
-            if speaker is not None:
+            if self.speaker is not None:
+                speaker = self.speaker
                 await (speaker.finish() if reply is not None else speaker.abort())
             spoken = True
         except Exception as exc:  # never let one turn kill the connection
             log.error("Turn failed: %s", type(exc).__name__)
             self.error(f"Something went wrong ({type(exc).__name__})")
         finally:
-            if speaker is not None and not spoken:  # error or cancelled: stop speech now
-                speaker.cancel()
+            if self.speaker is not None and not spoken:  # error or cancelled: stop now
+                self.speaker.cancel()
             self.speaker = None
+            self.voice.speaking.turn_ended()  # wake cool-down starts at any turn's end
             self.state("idle")
 
     async def _ask(self, text: str, input_mode: str) -> Reply | None:

@@ -58,6 +58,9 @@ class ToolRegistry:
     def names(self) -> list[str]:
         return list(self._tools)
 
+    def get(self, name: str) -> Tool:
+        return self._tools[name]
+
     def specs(self) -> list[dict[str, Any]]:
         return [t.spec() for t in self._tools.values()]
 

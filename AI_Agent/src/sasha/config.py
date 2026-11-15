@@ -36,6 +36,38 @@ class WakeWord(BaseModel):
     phrase: str
     model: str | None = None
     threshold: float = 0.5
+    # Other spellings speech-to-text may write for the phrase (matched as whole words).
+    variants: list[str] = Field(default_factory=list)
+
+
+class WakeConfig(BaseModel):
+    """Wake-word rules on the brain (v1: detection by transcription; see server/wake.py).
+
+    Persona-free: the phrase and its spellings live in assistant.yaml `wake_word`.
+    """
+
+    armed_window_s: float = Field(default=5.0, gt=0, le=30)  # name alone → next segment
+    confirm_window_s: float = Field(default=5.0, gt=0, le=30)  # spoken yes after a question
+    cooldown_s: float = Field(default=3.0, ge=0, le=60)  # after any turn, brain-wide
+    speaking_tail_s: float = Field(default=0.3, ge=0, le=5)  # mic stays closed after tts_end
+    max_segment_s: float = Field(default=8.0, gt=0, le=30)
+    min_confidence: float = Field(default=0.5, ge=0, le=1)  # for the name alone
+    max_entities_per_turn: int = Field(default=3, ge=1, le=50)  # more needs a spoken yes
+    max_calls_per_minute: int = Field(default=6, ge=1, le=60)  # device changes, brain-wide
+    volume_cap: float = Field(default=0.6, ge=0, le=1)
+    keep_alive_while_listening: int | str = -1  # Ollama keep_alive while a listener is on
+    fillers: list[str] = Field(default_factory=lambda: ["uh", "um", "hey", "ok", "okay", "oh"])
+    # Words right after the name that mean it is talked about, not addressed.
+    continuations: list[str] = Field(
+        default_factory=lambda: ["is", "was", "said", "says", "and", "or", "too", "will"]
+    )
+    yes_words: list[str] = Field(
+        default_factory=lambda: ["yes", "yeah", "yep", "sure", "confirm", "ok", "okay"]
+    )
+    # A clear no; anything that is neither is reported "unclear" (and still means no).
+    no_words: list[str] = Field(
+        default_factory=lambda: ["no", "nope", "nah", "don't", "dont", "stop", "cancel"]
+    )
 
 
 class Voice(BaseModel):
@@ -140,6 +172,7 @@ class Profile(BaseModel):
     stt: STTConfig = Field(default_factory=STTConfig)
     tts: TTSConfig = Field(default_factory=TTSConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
+    wake: WakeConfig = Field(default_factory=WakeConfig)
 
 
 class HomeAssistantConfig(BaseModel):

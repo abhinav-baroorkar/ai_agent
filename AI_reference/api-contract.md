@@ -1,4 +1,4 @@
-# Brain API contract v0.1.1 (server and UI both build against this)
+# Brain API contract v0.2 (server, UI and listener all build against this)
 
 Owner of this file: Primary. Staff SDE copies it to `AI_reference/api-contract.md`
 in the server branch. To change it, ask Primary; don't change it on your own.
@@ -12,18 +12,29 @@ per-device token; v0 has no auth because it only listens on localhost.
 
 | Method + path | Returns / does |
 | --- | --- |
-| `GET /api/health` | `{ok, assistant:{name, pronouns:{subject, object, possessive}}, profile, default_bot, voice:{stt:bool, tts:bool, tts_languages:["en"]}, limits:{max_sockets}}` |
+| `GET /api/health` | `{ok, assistant:{name, pronouns:{subject, object, possessive}}, profile, default_bot, voice:{stt:bool, tts:bool, tts_languages:["en"]}, wake:{available:bool}, limits:{max_sockets, reserved_sockets}}` |
 | `GET /api/models` | `{models:[{name, size_gb, tools:bool}]}` from Ollama: only models that can chat; `tools` says whether the model supports tool calls |
 | `GET /api/bots` | `{bots:[Bot]}` |
 | `POST /api/bots` | create a Bot, returns it |
 | `PATCH /api/bots/{id}` | edit a Bot |
-| `DELETE /api/bots/{id}` | delete (the built-in main bot can't be deleted) |
+| `DELETE /api/bots/{id}` | delete (the built-in bots `main` and `voice` can't be deleted) |
 | `GET /api/connectors` | `{connectors:[Connector]}` |
 | `PUT /api/connectors/{id}` | body `{enabled?, settings?}`; returns the updated Connector; secrets are never returned |
 | `POST /api/connectors/{id}/test` | `{ok, message}` connectivity check |
 
-`Bot` = `{id, name, model, system_prompt, connectors:[connector ids], builtin:bool}`.
-The built-in bot has id `main`; its name and prompt come from `assistant.yaml`.
+`Bot` = `{id, name, model, system_prompt, connectors:[connector ids], builtin:bool,
+wake_device_control:bool}`.
+- Built-in `main`: its name and prompt come from `assistant.yaml`.
+- Built-in `voice`: used by wake-word turns. Same prompt as `main`; its name is the
+  assistant's name plus " (wake word)". Its model and connectors default to `main`'s
+  and are editable.
+- `wake_device_control` is false by default. It can be set (`PATCH /api/bots/voice
+  {wake_device_control:true}`) only on `voice`; any other bot answers 400. While it is
+  false, wake turns are read-only (see "Wake turns" below).
+
+`health.wake.available` is true when the server has a speech-to-text stage.
+`limits.max_sockets` is the UI's own budget of `/ws` connections;
+`limits.reserved_sockets` (1) is one extra slot that only a listener socket can use.
 
 `Connector` = `{id, kind, name, enabled, status:"ok"|"off"|"needs_setup"|"error",
 detail, tools:[tool names], settings:{...non-secret}, secret_env:[env var names]}`.
@@ -66,11 +77,75 @@ Rules:
   the server answers `audio_start` with an `error`, and sends no `tts_*` frames.
 - The UI draws the mouth from the loudness of the speech frames it plays.
 
+## Listener socket `/ws?wake=1&speak=1` (wake word, v0.2)
+
+One listener (the `sasha listen` process) per server. It uses the reserved slot,
+so it never takes one of the UI's `max_sockets`; a second listener gets close 1013.
+The slot is claimed by the `wake=1` flag alone (local-trust model; satellites will
+need a token). A listener socket always uses the `voice` bot (`bot` must be absent
+or `voice`, else close 1008). It doesn't accept `text` frames (`error`).
+
+Each speech segment the listener's local gate lets through is sent as
+`{type:"audio_start", sample_rate:16000, wake:true}`, binary frames, `{type:"audio_stop"}`
+(at most 8 s; longer gets `error` and is dropped).
+
+Client → server (listener only):
+- `{type:"listener_state", paused:bool}`: send on connect and on every change. While
+  paused the server refuses wake audio (`error`) and drops its keep-alive override.
+- `{type:"listener_stats", gate_drops:int}`: segments the local gate dropped since
+  the last report (counts only, for telemetry).
+
+Server → client (listener only):
+- `{type:"wake", heard:bool, command:bool, armed_s?:number}`, after every segment:
+  - `heard:false, command:false`: not a wake (or dropped: busy, speaking, cool-down).
+    Nothing else about the segment is ever sent, logged or stored.
+  - `heard:true, command:true`: the name was followed by a command (or the segment
+    filled an armed window); a normal spoken turn follows (`transcript` with the
+    command only, `state`, `reply_delta`, `reply`, `tts_*`).
+  - `heard:true, command:false, armed_s:5`: the name alone; the next segment within
+    `armed_s` seconds is the command, without the name.
+- `{type:"armed_expired"}`: the armed window ended without a segment.
+- `{type:"confirm", action, timeout_s}`: a device change needs a spoken yes. The
+  question is also spoken (`tts_*`). The listener then opens its microphone for
+  exactly one segment and sends it as a normal `audio_start {wake:true}` segment.
+  The window counts `timeout_s` from the end of the question's *playback* plus the
+  300 ms tail (speech frames go out faster than real time; the server estimates the
+  end from `tts_start` and the audio it sent). An answer that arrives a little early
+  is accepted too. Expect short answer segments here (from about 0.2 s). The server reads that segment only as yes or no (its text is
+  treated like other wake audio: not logged, not stored) and answers:
+- `{type:"confirm_result", accepted:bool, reason:"yes"|"no"|"timeout"|"unclear"}`.
+  Only a clear yes accepts; anything else is a no (`unclear` when it was neither).
+  On `timeout` the server sends it without waiting for a segment. The turn then
+  continues with normal `state` frames: acting on yes, saying it did nothing otherwise.
+- `{type:"pause_capture", reason:"speaking"}` / `{type:"resume_capture"}`: some
+  socket on this server is speaking (plus 300 ms after its `tts_end`). The listener
+  closes its microphone until `resume_capture`. Segments that arrive meanwhile get
+  `wake{heard:false}`.
+
+The listener keeps its microphone closed while a turn runs (from `wake{heard:true,
+command:true}` until the final `state:"idle"`), except in the one-segment `confirm`
+window. The server drops (`wake{heard:false}`) any other segment during a turn.
+`health.wake.available` is false unless a speech-to-text stage is loaded.
+
+Wake turns (enforced by the server for every turn on a listener socket, whatever
+the `voice` bot's connectors say):
+- Only `list_devices` and `get_state` while `wake_device_control` is false.
+- With it true: `call_service` too, except `switch.*` (never). One light, fan or media
+  player acts directly. `entity_id:"all"`, any scene, or more than 3 distinct entities
+  changed in one turn ask `confirm` first; a "no" refuses the rest of the turn's
+  device changes. `volume_level` is capped at 0.6. At most 6 service calls per minute
+  from wake turns.
+- 3 s cool-down after any turn on this server before the next wake is accepted.
+
 ## Changes
 - v0.1 (2026-11-14): `speak` query parameter; one conversation per socket stated;
   `PUT /api/connectors/{id}` returns the Connector; `pronouns` is an object;
   `voice.tts_languages` added.
 - v0.1.1 (2026-11-14): `GET /api/health` adds `limits:{max_sockets}`; `GET /api/models`
   lists only chat-capable models, each `{name, size_gb, tools:bool}`.
-- Planned for v0.2 (not built yet): `POST /api/connectors` and
+- v0.2 (2026-11-14): wake word. Listener socket (`wake=1`) with the reserved slot;
+  `audio_start.wake`; `listener_state`, `listener_stats`; `wake`, `armed_expired`,
+  `confirm`, `confirm_result`, `pause_capture`, `resume_capture`; built-in `voice` bot and
+  `Bot.wake_device_control`; health `wake.available` and `limits.reserved_sockets`.
+- Planned for v0.3 (not built yet): `POST /api/connectors` and
   `DELETE /api/connectors/{id}` to add and remove MCP connectors from Settings.

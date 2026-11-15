@@ -124,6 +124,11 @@ class Speaker:
         self.queued_any = True
         self.queue.put_nowait(piece)
 
+    def say(self, text: str) -> None:
+        """Speak a whole piece next, e.g. a confirmation question. Call on the event loop."""
+        if text.strip() and not self.stop.is_set() and not self.failed:
+            self._queue(text.strip())
+
     async def finish(self) -> None:
         """Speak what is left in the buffer and wait until speech is done (or stopped)."""
         rest, self.buffer = self.buffer.strip(), ""

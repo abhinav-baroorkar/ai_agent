@@ -165,6 +165,7 @@ class OllamaLLM:
         self._version: str | None = None
         self._capability_cache: dict[str, list[str]] = {}  # digest -> capabilities
         self._capability_failures: dict[str, float] = {}  # digest -> when the call failed
+        self.keep_alive_override: Callable[[], int | str | None] | None = None
         self._clock: Callable[[], float] = time.monotonic
 
     @property
@@ -212,7 +213,10 @@ class OllamaLLM:
             payload["tools"] = list(tools)
         if self.config.think is not None:
             payload["think"] = self.config.think
-        if self.config.keep_alive:
+        override = self.keep_alive_override() if self.keep_alive_override else None
+        if override is not None:  # e.g. -1 while a wake listener is on (server/speaking.py)
+            payload["keep_alive"] = override
+        elif self.config.keep_alive:
             payload["keep_alive"] = self.config.keep_alive
         return payload
 

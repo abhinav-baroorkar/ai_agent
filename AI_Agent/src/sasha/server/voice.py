@@ -18,6 +18,7 @@ from sasha.config import Settings
 from sasha.pipeline.stt import SpeechToText
 from sasha.pipeline.tts import TextToSpeech, split_sentences
 from sasha.pipeline.voice import VoiceUnavailableError, build_stt, build_tts
+from sasha.server.speaking import SpeakingTracker
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +42,8 @@ class VoiceStages:
     split: Callable[[str], list[str]] = split_sentences
     stt_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     tts_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    # Brain-wide: who is speaking, and when the last turn ended (wake word, D2).
+    speaking: SpeakingTracker = field(default_factory=lambda: SpeakingTracker(0.3, 3.0))
 
     @property
     def languages(self) -> list[str]:
