@@ -94,3 +94,6 @@ Phase 1 (brain server, window with the orb, English voice, wake word listener).
 The owner started Phase 1 early on 2026-11-14. The Phase 0 gate (turn on a real
 light through Home Assistant) is still open and postponed by the owner; it must
 pass before the v0.1 release. Status and next steps: `AI_reference/manager-handoff.md`.
+
+Stop and show the owner at each phase gate (`AI_reference/plan.md`). The next
+one is Phase 1's: lights work by voice in English.
