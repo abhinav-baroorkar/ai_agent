@@ -138,6 +138,9 @@ are touched by several branches; rebase the later one and re-lock.
 - **Measured:** injection bench with the real model, 8 kinds of trap page, 24 of 24 on the final
   run, 0 leaks to the network. An early run did leak an email through a search, which is why the
   leak check exists and why the guards don't rely on the model. See `research-notes.md`.
+- **Next phase: take-over** (decided 2026-11-15): the owner solves the search engine's bot
+  challenge personally, through a visible window; the brain is disconnected while the owner drives;
+  hand-back by restart. Never automated, never worked around. Design review before code.
 - **Later phases:** acting with approvals, sign-in by take-over (low-value sites only), media.
 
 ## Face direction (2026-11-14)
@@ -163,7 +166,9 @@ eyes; eyes stay as a switch.
   than 3 distinct devices in one turn (counted across all its calls).
 
 - The listener does not listen while the screen is locked.
-- The search engine for the browser is DuckDuckGo.
+- The search engine for the browser is DuckDuckGo. Its bot challenge is solved by the owner
+  through a take-over of the assistant's browser, never automated or worked around; the take-over
+  moves ahead of the other browser phases (2026-11-15).
 - "Wake me at 7" asks whether that means morning or evening.
 - The wake word's real-microphone checks are scheduled with the owner.
 - Sessions may access the project's secrets file for now (code and tests load it at run time; sessions never open, print, search, copy or paste it or any value; a block means stop and tell Primary). The owner tells Primary
@@ -202,8 +207,8 @@ eyes; eyes stay as a switch.
   opened. The manager's pre-push check now shows the names of failing tests and stops on any
   failure (one merge had been pushed on a run with one failure).
 - **Not tested for real yet:** the wake word on a real microphone, the browser on a public site,
-  and timers with real voice. The chosen search engine served the headless browser a bot challenge
-  (see "Waiting on the owner").
+  and timers with real voice. The search engine (DuckDuckGo) served the headless browser a bot
+  challenge; the owner will solve it through the take-over, which is being designed.
 - **VRAM headroom on the 8 GB laptop card is about 1 GB** (LLM 5.2 GB at 8k context + STT
   0.8 GB = 7.1 of 8.15 GB). A bigger context could push LLM layers to the CPU.
 
@@ -216,8 +221,10 @@ Build order set by the owner on 2026-11-14 (night). Our own design.
   robot body (all "device work, later"). Why: device work needs hands-on testing, scheduled after
   the first week.
 - **No "fun" features** (games, trivia, stories, a music visualiser).
-- The assistant's own browser: phase 1 (read-only, live view) is merged. Later phases: acting
-  with approvals, take-over, sign-in by take-over for low-value sites only, media. Ideas from an
+- The assistant's own browser: phase 1 (read-only, live view) is merged. Next: **take-over** (a
+  visible window, the brain disconnected while the owner drives, hand-back by restart). It is being
+  designed and gets a design review before code. Then: acting with approvals, sign-in by take-over
+  for low-value sites only, media. Ideas from an
   earlier project of the owner's only; own code.
 - Postponed, conditional: Marathi–English support (Phase 2). The owner's condition: the base assistant must keep working properly. Marathi support is optional and may only be added if it doesn't slow the English path (latency and GPU placement measured before and after); otherwise it stays out.
 - Check the full voice loop and the wake word on a real microphone (checks are scheduled with the owner).
@@ -260,9 +267,6 @@ Ideas from an earlier project of the owner's: read-only, no copying (owner's dec
 
 - Docker install (sudo) for Home Assistant, then the HA account and `HA_TOKEN` in `.env`
   (postponed by the owner; device work comes later).
-- **How the browser gets search results.** DuckDuckGo served the headless browser a bot
-  challenge. Nobody will work around it. Choose: a search service with the owner's own key, or the
-  owner solving the challenge by take-over (take-over is not built yet).
 - **Which sites the owner would sign the assistant in to** (for the later sign-in phase).
 - What "Grok-bot-like" should mean beyond "several bots with their own chats".
 - Which smart-display and TV devices to support.

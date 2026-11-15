@@ -80,17 +80,24 @@ The research is saved locally. Marathi–English is postponed (see `decisions.md
 - No published results for Marathi–English code-mixed speech exist for any candidate.
 
 
-## 2026-11-14 (night): timers bench (final numbers pending)
+## 2026-11-14 (night): timers bench (before the last change; final run pending)
 
-62 phrasings, 3 runs each, through the real local model; bar "0 silent wrong times" (met).
-Without the server's check of the model's fields against the person's words, the model invented
-am/pm or a delay in 7 of 144 runs.
+62 phrasings, 3 runs each (186 runs) through the real local model, on the server branch at its
+last report. Bar: "0 silent wrong times" (met). One more change is being made (an answer is also
+read together with the previous message when the assistant's own reply was a question), and the
+bench will be re-run.
 
-| Case | Runs | Result |
+| Outcome | Runs | Share |
 | --- | --- | --- |
-| Silent wrong times (with the check) | 186 | 0 |
-| Model invented a period or a delay (before the check) | 144 | 7 |
-| Final per-case numbers | | pending: sent with the server branch's last report |
+| Right | 117 | 62.9% |
+| Asked correctly | 54 | 29.0% |
+| Asked needlessly | 15 | 8.1% |
+| Wrong (silent wrong time) | 0 | 0% |
+| Right or correctly asked | 171 | 91.9% |
+
+Without the server's check of the model's fields against the person's words, the model invented
+am/pm or a delay in 7 of 144 runs (earlier run, before the check). Final numbers: pending the
+re-run.
 
 ## 2026-11-14 (night): the assistant's own browser, measurements
 

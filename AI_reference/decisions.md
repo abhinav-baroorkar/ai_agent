@@ -567,3 +567,21 @@ Summary of the design that passed review (two rounds). Opt-in until the measurem
   Rule: nobody works around it. The owner chooses between a search service with the owner's own key
   and solving it by take-over (not built).
 - **Later phases:** acting with approvals, sign-in by take-over (low-value sites only), media.
+
+## 2026-11-15 — Take-over comes first among the later browser phases (owner)
+
+- **Supersedes** the open choice in "The assistant's own browser, phase 1": the search engine stays
+  DuckDuckGo, and its bot challenge is solved by the owner personally, through a take-over of the
+  assistant's browser. It is never automated and never worked around. The other option (a search
+  service with the owner's own key) is not taken.
+- **Take-over moves ahead of the other later browser phases** (acting with approvals, sign-in,
+  media). The design, as agreed so far: a visible window, the brain disconnected while the owner
+  drives, hand-back by restart. It is being designed now and gets a design review before any code,
+  like the wake word and the browser core.
+- **Why:** the owner can solve the check where a program must not try; keeping the brain
+  disconnected while the owner drives means nothing the assistant could read or do is exposed
+  during a take-over.
+- **Timers bench (correction to the placeholder above):** on the server branch at its last report,
+  186 runs: 117 right, 54 asked correctly, 15 asked needlessly, 0 wrong. One more change is being
+  made (an answer is also read together with the previous message when the assistant's own reply
+  was a question) and the bench will be re-run. Numbers in `research-notes.md`.
