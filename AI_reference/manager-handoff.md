@@ -4,7 +4,7 @@ Kept by the manager session ("Primary"). Updated whenever a task is assigned,
 reported, reviewed or merged. If the manager session is lost, a new session can
 pick up from this file plus `plan.md`, `decisions.md` and the newest devlog.
 
-Last updated: 2026-11-14, late evening.
+Last updated: 2026-11-15, early morning.
 
 ## How the project is run
 
@@ -47,20 +47,27 @@ only for now; satellites on other devices come later.
 
 ## State of `main`
 
-- `main` is `3943566` (2026-11-14, night). 484 tests at `e233db4`.
-- **Wake word:** all three parts are on `main` (`feat/wake-server` at `f0ce325`, three review
-  rounds). The window runs from `main` with `health.wake.available` true. The wake word has not
-  run on a real microphone: real-microphone checks are scheduled with the owner. **Rule: no
-  real-microphone run without the owner present** (the microphone is opened only with the owner
-  at the machine).
-- Also merged: `fix/tests-shared-temp` and `fix/tests-temp-nits` (a test failed when two runs
-  shared a checkout; each run now has its own temp folder).
-- In progress: `fix/wake-truthful-reply` (the server speaks a fixed factual sentence when a device
-  change was refused, unconfirmed or failed, or when the model claims a change with no successful
-  call; a gate for switching on device control by voice; a small clock tool), `feat/browser-core`
-  (first browser parts; address guard verified on the real Chrome; two blocking review fixes),
-  `fix/listener-confirm-race` (a listener test that failed under load is being checked for a real
-  ordering problem).
+- `main` is `39af3f3` (717 tests with all extras). API contract is v0.4.1 (see below).
+- **Wake word:** all three parts are on `main`. The window runs from `main` with
+  `health.wake.available` true. The wake word has not run on a real microphone: real-microphone
+  checks are scheduled with the owner. **Rule: no real-microphone run without the owner present**
+  (the microphone is opened only with the owner at the machine).
+- **Wake turns are truthful** (`fix/wake-truthful-reply`, `61aa277`; `fix/wake-request-phrases`,
+  `d5c9c43`): on a wake turn the server holds the model's text for a change request and states what
+  was and wasn't changed from the tool results. Device control by voice can't be switched on
+  without this. A read-only clock tool is available to every bot. A bench of 42 request phrasings
+  is a gate in the tests.
+- **Timers, alarms and reminders** (first feature of the build order): the Home timers card is
+  merged (`feat/timers-ui`, `6c0a4b3`, contract v0.3; Escape never dismisses an alarm). The server
+  part, `feat/timers-server`, is in its final review round.
+- **The assistant's own browser, phase 1, is merged** (`feat/browser-core` `96636db`,
+  `feat/browser-wiring` `deda9ae`, `feat/browser-live-view` `c462083`, `feat/browser-ui` `011b6f5`,
+  then `fix/browser-panel-followups` `deb6b09` and `fix/browser-view-followups` `39af3f3`). What
+  it is: see "The assistant's own browser" below.
+- **Listener fixes merged:** `fix/listener-confirm-race` (`bda9732`) and `fix/listener-followups`
+  (`4968ef5`). A test that failed now and then turned out to be a real bug (see "Risks").
+- Also merged: test-only fixes (`fix/tests-shared-temp`, `fix/tests-temp-nits`,
+  `fix/wake-socket-test-race`).
 - **Window runs from `main`; goal reached for typed input.** `sasha window` was started on
   the laptop. The server came up with voice on (`stt` and `tts` true), the window's page
   connected, and a typed question on a `speak=1` socket was answered in text and speech:
@@ -88,9 +95,11 @@ only for now; satellites on other devices come later.
 | `fix/warmup-timeouts` | | short connect timeout for the model warm-up; voice turns record the STT and TTS model versions in telemetry | merged and pushed |
 | `fix/stt-runtime-fallback` | | speech-to-text falls back to CPU for a request when the GPU fails | merged and pushed (`3f76eee`) |
 | `feat/wake-server` | Staff SDE | brain side of the wake word: gate, abuse limits, reserved socket, contract v0.2 | merged and pushed (`f0ce325`) after three review rounds |
-| `fix/wake-truthful-reply` | | truthful spoken replies for refused or failed device changes; gate for voice device control; clock tool | in review: on wake turns the server releases the model's text sentence by sentence only while no device call has been attempted and no change is claimed, then states what was and wasn't changed from the tool results; device control by voice can't be switched on without it; a read-only clock tool for every bot |
-| `feat/browser-core` | | the assistant's own browser, first parts | in progress; two blocking review fixes |
-| `fix/listener-confirm-race` | | a listener test that failed under load | in progress |
+| `fix/wake-truthful-reply` | | truthful spoken replies for refused or failed device changes; gate for voice device control; clock tool | merged and pushed (`61aa277`); `fix/wake-request-phrases` (`d5c9c43`) added more request phrasings and a 42-phrase bench as a gate |
+| `feat/browser-core`, `feat/browser-wiring`, `feat/browser-live-view`, `feat/browser-ui`, `fix/browser-panel-followups`, `fix/browser-view-followups` | | the assistant's own browser, phase 1: core, tools, live view in the Bots screen, follow-ups | merged and pushed (`96636db`, `deda9ae`, `c462083`, `011b6f5`, `deb6b09`, `39af3f3`) |
+| `fix/listener-confirm-race`, `fix/listener-followups` | | the tray sign could disagree with the capture process | merged and pushed (`bda9732`, `4968ef5`) |
+| `feat/timers-ui` | | Home timers card | merged and pushed (`6c0a4b3`) |
+| `feat/timers-server` | | timers, alarms and reminders on the server | in its final review round |
 | `feat/wake-listener` | Jack of all tasks | `sasha listen` (always-on listener), `sasha autostart` | merged and pushed after two review rounds; follow-up `fix/wake-listener-notes` merged |
 | `feat/wake-indicator` | Design expert | tray icon and chimes | merged and pushed; the send guard is stricter (exemptions pinned to exact lines, mail-sending calls forbidden in every file) |
 | `docs/scope-refresh` | Grunt work | plan.md, decisions.md, linkedin-notes.md, README, .env.example for the new scope | merged and pushed (`6fbc60d`, 86 tests pass) |
@@ -111,6 +120,25 @@ are touched by several branches; rebase the later one and re-lock.
 - **TTS stage:** `stream(text, language)` yields one audio chunk per sentence,
   24 kHz output. Agreed through Primary by the voice and server sessions (2026-11-14). The server
   resamples as needed for the WebSocket contract.
+
+## The assistant's own browser (phase 1, merged)
+
+- **How it runs:** the installed Chrome, driven over a DevTools pipe (never a TCP debug port), with
+  its own marked profile under `Data/`, headless and muted. All traffic goes through our own
+  filtering proxy that refuses loopback, private, link-local, metadata and mapped addresses
+  (measured on the real Chrome: every tested form refused, also from page sub-resources).
+- **Tools:** search, open, read, follow links, switch tabs. An address may be opened only if the
+  owner wrote it in this conversation (the server rebuilds it). A leak check on search queries
+  catches emails, long numbers and identifiers from earlier messages.
+- **Limits:** a browsing bot can have no other connector and no timer tools. No browser on wake
+  turns. History files are wiped whenever the browser stops, only inside a profile the assistant
+  created (marker file), and never through a link or under a live Chrome.
+- **Live view** in the Bots screen: frames as JPEG at most about 5 a second, a site line that
+  comes from the brain, Stop always available. No picture route over HTTP (contract v0.4.1).
+- **Measured:** injection bench with the real model, 8 kinds of trap page, 24 of 24 on the final
+  run, 0 leaks to the network. An early run did leak an email through a search, which is why the
+  leak check exists and why the guards don't rely on the model. See `research-notes.md`.
+- **Later phases:** acting with approvals, sign-in by take-over (low-value sites only), media.
 
 ## Face direction (2026-11-14)
 
@@ -135,6 +163,9 @@ eyes; eyes stay as a switch.
   than 3 distinct devices in one turn (counted across all its calls).
 
 - The listener does not listen while the screen is locked.
+- The search engine for the browser is DuckDuckGo.
+- "Wake me at 7" asks whether that means morning or evening.
+- The wake word's real-microphone checks are scheduled with the owner.
 - Sessions may access the project's secrets file for now (code and tests load it at run time; sessions never open, print, search, copy or paste it or any value; a block means stop and tell Primary). The owner tells Primary
   when that stops.
 - Claude's own memory folder for this project may be used for notes.
@@ -162,6 +193,17 @@ eyes; eyes stay as a switch.
   presses open one microphone.
 - **One voice brain on the GPU at a time for the team.** Two would not both fit in 8 GB.
 
+- **A test that fails now and then is a possible product bug until shown otherwise.** One
+  listener test failed under load. The cause was real: while the capture process was starting,
+  another part of the loop could redraw the tray icon as "microphone closed", so the listener
+  could record for up to 2 s under a closed icon. A matching case on close was found in review.
+  Fixed so the sign counts a capture as open from the moment it starts until it is killed and
+  reaped, checked by a test that tracks the real child process. No real microphone had been
+  opened. The manager's pre-push check now shows the names of failing tests and stops on any
+  failure (one merge had been pushed on a run with one failure).
+- **Not tested for real yet:** the wake word on a real microphone, the browser on a public site,
+  and timers with real voice. The chosen search engine served the headless browser a bot challenge
+  (see "Waiting on the owner").
 - **VRAM headroom on the 8 GB laptop card is about 1 GB** (LLM 5.2 GB at 8k context + STT
   0.8 GB = 7.1 of 8.15 GB). A bigger context could push LLM layers to the CPU.
 
@@ -174,16 +216,15 @@ Build order set by the owner on 2026-11-14 (night). Our own design.
   robot body (all "device work, later"). Why: device work needs hands-on testing, scheduled after
   the first week.
 - **No "fun" features** (games, trivia, stories, a music visualiser).
-- In flight next to timers, alarms and reminders: the assistant's own browser (own profile inside the project, live
-  view, take over, approval before anything that changes something, no access to the local
-  network; voice-started requests are read-only there). Ideas from an earlier project of the
-  owner's only; own code.
+- The assistant's own browser: phase 1 (read-only, live view) is merged. Later phases: acting
+  with approvals, take-over, sign-in by take-over for low-value sites only, media. Ideas from an
+  earlier project of the owner's only; own code.
 - Postponed, conditional: Marathi–English support (Phase 2). The owner's condition: the base assistant must keep working properly. Marathi support is optional and may only be added if it doesn't slow the English path (latency and GPU placement measured before and after); otherwise it stays out.
 - Check the full voice loop and the wake word on a real microphone (checks are scheduled with the owner).
 
 In order, unless the owner changes it:
 
-1. Timers, alarms and reminders.
+1. Timers, alarms and reminders (the Home card is merged; the server part is in final review).
 2. Memory ("remember that...").
 3. A morning brief. It needs calendar and mail, so the parked send-guard question is asked
    before the mail part.
@@ -219,6 +260,10 @@ Ideas from an earlier project of the owner's: read-only, no copying (owner's dec
 
 - Docker install (sudo) for Home Assistant, then the HA account and `HA_TOKEN` in `.env`
   (postponed by the owner; device work comes later).
+- **How the browser gets search results.** DuckDuckGo served the headless browser a bot
+  challenge. Nobody will work around it. Choose: a search service with the owner's own key, or the
+  owner solving the challenge by take-over (take-over is not built yet).
+- **Which sites the owner would sign the assistant in to** (for the later sign-in phase).
 - What "Grok-bot-like" should mean beyond "several bots with their own chats".
 - Which smart-display and TV devices to support.
 - Whether to keep eyes as a switch on the face (the default is without eyes).

@@ -191,6 +191,7 @@ Software the brain server depends on:
 | websockets | WebSocket support | BSD-3-Clause |
 | starlette (via fastapi) | Web framework under fastapi | BSD-3-Clause |
 | opentelemetry-api (via fastapi) | API only, no network | Apache-2.0 |
+| jeepney | Tray icon over D-Bus for the wake word listener (optional `listener` extra only) | MIT |
 
 More rows get added as models land (openWakeWord,
 IndicConformer, IndicTrans2, Indic Parler-TTS).

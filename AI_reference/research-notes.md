@@ -79,3 +79,32 @@ The research is saved locally. Marathi–English is postponed (see `decisions.md
 - No published Marathi evaluation exists for the two local LLMs in use.
 - No published results for Marathi–English code-mixed speech exist for any candidate.
 
+
+## 2026-11-14 (night): timers bench (final numbers pending)
+
+62 phrasings, 3 runs each, through the real local model; bar "0 silent wrong times" (met).
+Without the server's check of the model's fields against the person's words, the model invented
+am/pm or a delay in 7 of 144 runs.
+
+| Case | Runs | Result |
+| --- | --- | --- |
+| Silent wrong times (with the check) | 186 | 0 |
+| Model invented a period or a delay (before the check) | 144 | 7 |
+| Final per-case numbers | | pending: sent with the server branch's last report |
+
+## 2026-11-14 (night): the assistant's own browser, measurements
+
+- **Injection bench, real model:** 8 kinds of trap page, 24 of 24 on the final run, 0 leaks to the
+  network. An early run did leak an email through a search; that is why the query leak check
+  exists, and why the guards do not rely on the model.
+- **Address guard:** measured on the real Chrome, every tested loopback, private, link-local,
+  metadata and mapped form was refused, also from page sub-resources.
+- **Live view, end to end on local test pages:** first frame 0.10 s after the tab appears, 4.6
+  frames a second, Chrome about 305 MB, a browsing turn of two tool calls in 5.7 s.
+- **Finding:** the chosen search engine served the headless browser a bot challenge. Not worked
+  around.
+- **Wake listener:** a test that failed now and then was a real ordering bug (the tray sign could
+  say "closed" for up to 2 s while the capture ran). Intermittent failures are product bugs until
+  shown otherwise.
+- Not tested for real: the wake word on a real microphone, the browser on a public site, timers
+  with real voice.

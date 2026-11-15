@@ -497,3 +497,73 @@ Summary of the design that passed review (two rounds). Opt-in until the measurem
 - **Marathi research is saved locally** (facts first; summary in `research-notes.md`). It is not
   needed while Marathi is postponed.
 
+
+## 2026-11-14 — Truthful replies on wake turns (merged, `main` at `61aa277`, `d5c9c43`)
+
+- **On a wake turn the server holds the model's text for a change request** and then states what
+  was and wasn't changed, from the tool results. Text is released sentence by sentence only while no
+  device call has been attempted and no change is claimed. Why: a spoken "done" that is not true is
+  worse than a slow answer; the model must not be the one that reports success.
+- **Device control by voice can't be switched on without this.** Why: the opt-in in the Bots screen
+  is only safe if the spoken sentence is always the factual one.
+- **A read-only clock tool for every bot.** Why: timers and reminders need the current time, and the
+  model should not guess it.
+- **A bench of 42 request phrasings is a gate** (more phrasings of a change request are
+  recognised). Why: a missed phrasing means an unchecked claim; the gate stops a quiet drop.
+
+## 2026-11-14 — The microphone sign must agree with the capture process (merged, `bda9732`, `4968ef5`)
+
+- **Finding:** a test that failed now and then was a real bug. While the capture process was
+  starting, another part of the listener loop could redraw the tray icon as "microphone closed", so
+  the listener could record for up to 2 s under a closed icon. Review found a matching case on
+  close. No real microphone had been opened.
+- **Decision:** the sign counts a capture as open from the moment it starts until it is killed and
+  reaped. A test oracle tracks the real child process, so the sign and the process cannot disagree.
+- **Rule (also in `team.md`):** an intermittent test failure is investigated as a possible product
+  bug before it is called flaky. Primary's pre-push check shows the names of failing tests and stops
+  on any failure. Why: one merge was pushed on a run with one failure before this was fixed.
+
+## 2026-11-14 — Timers, alarms and reminders (first feature of the build order; Home card merged, server in final review)
+
+- **Tools take structured fields; the server resolves the time and echoes it back.** It asks when
+  something is unclear and never guesses. Why: a wrong time that is announced as right is the worst
+  failure of a timer.
+- **The server checks the model's fields against the person's own words.** A period (am or pm), a
+  clock time or a delay that the person didn't say is dropped or asked about. Why: before this check
+  the model invented am/pm or a delay in 7 of 144 runs.
+- **Bench:** 62 phrasings through the real local model, 3 runs each; the bar is "0 silent wrong
+  times" (met). Final numbers go in `research-notes.md` when the server branch reports.
+- **"Wake me at 7" asks morning or evening** (owner's decision).
+- **Late or missed items are announced with a generic line;** their text is read aloud only on
+  request. Why: the text may be private and the room may not be.
+- **Items created by voice are marked** as such.
+- **A bare "stop" works without the name only while something rings,** within tight limits. "<name>,
+  stop" stops whatever is ringing without a confirmation. Why: a ringing alarm must be easy to
+  silence, and nothing else should be stopped by a bare word.
+- **The Home timers card never lets Escape dismiss an alarm** (contract v0.3). Why: a key press
+  must not silence an alarm by accident.
+
+## 2026-11-14 — The assistant's own browser, phase 1 (merged; `main` at `39af3f3`)
+
+- **Chrome runs over a DevTools pipe, never a TCP debug port.** Own marked profile under `Data/`,
+  headless, muted. Why: no network door to the browser, and nothing outside the project folder.
+- **All traffic goes through our own filtering proxy** that refuses loopback, private, link-local,
+  metadata and mapped addresses. Measured on the real Chrome: every tested form refused, also from
+  page sub-resources. Why: a web page must not reach the local network or the machine's services.
+- **An address may be opened only if the owner wrote it in this conversation;** the server rebuilds
+  it. Search is a separate tool. Why: text from a page or an email must not choose where to go.
+- **A leak check on search queries** (emails, long numbers, identifiers from earlier messages). Why:
+  an early run with the real model leaked an email through a search, so the guards do not rely on
+  the model.
+- **A browsing bot can have no other connector and no timer tools; no browser on wake turns.**
+  Why: untrusted page text must not sit next to tools that change things, and a spoken request is
+  read-only.
+- **History files are wiped whenever the browser stops,** only inside a profile the assistant
+  created (marker file), never through a link, never under a live Chrome.
+- **Live view in the Bots screen:** frames as JPEG at most about 5 a second, a site line that comes
+  from the brain (a page cannot write it), Stop always available. The HTTP frame route was removed
+  (contract v0.4.1); frames travel only on the live-view socket.
+- **Search engine: DuckDuckGo** (owner's decision). It served the headless browser a bot challenge.
+  Rule: nobody works around it. The owner chooses between a search service with the owner's own key
+  and solving it by take-over (not built).
+- **Later phases:** acting with approvals, sign-in by take-over (low-value sites only), media.
