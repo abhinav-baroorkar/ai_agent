@@ -60,21 +60,82 @@ def test_stop_window_opens_only_on_the_event_and_closes() -> None:
 
 
 def test_stop_window_shows_listening_in_the_same_step_and_takes_one_short_segment() -> None:
+    """A ring: the tone closed the mic (`pause_capture`), then `resume_capture` and
+    `stop_window` arrive. The window shows listening at once and takes a short "stop"."""
+
     async def body(rig: Rig, lst: Listener) -> None:
-        await until(lambda: rig.brain.ws is not None and lst.online)
-        lst.busy = True  # e.g. still answering: only the window may open the mic
+        await until(lambda: rig.brain.ws is not None and lst.online and rig.mic_open)
+        lst.server_paused = True  # the tone plays
         lst._changed()
         await until(lambda: not rig.mic_open)
         before = rig.brain.segments
-        lst.stop_window.open(2.0)  # what `stop_window` does, on the loop thread
+        lst.server_paused = False  # resume_capture ...
+        lst.stop_window.open(2.0)  # ... then stop_window, on the loop thread
         assert rig.indicator.states[-1] == "listening"  # same synchronous step
         assert lst.gate.min_speech_ms == ANSWER_MIN_SPEECH_MS
-        await until(lambda: rig.brain.segments == before + 1, 5)
+        await until(lambda: rig.brain.segments == before + 1, 5)  # the short "stop"
         await until(lambda: not lst.stop_window.is_open)
-        await until(lambda: not rig.mic_open)  # still busy: closed again
         assert lst.gate.min_speech_ms == MIN_SPEECH_MS
 
     rig = Rig(pattern=[(30, 400), (3000, 300), (30, 900)])  # a short "stop"
+    asyncio.run(rig.run(body))
+
+
+def test_stop_window_never_overrides_busy() -> None:
+    """Review L2: only a confirm window may open the mic during a turn."""
+
+    async def body(rig: Rig, lst: Listener) -> None:
+        await until(lambda: lst.online)
+        lst.busy = True
+        lst.stop_window.open(2.0)
+        assert lst.mic_allowed() == (False, "brain is answering")
+        lst.stop_window.close()
+
+    go(body)
+
+
+def test_timer_stopped_closes_the_stop_window() -> None:
+    async def body(rig: Rig, lst: Listener) -> None:
+        await until(lambda: rig.brain.ws is not None and lst.online)
+        lst.stop_window.open(5.0)
+        msg = {"type": "timer_stopped", "id": "t1", "how": "dismissed"}
+        await rig.brain.ws.send(json.dumps(msg))
+        await until(lambda: not lst.stop_window.is_open)
+
+    go(body)
+
+
+def test_the_armed_prime_expires_if_the_mic_does_not_reopen_soon() -> None:
+    """Review L1: a reopen long after the tone is a fresh start (300 ms silence first)."""
+    import time
+
+    async def body(rig: Rig, lst: Listener) -> None:
+        await until(lambda: lst.online)
+        lst.prime_until = time.monotonic() - 0.1  # the tone ended over a second ago
+        primed: list[bool] = []
+        real_prime = lst.gate.prime
+        lst.gate.prime = lambda: primed.append(True) or real_prime()  # type: ignore[method-assign]
+        lst.paused = True
+        lst._changed()
+        await until(lambda: not rig.mic_open)
+        lst.paused = False
+        lst._changed()
+        await until(lambda: rig.mic_open)
+        assert primed == [] and lst.prime_until == 0.0
+
+    go(body)
+
+
+def test_no_recorder_takes_the_mic_sign_down() -> None:
+    """Review L3: if no capture program exists, the tray must not keep showing a live mic."""
+
+    async def body(rig: Rig, lst: Listener) -> None:
+        await until(lambda: lst.online)
+        await asyncio.sleep(0.2)
+        assert rig.indicator.states[-1] not in MIC_OPEN_STATES
+
+    rig = Rig()
+    rig.capture = lambda: None  # type: ignore[assignment,method-assign,return-value]
     asyncio.run(rig.run(body))
 
 
