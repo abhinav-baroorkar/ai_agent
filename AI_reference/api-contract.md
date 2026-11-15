@@ -159,8 +159,9 @@ holder_bot:{id, name}|null, tabs:[{tab:int, site:string, title:string, current:b
 guard:{allowed:int, refused:{<category>:int}, background_refused:int}}`.
 - `enabled`: the browser connector's switch in Settings, nothing more. Whether a given
   bot may browse is up to the UI to work out from that bot's `connectors` list.
-- `agent`: `working` while a conversation is using the browser for a turn; `holder` is
-  an opaque id of that conversation, or null. `holder_bot` is the bot of that
+- `agent`: `working` from the first browser step of a turn until that whole turn ends
+  (not per tool call); `holder` is an opaque id of that conversation, or null. A
+  `browser_state` is pushed the moment `agent` or `holder` changes. `holder_bot` is the bot of that
   conversation: its id and its own name from the bot store (text the owner set, never
   page text), or null when nobody holds the browser or the bot is gone.
 - `tabs`: numbered as the model sees them. `site` is the hostname only, never a full
@@ -168,6 +169,10 @@ guard:{allowed:int, refused:{<category>:int}, background_refused:int}}`.
   format characters from both and caps `title` at 80 characters and `site` at 255.
   Show both with `textContent`, never as markup.
 - `guard`: counts from the filtering proxy since the browser started (0 when stopped).
+  `allowed`: connections let through. `refused`: refusals of hosts that one of the
+  agent's pages asked for (the page or a link on it tried an address the guard doesn't
+  allow), by category. `background_refused`: everything else refused, which is Chrome's
+  own background traffic (update, account and similar calls), not anything the page did.
 
 WebSocket `/ws/browser` (one viewer):
 - Same Host and Origin checks as `/ws`, and an `Origin` header is required (the
@@ -215,6 +220,8 @@ WebSocket `/ws/browser` (one viewer):
   `browser_stopped`, `browser_watch`, `browser_ack`, `browser_stop`; health
   `limits.browser_sockets`; `BrowserState.holder_bot`.
 - v0.4.1 (2026-11-15): `GET /api/browser/frame` removed (review L1): frames reach
-  the window only over `/ws/browser`.
+  the window only over `/ws/browser`. `agent` is `working` for the whole turn and pushed
+  at once; `guard.refused` counts only the pages' own refusals, the rest is
+  `background_refused`.
 - Planned for v0.5 (not built yet): `POST /api/connectors` and
   `DELETE /api/connectors/{id}` to add and remove MCP connectors from Settings.
