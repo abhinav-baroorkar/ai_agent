@@ -485,3 +485,15 @@ Summary of the design that passed review (two rounds). Opt-in until the measurem
   feasibility); design follows. The owner will probably need to accept terms on some model pages
   and put a Hugging Face token into the secrets file personally.
 
+## 2026-11-14 — Marathi–English is postponed, with a condition (owner)
+
+- **Marathi–English support is skipped for now.** The owner's condition for ever adding it: the
+  base assistant must keep working properly. **Rule:** Marathi support is optional and may only be
+  added if it doesn't slow the English path (latency and GPU placement measured before and after);
+  otherwise it stays out. Why: the English voice loop fits the 8 GB GPU with about 1 GB to spare,
+  and load order already decided placement once (see "Voice wiring").
+- **The first new feature is now timers, alarms and reminders,** then the rest of the build order
+  in `plan.md`, renumbered. The assistant's own browser stays in flight.
+- **Marathi research is saved locally** (facts first; summary in `research-notes.md`). It is not
+  needed while Marathi is postponed.
+
