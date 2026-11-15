@@ -35,7 +35,7 @@
   <span class="dot"></span>Microphone is on<span class="mic-on-stop">Stop</span>
 </button>
 
-<div id="ring-bar" class="ring-bar" role="alert" hidden>
+<div id="ring-bar" class="ring-bar" role="alert" aria-describedby="ring-hint" hidden>
   <svg class="ico"><use id="ring-icon" href="#i-timer"/></svg>
   <span id="ring-text" class="ring-text"></span>
   <span class="ring-snooze" role="group" aria-label="Snooze">
@@ -44,7 +44,8 @@
     <button class="btn small" type="button" data-snooze="10">10</button>
     <button class="btn small" type="button" data-snooze="15">15 min</button>
   </span>
-  <button id="ring-stop" class="btn ring-stop" type="button">Stop <kbd>Esc</kbd></button>
+  <button id="ring-stop" class="btn ring-stop" type="button">Stop</button>
+  <span id="ring-hint" class="ring-hint"></span>
 </div>
 
 <div id="offline" class="banner" role="status" hidden>

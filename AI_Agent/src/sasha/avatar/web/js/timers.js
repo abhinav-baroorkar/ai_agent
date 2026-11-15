@@ -10,6 +10,7 @@ import { cleanTimer } from './clean.js';
 import { NAME, timerRow } from './timers-view.js';
 
 const CONFIRM_MS = 4000; // how long "Really delete?" stays armed
+const ESC_SNOOZE_MIN = 5; // what Escape does to a ringing alarm
 const ORDER = { ringing: 0, pending: 1, scheduled: 2, missed: 3, done: 4 };
 
 export function initTimers({ conv, onRinging }) {
@@ -17,6 +18,7 @@ export function initTimers({ conv, onRinging }) {
     card: $('#timers'), list: $('#timer-list'), empty: $('#timers-empty'), done: $('#timers-done'),
     doneList: $('#timer-done-list'), error: $('#timers-error'), mock: $('#mock-ring'),
     bar: $('#ring-bar'), barText: $('#ring-text'), barIcon: $('#ring-icon'), barStop: $('#ring-stop'),
+    barHint: $('#ring-hint'),
   };
   let items = [];
   let offset = 0; // server clock minus this browser's clock, in ms
@@ -119,6 +121,9 @@ export function initTimers({ conv, onRinging }) {
     el.barText.textContent = (says.get(first.id) || fallback) + more;
     el.barIcon.setAttribute('href', `#i-${first.kind === 'alarm' ? 'alarm' : first.kind === 'reminder' ? 'note' : 'timer'}`);
     el.bar.dataset.id = first.id;
+    el.barHint.textContent = first.kind === 'alarm'
+      ? `Esc here snoozes ${ESC_SNOOZE_MIN} minutes. Only the Stop button turns an alarm off.`
+      : 'Esc here stops it.';
     // take the keyboard only if nobody is using it
     if (!was && (document.activeElement === document.body || !document.activeElement)) el.barStop.focus();
   }
@@ -129,13 +134,22 @@ export function initTimers({ conv, onRinging }) {
     const t = ringingNow();
     if (t) actions.snooze(t, Number(b.dataset.snooze));
   }));
-  // Escape stops the ring from anywhere, before it does anything else.
+  // Escape acts on the ring only when the keyboard is on the bar, or on nothing at
+  // all. From a text box, the history panel or anywhere else it keeps its usual
+  // meaning (stop the answer, clear, close), so it can't silence an alarm by accident.
+  // On an alarm it only snoozes: dismissing a wake-up alarm takes the Stop button.
   document.addEventListener('keydown', (ev) => {
-    const inDialog = ev.target instanceof Element && ev.target.closest('dialog');
-    if (ev.key !== 'Escape' || el.bar.hidden || inDialog) return;
+    if (ev.key !== 'Escape' || el.bar.hidden) return;
+    const active = document.activeElement;
+    const onBar = el.bar.contains(active);
+    const onNothing = !active || active === document.body;
+    if (!onBar && !onNothing) return;
+    const t = ringingNow();
+    if (!t) return;
     ev.stopImmediatePropagation();
     ev.preventDefault();
-    el.barStop.click();
+    if (t.kind === 'alarm') actions.snooze(t, ESC_SNOOZE_MIN);
+    else actions.stop(t);
   }, true);
 
   conv

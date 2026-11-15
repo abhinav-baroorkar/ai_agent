@@ -50,7 +50,7 @@
 .ring-bar .ring-stop { min-height: 40px; padding: 0 1.1em; background: #1b1408; border-color: #1b1408; color: var(--lamp); font-weight: 600; }
 .ring-bar .ring-stop:hover { background: #33250f; }
 .ring-bar :focus-visible { outline-color: #1b1408; }
-.ring-bar kbd { margin-left: .5em; padding: 0 .4em; border: 1px solid currentColor; border-radius: 4px; font: .72rem var(--mono); opacity: .7; }
+.ring-hint { flex-basis: 100%; font-weight: 400; font-size: .78rem; opacity: .75; }
 @keyframes ring { to { box-shadow: 0 0 0 16px transparent, 0 12px 40px rgb(0 0 0 / .5); } }
 .ring-bar:not([hidden]) ~ .banner { top: 84px; }
 
