@@ -129,7 +129,8 @@ class Chrome:
                 self.process.kill()
         with contextlib.suppress(Exception):
             await asyncio.wait_for(self.process.wait(), 5)
-        await self.pipe.close()
+        with contextlib.suppress(Exception):
+            await self.pipe.close()
 
 
 async def start_chrome(data_dir: Path, proxy_port: int, exe: str | None = None) -> Chrome:
@@ -171,8 +172,12 @@ async def start_chrome(data_dir: Path, proxy_port: int, exe: str | None = None) 
     try:
         version = await pipe.call("Browser.getVersion", timeout=PIPE_TIMEOUT_S)
     except CDPError as e:
-        process.kill()
-        await pipe.close()
+        # The child may have exited and been reaped already (a crash at start, or a
+        # program that isn't Chrome): cleaning up must never replace the real error.
+        with contextlib.suppress(ProcessLookupError):
+            process.kill()
+        with contextlib.suppress(Exception):
+            await pipe.close()
         raise BrowserUnavailableError(
             "Chrome did not answer on the DevTools pipe; not falling back to a port"
         ) from e
