@@ -75,6 +75,14 @@
 .mic .ico { width: 1.35em; height: 1.35em; }
 .mic:hover { background: #f8d7a6; }
 .mic[data-blocked="true"] { background: var(--surface-2); color: var(--warn); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 50%, transparent); }
+/* While listening: a thin bar along the bottom of the button follows the microphone
+   level, and during the closing silence it drains away so the stop is no surprise. */
+.mic { position: relative; overflow: hidden; }
+.mic-meter { position: absolute; inset: auto 0 0 0; height: 4px; opacity: 0; background: rgb(6 36 29 / .18); }
+.mic-meter span { display: block; height: 100%; width: calc(var(--mic-level, 0) * 100%); background: #06241d; transition: width .06s linear; }
+.mic[aria-pressed="true"] .mic-meter { opacity: 1; }
+.mic[data-phase="finishing"] .mic-meter span { width: calc((1 - var(--mic-closing, 0)) * 100%); background: #7a4b00; }
+.mic[data-phase="finishing"] { background: color-mix(in srgb, var(--listen) 65%, var(--lamp)); }
 .mic[aria-pressed="true"] { background: var(--listen); box-shadow: 0 0 0 6px color-mix(in srgb, var(--listen) 22%, transparent); }
 .say { display: flex; gap: .4rem; flex: 0 1 26rem; min-width: 12rem; }
 .say input { height: 42px; border-radius: 99px; padding-inline: 1.1em; background: rgb(17 24 34 / .8); }
