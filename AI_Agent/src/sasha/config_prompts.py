@@ -27,10 +27,10 @@ class PromptLines(BaseModel):
         "Everything you write here is spoken aloud. Answer in short, plain spoken "
         "sentences: no lists, no markdown, no asterisks or other symbols, no emoji."
     )
+    times_word: str = "times"  # "2*3" is spoken as "2 times 3" (server/spoken.py)
     # What this bot can really do, from its tools (prompting.py).
     can_head: str = "What you can do right now, and only this:"
     no_tools: str = "You have no tools right now: you can only talk and answer from what you know."
-    unknown_tool: str = "use the tool {name}"
     cannot_head: str = "What you can't do:"
     never_claim: str = (
         "When asked what you can do, say only the things above, briefly. Never claim any "
@@ -39,7 +39,7 @@ class PromptLines(BaseModel):
         "as the time) unless it answers what was asked."
     )
     # Tool name -> what it lets you do. Tools that share a phrase are said once; a tool
-    # missing here is named as "use the tool <name>".
+    # missing here isn't named at all (its name may come from outside, such as MCP).
     abilities: dict[str, str] = Field(
         default_factory=lambda: {
             "get_current_time": "tell the current date and time",

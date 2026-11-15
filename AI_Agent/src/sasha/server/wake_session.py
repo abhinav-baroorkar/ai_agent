@@ -27,6 +27,7 @@ from starlette.websockets import WebSocket
 from sasha.bots import VOICE_ID
 from sasha.config import ReplyLines, WakeConfig
 from sasha.orchestrator import Assistant, Reply
+from sasha.prompting import prompt_lines
 from sasha.server.deps import ServerDeps
 from sasha.server.speaking import ListenerPresence
 from sasha.server.speech import Speaker
@@ -90,6 +91,7 @@ async def open_listener(
     names = [n for n in conv.assistant.tools.names if n != CONTROL_TOOL or control]
     prompt = deps.prompt_for(bot, names, spoken=speak)
     assistant.system_prompt = f"{prompt}\n{config.prompt_note}"
+    conv.times_word = prompt_lines(settings).times_word
     return conv
 
 
