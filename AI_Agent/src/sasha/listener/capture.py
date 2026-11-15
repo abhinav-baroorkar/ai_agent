@@ -112,6 +112,12 @@ class CaptureProcess:
         the child has been reaped."""
         return self.proc is not None and self.proc.returncode is None and not self._killed
 
+    @property
+    def live_or_starting(self) -> bool:
+        """True from the moment start() is entered until kill() or exit: what the tray
+        must treat as "microphone open" (a spawn in progress may open it any moment)."""
+        return not self._killed and (self.proc is None or self.proc.returncode is None)
+
     async def chunks(self) -> AsyncIterator[bytes]:
         assert self.proc is not None and self.proc.stdout is not None
         stdout = self.proc.stdout

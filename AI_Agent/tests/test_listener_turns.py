@@ -21,16 +21,25 @@ from tests.listener_rig import Rig, go, until  # noqa: E402
 
 
 class WatchedIndicator(FakeIndicator):
-    """Fails the test if the visible-sign invariant is ever broken."""
+    """Records every break of the visible-sign invariant: "a closed state is shown if
+    and only if no started capture is still un-killed" (kill issued, or never started).
+    Checked at each set_state call and right after each child has finished starting."""
 
     def __init__(self, rig: Rig) -> None:
         super().__init__()
         self.rig = rig
+        self.started: list[CaptureProcess] = []
         self.violations: list[str] = []
 
+    def mic_live(self) -> bool:
+        return any(p.live_or_starting for p in self.started)
+
+    def check(self, state: str, when: str) -> None:
+        if (state in MIC_OPEN_STATES) != self.mic_live() and state not in MIC_OPEN_STATES:
+            self.violations.append(f"{when}: {state!r} shown while a capture is not killed")
+
     def set_state(self, state: str) -> None:
-        if state not in MIC_OPEN_STATES and any(p.running for p in self.rig.captures):
-            self.violations.append(f"{state} shown while the capture child runs")
+        self.check(state, "set_state")
         super().set_state(state)
 
 
@@ -44,10 +53,13 @@ def _watched() -> Rig:
         start = proc.start
 
         async def checked_start() -> None:
-            last = rig.indicator.states[-1] if rig.indicator.states else None
+            watched: WatchedIndicator = rig.indicator  # type: ignore[assignment]
+            last = watched.states[-1] if watched.states else "none"
             if last not in MIC_OPEN_STATES:
-                rig.indicator.violations.append(f"capture started while showing {last}")  # type: ignore[attr-defined]
+                watched.violations.append(f"capture starting while showing {last!r}")
+            watched.started.append(proc)
             await start()
+            watched.check(watched.states[-1], "after start")
 
         proc.start = checked_start  # type: ignore[method-assign]
         return proc
@@ -220,3 +232,37 @@ def test_confirm_window_accepts_a_short_yes() -> None:
 
     rig.capture = capture  # type: ignore[method-assign]
     asyncio.run(rig.run(body))
+
+
+def test_a_check_during_capture_start_never_leaves_a_closed_state_shown() -> None:
+    """The flake in test_confirm_then_yes: a `_changed()` (the 2 s check, a guard poll,
+    a frame from the brain) that runs while the capture child is still being spawned
+    must not leave a closed state ("thinking", "paused") on the tray once the child runs.
+    Checked when the child has started, not only at set_state calls."""
+
+    async def body(rig: Rig, lst: Listener) -> None:
+        await until(lambda: rig.mic_open)
+        await asyncio.sleep(0.1)
+
+    rig = Rig()
+    real = rig.capture
+    violations: list[str] = []
+
+    def capture() -> CaptureProcess:
+        proc = real()
+        start = proc.start
+
+        async def slow_start() -> None:
+            assert rig.listener is not None
+            rig.listener._changed()  # a check arrives while the child is being spawned
+            await asyncio.sleep(0.05)
+            await start()
+            if (state := rig.indicator.states[-1]) not in MIC_OPEN_STATES:
+                violations.append(f"child running while {state!r} is shown")
+
+        proc.start = slow_start  # type: ignore[method-assign]
+        return proc
+
+    rig.capture = capture  # type: ignore[method-assign]
+    asyncio.run(rig.run(body))
+    assert violations == []

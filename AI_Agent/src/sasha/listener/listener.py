@@ -114,7 +114,9 @@ class Listener:
 
     def _show(self, mic_open: bool | None = None) -> None:
         if mic_open is None:
-            mic_open = self._capture is not None and self._capture.running
+            # A capture still being spawned counts as open: a `_changed()` during the
+            # spawn must not put a closed state on the tray just before the child runs.
+            mic_open = self._capture is not None and self._capture.live_or_starting
         state: State
         if mic_open:
             if self.debug_sink is not None:
@@ -168,6 +170,7 @@ class Listener:
                 await proc.start()
                 if not self.mic_allowed()[0]:  # changed while starting
                     break
+                self._show()  # the child runs now: make sure a mic-open state is shown
                 async for chunk in proc.chunks():
                     backoff.reset()
                     if self._lost.is_set() or not self.mic_allowed()[0]:
