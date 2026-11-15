@@ -31,6 +31,9 @@ voice-gpu = [
     "nvidia-cudnn-cu12>=9.1,<10; sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]
 listener = ["jeepney>=0.8"]
+# The assistant's own window (app shell): Qt WebEngine through PySide6, LGPL-3.0.
+# About 673 MB installed. `uv sync --extra app`. Without it, `sasha window` uses Chrome.
+app = ["PySide6>=6.8"]
 
 [project.scripts]
 sasha = "sasha.cli:main"

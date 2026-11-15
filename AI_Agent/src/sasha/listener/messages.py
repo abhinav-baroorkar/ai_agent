@@ -59,6 +59,8 @@ async def handle_message(lst: Listener, message: str | bytes) -> None:
         lst.confirm.close()
     elif kind == "armed_expired":
         log.info("Armed window ended")
+        if lst.window is not None:
+            lst.window.on_armed_expired()  # the phrase alone, then nothing: a false wake
         lst._changed()
     elif kind in ("pause_capture", "resume_capture"):
         lst.server_paused = kind == "pause_capture"
@@ -76,9 +78,32 @@ async def handle_message(lst: Listener, message: str | bytes) -> None:
         log.warning("Brain error: %s", str(msg.get("message", ""))[:200])
 
 
+WINDOW = {
+    "raised": "brought to the front",
+    "started": "opened",
+    "already_up": "already up",
+    "limit": "not raised (limit)",
+    "paused": "not raised (paused after false wakes)",
+    "locked": "not opened (screen locked)",
+    "no_display": "not opened (no display)",
+    "unavailable": "not opened (the app extra isn't installed)",
+}
+
+
+async def _window(lst: Listener, command: bool) -> None:
+    opener = lst.window
+    if opener is None or not opener.config.open_on_wake:
+        return
+    action = await asyncio.to_thread(opener.on_wake, command)
+    print(f"[wake] window {WINDOW.get(action, action)}", flush=True)
+    if action in ("raised", "started"):
+        asyncio.get_running_loop().call_later(opener.config.closed_quickly_s, opener.check_closed)
+
+
 async def _on_wake(lst: Listener, msg: dict[str, Any]) -> None:
     if not msg.get("heard"):
         return  # a miss: no sound, nothing kept
+    await _window(lst, bool(msg.get("command")))
     if msg.get("command"):
         lst.busy = True
         lst._changed()  # the mic closes while the brain answers

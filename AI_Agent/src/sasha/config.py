@@ -15,6 +15,7 @@ import yaml
 from dotenv import dotenv_values, load_dotenv
 from pydantic import BaseModel, Field, SecretStr, field_validator
 
+from sasha.config_app import AppText, WindowConfig
 from sasha.config_prompts import PromptLines
 
 # src/sasha/config.py -> sasha -> src -> AI_Agent -> repo root
@@ -180,6 +181,7 @@ class AssistantConfig(BaseModel):
     voice: Voice = Field(default_factory=Voice)
     languages: Languages = Field(default_factory=Languages)
     avatar: Avatar = Field(default_factory=Avatar)
+    app: AppText = Field(default_factory=AppText)
     system_prompt: str
 
     def render_system_prompt(self) -> str:
@@ -261,6 +263,7 @@ class Profile(BaseModel):
     tts: TTSConfig = Field(default_factory=TTSConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     wake: WakeConfig = Field(default_factory=WakeConfig)
+    window: WindowConfig = Field(default_factory=WindowConfig)
     prompt_lines: dict[str, PromptLines] = Field(default_factory=lambda: {"en": PromptLines()})
 
 
