@@ -81,3 +81,14 @@ cases:
   - {say: "Remind me at 1 to feed the cat.", then: "1 am.", now: "2031-03-27 23:30", kind: reminder, want: ["2031-03-28 01:00"]}
   - {say: "Remind me tomorrow at 9 to send the invoice.", then: "In the morning.", kind: reminder, want: ["2031-03-28 09:00"]}
   - {say: "Set a timer.", then: "Ten minutes.", kind: timer, want: ["2031-03-27 06:10:00"]}
+  # --- from the re-review of ef4629a ---------------------------------------------------------
+  # B1: a number in the reminder's content is no time, however the model words it.
+  - {say: "Remind me to buy 2 things at the store.", kind: reminder, want: [ask]}
+  # B3: the delay is the number said, not one in the content.
+  - {say: "Remind me in 5 minutes to check the 3 pots.", kind: reminder, want: ["2031-03-27 06:05"]}
+  - {say: "Wake me at 7 in the morning, not 8.", kind: alarm, want: ["2031-03-27 07:00"]}
+  # B2: a new request in the second turn doesn't borrow the first turn's numbers.
+  - {say: "Set an alarm for 7.", then: "Remind me to call mom.", kind: reminder, want: [ask]}
+  - {say: "I have 3 eggs, how long should I boil them?", then: "Set a timer.", kind: timer, want: [ask]}
+  - {say: "Is it cold at 6 am?", then: "Remind me to call mom.", kind: reminder, want: [ask]}
+  - {say: "The meeting moved from 3 to 4.", then: "OK, remind me.", kind: reminder, want: [ask]}

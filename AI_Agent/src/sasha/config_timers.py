@@ -8,10 +8,13 @@ from pydantic import BaseModel, Field
 class TimeCues(BaseModel):
     """Words in the person's own text that let the server trust a field (one language).
 
-    A `period` needs a matching am or pm word (or a 13-23 hour) in the words; a clock
-    time needs a number or a time word, and its hour must be one of the numbers said; a
-    delay needs a number or a duration word. Otherwise the server drops the field or
-    asks: it never keeps a field nobody said.
+    A number counts only where it stands as a time (B1, B3): a clock time after "at",
+    "by" and the like, or before am/pm, "o'clock" or a period word ("7 in the evening");
+    a delay after "in" or "for", or before a duration word ("5 minutes"); or anywhere in
+    a message that is only a time ("Seven thirty.", "Ten minutes."). "2 pills" is no
+    time. A `period` needs a matching am or pm word (or a 13-23 hour said as one); the
+    hour must be one said; a delay's value must be one said. Otherwise the server drops
+    the field or asks: it never keeps a field nobody said.
     """
 
     am_words: list[str] = Field(default_factory=lambda: ["am", "morning", "midnight"])
@@ -19,28 +22,44 @@ class TimeCues(BaseModel):
         default_factory=lambda: ["pm", "afternoon", "evening", "tonight", "night", "noon",
                                  "midday"]
     )  # fmt: skip
-    # Hours said as words, for "the hour must be one that was said" (S5).
-    hour_words: dict[str, int] = Field(
+    # Numbers said as words (tens and units add up: "twenty five" is 25).
+    number_values: dict[str, int] = Field(
         default_factory=lambda: {
-            "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
-            "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "noon": 12,
-            "midday": 12, "midnight": 12,
+            "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+            "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+            "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17,
+            "eighteen": 18, "nineteen": 19, "twenty": 20, "thirty": 30, "forty": 40,
+            "fifty": 50, "sixty": 60, "ninety": 90, "couple": 2, "dozen": 12,
         }
     )  # fmt: skip
+    fraction_words: list[str] = Field(default_factory=lambda: ["half", "quarter"])
+    # A number right after one of these is a clock time ("at 7", "half past six").
+    clock_before: list[str] = Field(
+        default_factory=lambda: ["at", "by", "around", "about", "until", "till", "til",
+                                 "before", "from", "for", "past", "to"]
+    )  # fmt: skip
+    # A number right after one of these is a delay ("in 5", "for 10 minutes").
+    delay_before: list[str] = Field(default_factory=lambda: ["in", "for", "after", "within"])
+    # Words that may stand between a number and its period word ("7 in the evening").
+    period_gap: list[str] = Field(default_factory=lambda: ["in", "the", "this", "at"])
     before_words: list[str] = Field(
         default_factory=lambda: ["to", "till", "til", "before"]  # "quarter to eight"
     )
-    number_words: list[str] = Field(
-        default_factory=lambda: [
-            "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
-            "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
-            "seventeen", "eighteen", "nineteen", "twenty", "thirty", "forty", "fifty",
-            "sixty", "ninety", "hundred", "half", "quarter", "couple", "dozen",
-        ]
-    )  # fmt: skip
     time_words: list[str] = Field(
         default_factory=lambda: ["noon", "midnight", "midday", "o'clock", "oclock"]
     )
+    # A message with one of these is a request of its own, not an answer (B2).
+    request_words: list[str] = Field(
+        default_factory=lambda: ["remind", "reminder", "reminders", "alarm", "alarms",
+                                 "timer", "timers", "wake", "set", "cancel", "snooze",
+                                 "countdown"]
+    )  # fmt: skip
+    # Words a message that is only a time may also contain ("At 7, please.").
+    filler_words: list[str] = Field(
+        default_factory=lambda: ["at", "in", "for", "about", "around", "please", "ok",
+                                 "okay", "um", "uh", "and", "a", "an", "the", "yes",
+                                 "make", "it", "past", "to", "of", "say"]
+    )  # fmt: skip
     duration_words: list[str] = Field(
         default_factory=lambda: [
             "hour", "hours", "minute", "minutes", "min", "mins", "second", "seconds",
@@ -83,4 +102,18 @@ class TimersConfig(BaseModel):
     alarm_now: str = "It's {time}."
     reminder_now: str = "Reminder: {text}"
     voice_prefix: str = "Voice reminder: "
+    # Typed and window turns: a reply claiming a timer change no tool made (truth.py).
+    nothing_set: str = "Nothing was set."
+    claim_words: list[str] = Field(
+        default_factory=lambda: ["set", "created", "scheduled", "cancelled", "canceled",
+                                 "snoozed", "started", "stopped", "added", "removed",
+                                 "deleted", "changed", "moved", "done"]
+    )  # fmt: skip
+    timer_words: list[str] = Field(
+        default_factory=lambda: ["timer", "timers", "alarm", "alarms", "reminder",
+                                 "reminders", "countdown", "remind"]
+    )  # fmt: skip
+    negation_words: list[str] = Field(
+        default_factory=lambda: ["not", "can't", "cannot", "unable", "don't", "won't", "no"]
+    )
     missed_line: str = "You have {count} missed {things}."

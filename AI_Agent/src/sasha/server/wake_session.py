@@ -72,6 +72,7 @@ class ListenerConversation(Conversation):
         super().__init__(ws, assistant, voice, speak=speak, language=language, timers=timers)
         self.ring_role = "listener" if speak else "tab"
         self.capture_paused = False  # last pause_capture / resume_capture sent
+        self.timer_claims = False  # wake turns: TruthfulReply covers timer claims too
         self.stop_window = StopWindow(self, timers) if timers is not None else None
         self.config = config
         self.gate = gate

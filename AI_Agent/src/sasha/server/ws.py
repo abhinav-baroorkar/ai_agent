@@ -29,6 +29,8 @@ from sasha.server.speech import Speaker
 from sasha.server.timers.hub import Hub
 from sasha.server.timers.ring import RingPlayer
 from sasha.server.timers.service import TimerError
+from sasha.server.timers.tools import TIMER_TOOLS
+from sasha.server.timers.truth import TimerTruth
 from sasha.server.voice import MIC_SAMPLE_RATE, VoiceStages, max_recording_bytes
 
 log = logging.getLogger(__name__)
@@ -79,6 +81,8 @@ class Conversation:
         self.timers = timers
         self.ring_role = "home" if speak else "tab"
         self.ringer = RingPlayer(self, timers) if timers is not None else None
+        self.timer_claims = True  # check replies for claimed timer changes (truth.py)
+        self.timer_truth: TimerTruth | None = None  # set while a turn's reply streams
 
     # --- timers (the hub calls these from any thread) ------------------------------
     def push_threadsafe(self, frame: dict[str, Any]) -> None:
@@ -251,6 +255,9 @@ class Conversation:
             self.speaker.feed(piece)
 
     def _on_delta_threadsafe(self, piece: str) -> None:  # from the LLM worker thread
+        truth = self.timer_truth
+        if truth is not None and not (piece := truth.feed(piece)):
+            return  # held: a spoken turn that asks for a timer (server/timers/truth.py)
         self.loop.call_soon_threadsafe(self._on_delta, piece)
 
     async def _turn(self, text: str, language: str, input_mode: str) -> None:
@@ -292,12 +299,28 @@ class Conversation:
             on_tool=lambda name, ok: self.emit_threadsafe({"type": "tool", "name": name, "ok": ok}),
             should_stop=self.stop.is_set,
         )
+        truth = self.timer_truth = self._timer_truth(text)
         try:
-            return await asyncio.to_thread(self.assistant.handle_text, text, hooks, input_mode)
+            reply = await asyncio.to_thread(self.assistant.handle_text, text, hooks, input_mode)
         except RequestFailed as failed:
             if not isinstance(failed.__cause__, LLMCancelled):
                 self.error(_failure_message(failed))
             return None
+        finally:
+            self.timer_truth = None
+        if truth is not None:  # no claimed timer change without a tool that made it
+            tail, reply.text = truth.finish(reply.text, reply.tool_calls)
+            if tail:
+                self._on_delta(tail)
+        return reply
+
+    def _timer_truth(self, command: str) -> TimerTruth | None:
+        """Typed and window turns of a bot with timer tools (wake turns have their own
+        truthful reply, so the listener turns this off)."""
+        names = self.assistant.tools.names
+        if not self.timer_claims or self.timers is None or not set(TIMER_TOOLS) & set(names):
+            return None
+        return TimerTruth(self.timers.config, command, spoken=self.speak)
 
     # --- voice -------------------------------------------------------------------
     def _on_audio_start(self, sample_rate: Any) -> None:

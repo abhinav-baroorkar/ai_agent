@@ -29,7 +29,7 @@ from sasha.server.timers.resolve import (
     next_repeat,
     whole,
 )
-from sasha.server.timers.said import SaidCheck, UserTurn
+from sasha.server.timers.said_check import SaidCheck, UserTurn
 from sasha.server.timers.service import TimerError, TimerService
 from sasha.tools.base import Tool, ToolError, ToolRegistry
 

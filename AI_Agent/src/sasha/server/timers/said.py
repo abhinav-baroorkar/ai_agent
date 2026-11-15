@@ -3,52 +3,39 @@
 The bench showed the model filling in fields nobody said: an "am" for "at 1", a
 "15 minutes" for "remind me to check the oven". The fields alone can't show that, so
 the tools also get the turn's user text (the typed message or the wake command) and:
-- drop a `period` the words give no cue for; follow the cue when the model's period
-  disagrees with the one cue said; ask when the cues disagree (a, S3);
+- count a number only where it stands as a time (B1, B3): a clock time after "at",
+  "by"... or before am/pm, "o'clock", ":mm" or a period word; a delay after "in" or
+  "for", or before a duration word; or anywhere in a message that is only a time.
+  "Remind me to take 2 pills" has no time, however the model words the reminder;
+- drop a `period` the words give no cue for; follow the person's one cue when the
+  model's period disagrees; ask when the cues disagree (a, S3);
 - read a 13-23 (or 0) hour the words don't contain as its 12-hour form (a);
-- refuse a clock time when the words have no number and no time word (b), or when
-  its hour isn't one of the numbers said ("at 7" sent as 8; "quarter to eight" may be
-  7:45) (S5);
-- refuse a delay when the words have no number and no duration word (c).
-The model's own content (the reminder text, a label) is taken out of the words first,
-so "take 2 pills" or "say good night" can't count as a time or a period (S2, S4).
-Cue words come from config, per language; a cue from any configured language counts.
-The text is only read here: never stored, logged or sent to telemetry.
+- refuse a clock time with no time said (b), or whose hour isn't one said (S5);
+- refuse a delay with no delay said (c), or whose value isn't one said (B3), and a
+  "half" or "quarter" said must be in it.
+The model's own content (the reminder text, a label) is also taken out of the words
+first, as a second layer (S2, S4). Cue words come from config, per language; a cue from
+any configured language counts. The text is only read: never stored, logged or sent.
 """
 
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Iterable
-from dataclasses import dataclass
-from typing import Any
+from collections.abc import Iterable
 
 from sasha.config_timers import TimeCues
-from sasha.conversation import TurnContext
-from sasha.server.timers.resolve import Ask, whole
-
-UserTurn = Callable[[], TurnContext | None]  # real callers: `current_turn.get`
-MAX_SPAN = 3  # at most the asked turn, one answer, and one more answer
-
-
-@dataclass(frozen=True)
-class _Asked:
-    turn_id: int
-    count: int  # how many user messages the conversation had then
-    last: str  # that turn's message, to be sure the next turn follows it
-    span: int  # how many messages that turn's words covered
-
 
 _SPLIT = re.compile(r"(?<=\d)(?=[^\d\s])|(?<=[^\d\s:])(?=\d)")  # "7am" -> "7 am"
-_MINUTES = re.compile(r"\b(\d{1,2})[:.](\d{2})\b")  # "6:15", "7.30"
-_FILLER = {"a", "an", "and", "the", "for", "of", "timer", "alarm", "reminder"}
+_HHMM = re.compile(r"\b(\d{1,2})[:.](\d{2})\b")  # "6:15", "7.30"
+_LABEL_FILLER = {"a", "an", "and", "the", "for", "of", "timer", "alarm", "reminder"}
 
 
 def tokens(text: str) -> list[str]:
     text = text.lower().replace(chr(0x2019), "'")
-    text = _SPLIT.sub(" ", text)  # first, so "7a.m." becomes "7 a.m."
+    text = _HHMM.sub(r"\1 :\2", text)  # "6:15" -> "6", ":15" (the minutes, marked)
+    text = _SPLIT.sub(" ", text)  # "7a.m." -> "7 a.m."
     text = re.sub(r"\b([ap])\.\s?m\b\.?", r"\1m", text)  # "a.m." -> "am"
-    return re.findall(r"[\w']+", text)
+    return re.findall(r":\d+|[\w']+", text)
 
 
 def without(words: list[str], content: list[str]) -> list[str]:
@@ -66,173 +53,149 @@ def without(words: list[str], content: list[str]) -> list[str]:
     return rest
 
 
-class Said:
-    def __init__(self, text: str, cues: Iterable[TimeCues], content: Iterable[str] = ()) -> None:
-        words = tokens(text)
-        for part in content:
-            words = without(words, tokens(part))
-        self.words = words
-        cue_list = list(cues)
-        self.am_words = {w.lower() for c in cue_list for w in c.am_words}
-        self.pm_words = {w.lower() for c in cue_list for w in c.pm_words}
-        self.number_words = {w.lower() for c in cue_list for w in c.number_words}
-        self.time_words = {w.lower() for c in cue_list for w in c.time_words}
-        self.duration_words = {w.lower() for c in cue_list for w in c.duration_words}
-        self.before_words = {w.lower() for c in cue_list for w in c.before_words}
-        hour_words = {k.lower(): v for c in cue_list for k, v in c.hour_words.items()}
-        # The minutes of "6:15" are no hour: they don't count as a 13-23 hour (a pm cue)
-        # or as an hour said. Found by the bench ("At 6:15." with am became 18:15).
-        digits = [w for w in words if w.isdigit() and len(w) <= 4]
-        for minutes in _MINUTES.findall(text):
-            if minutes[1] in digits:
-                digits.remove(minutes[1])
-        self.numbers = {int(w) for w in digits}
-        self.hours = {n % 12 or 12 for n in self.numbers if n <= 23}
-        self.hours |= {hour_words[w] for w in words if w in hour_words}
+def _vocab(cues: list[TimeCues], field: str) -> set[str]:
+    return {w.lower() for c in cues for w in getattr(c, field)}
 
+
+class Said:
+    """One check's view of the words: the clock hours and delays said, and the cues.
+
+    `text` may hold several messages, one per line (an answer with its question)."""
+
+    def __init__(self, text: str, cues: Iterable[TimeCues], content: Iterable[str] = ()) -> None:
+        cue_list = list(cues)
+        self.am_words, self.pm_words = _vocab(cue_list, "am_words"), _vocab(cue_list, "pm_words")
+        self.time_words = _vocab(cue_list, "time_words")
+        self.duration_words = _vocab(cue_list, "duration_words")
+        self.fractions = _vocab(cue_list, "fraction_words")
+        self.values = {k.lower(): v for c in cue_list for k, v in c.number_values.items()}
+        self.clock_before = _vocab(cue_list, "clock_before")
+        self.delay_before = _vocab(cue_list, "delay_before")
+        self.gap = _vocab(cue_list, "period_gap")
+        self.before_words = _vocab(cue_list, "before_words")
+        self.filler = _vocab(cue_list, "filler_words")
+        self.words: list[str] = []
+        self.hours: set[int] = set()  # clock hours said (as said: 7, 19, 12 ...)
+        self.delays: set[int] = set()  # delay values said, in their own unit
+        for line in text.splitlines() or [""]:
+            said = tokens(line)
+            self._read(said)  # positions as said: removing content can join words
+            words = said
+            for part in content:
+                words = without(words, tokens(part))
+            self.words += words  # cue words outside the model's own content (S4)
+
+    # --- reading one message -------------------------------------------------------
+    def _numbers(self, words: list[str]) -> list[tuple[int, int, int]]:
+        """(value, first index, last index) of each number: digits, or number words
+        added up ("twenty five")."""
+        found: list[tuple[int, int, int]] = []
+        i = 0
+        while i < len(words):
+            w = words[i]
+            if w.isdigit() and len(w) <= 4:
+                found.append((int(w), i, i))
+            elif w in self.values:
+                value, j = self.values[w], i
+                if value >= 20 and value % 10 == 0 and i + 1 < len(words):
+                    unit = self.values.get(words[i + 1])
+                    if unit is not None and 0 < unit < 10:
+                        value, j = value + unit, i + 1
+                found.append((value, i, j))
+                i = j
+            i += 1
+        return found
+
+    def _only_time(self, words: list[str]) -> bool:
+        known = self.am_words | self.pm_words | self.time_words | self.duration_words
+        known |= self.fractions | self.filler
+        return bool(words) and all(
+            w in known or w in self.values or w.isdigit() or w.startswith(":") for w in words
+        )
+
+    def _read(self, words: list[str]) -> None:
+        only_time = self._only_time(words)
+        for value, first, last in self._numbers(words):
+            back = first - 1
+            if back > 0 and words[back] in ("a", "an", "the"):
+                back -= 1  # "in a couple of hours"
+            before = words[back] if back >= 0 else ""
+            after = [w for w in words[last + 1 : last + 5] if w != "of"][:3]
+            nxt = after[0] if after else ""
+            period_after = next((w for w in after if w not in self.gap), "")
+            clock = (
+                before in self.clock_before
+                or nxt.startswith(":")
+                or nxt in self.time_words
+                or period_after in self.am_words | self.pm_words
+            )
+            delay = before in self.delay_before or nxt in self.duration_words
+            if nxt == "and" and len(after) > 2 and after[1] in ("a", "an"):
+                delay = delay or (len(after) > 3 and after[3] in self.duration_words)
+            if only_time:
+                clock = delay = True
+            if clock and value <= 23:
+                self.hours.add(value)
+            if delay:
+                self.delays.add(value)
+        for i, w in enumerate(words):  # "an hour", "a minute": one
+            if w in self.duration_words and i and words[i - 1] in ("a", "an"):
+                self.delays.add(1)
+
+    # --- what the checks ask --------------------------------------------------------
     def _has(self, vocabulary: set[str]) -> bool:
         return any(w in vocabulary for w in self.words)
 
-    def has_number(self) -> bool:
-        return bool(self.numbers) or self._has(self.number_words)
-
     def periods(self) -> set[str]:
-        """The readings the words give: "am", "pm", both, or none. A 13-23 number is pm."""
+        """The readings the words give: "am", "pm", both, or none. A 13-23 hour is pm."""
         found = set()
         if self._has(self.am_words):
             found.add("am")
-        if self._has(self.pm_words) or any(13 <= n <= 23 for n in self.numbers):
+        if self._has(self.pm_words) or any(13 <= h <= 23 for h in self.hours):
             found.add("pm")
         return found
 
     def has_clock_time(self) -> bool:
-        return self.has_number() or self._has(self.time_words)
+        return bool(self.hours) or self._has(self.time_words)
 
     def has_delay(self) -> bool:
-        return self.has_number() or self._has(self.duration_words)
+        return bool(self.delays) or self._has(self.fractions)
 
     def says_hour(self, hour: int) -> bool:
-        """The 24-hour value itself is in the words as digits ("19:00")."""
-        return hour in self.numbers
+        """The 24-hour value itself was said as a time ("19:00")."""
+        return hour in self.hours
 
     def hour_said(self, hour: int) -> bool:
-        """S5: the hour (12-hour form) is one of the numbers said, or the next one after
-        a "to" word ("quarter to eight" is 7:45)."""
+        """S5: the hour (12-hour form) is one said as a time, or the next one after a
+        "to" word ("quarter to eight" is 7:45); noon and midnight are 12."""
+        said = {h % 12 or 12 for h in self.hours}
+        if self._has({"noon", "midday", "midnight"}):
+            said.add(12)
         h12 = hour % 12 or 12
-        if h12 in self.hours or hour in self.numbers:
+        if h12 in said:
             return True
-        return self._has(self.before_words) and (h12 % 12 + 1) in self.hours
+        return self._has(self.before_words) and (h12 % 12 + 1) in said
+
+    def delay_said(self, total_s: int) -> bool:
+        """B3: the delay is a value said, in hours, minutes or seconds ("90 seconds");
+        or its whole hours or minutes are, with the rest said too ("an hour and twenty
+        minutes" sent as 80 minutes; "an hour and a half"); or it is a half or quarter
+        said on its own ("half an hour")."""
+        if any(total_s % u == 0 and total_s // u in self.delays for u in (3600, 60, 1)):
+            return True
+        fraction = self._has(self.fractions)
+        unit = 3600 if total_s >= 3600 else 60 if total_s >= 60 else 1
+        whole_part, rest = divmod(total_s, unit)
+        sub = unit // 60 if unit > 1 else 1
+        parts = (unit // 2, unit // 4, 3 * unit // 4)
+        rest_said = (rest % sub == 0 and rest // sub in self.delays) or (fraction and rest in parts)
+        if whole_part in self.delays and rest_said:
+            return True
+        return fraction and total_s in (30, 15, 45, 1800, 900, 2700)
 
     def only_time_words(self, text: str) -> bool:
         """A label that only restates the time ("ten minutes"): not content at all."""
-        known = self.number_words | self.duration_words | self.time_words | _FILLER
+        known = self.duration_words | self.time_words | self.fractions | _LABEL_FILLER
         known |= self.am_words | self.pm_words
         words = tokens(text)
-        return bool(words) and all(w in known or w.isdigit() for w in words)
-
-
-class SaidCheck:
-    """One per conversation's timer tools: the checks, and which turn asked back (S1).
-
-    The words come from the conversation's turn context (`sasha.conversation`): the
-    owner's own messages, the current one last. When a tool asks back ("7:00 in the
-    morning or in the evening?"), the person answers with only the missing part
-    ("evening"), so the next turn is checked with the asked turn's message too. Only
-    the fact that a turn asked is kept here, never its text beyond a comparison; it
-    ends once an item is made, or when a later turn isn't the answer.
-    """
-
-    def __init__(
-        self, said: UserTurn | None, cues: Iterable[TimeCues], window_s: float = 120.0
-    ) -> None:
-        self.said = said
-        self.cues = list(cues)
-        self.window_s = window_s  # an answer must follow its question within this
-        self._asked: _Asked | None = None  # the last turn in which a tool asked back
-        self._made_count = -1  # user messages the conversation had when an item was made
-
-    def _span(self, turn: TurnContext) -> int:
-        """How many of the latest user messages are this turn's words: 1, or more when
-        this turn answers a question asked in the turn just before, at most
-        `answer_window_s` ago: one a timer tool asked (S1), or one the assistant asked
-        by itself (its reply ended in "?") in a turn that made no item."""
-        msgs, asked = turn.user_messages, self._asked
-        if asked is not None and turn.turn_id == asked.turn_id:
-            return asked.span  # a second call in the same turn
-        fresh = turn.since_previous_s is None or turn.since_previous_s <= self.window_s
-        if not fresh or len(msgs) < 2:
-            return 1  # a stale question lends nothing to a new request
-        if asked is not None and len(msgs) == asked.count + 1 and msgs[-2] == asked.last:
-            return min(asked.span + 1, MAX_SPAN)
-        made_item_before = self._made_count == len(msgs) - 1
-        if turn.previous_reply_asked and not made_item_before:
-            return 2  # the one previous message, plus this one
-        return 1
-
-    def _text(self) -> str | None:
-        if self.said is None:
-            return None  # direct calls in tests only
-        turn = self.said()
-        if turn is None or not turn.user_messages:
-            return ""  # not in a turn: nothing was said, so every time asks
-        return " ".join(turn.user_messages[-self._span(turn) :])
-
-    def words(self, *content: str) -> Said | None:
-        """None only for callers with no user text (direct calls in tests)."""
-        text = self._text()
-        return None if text is None else Said(text, self.cues, content)
-
-    def asked(self) -> None:
-        """A tool asked back: the next turn's words are checked with this turn's (S1)."""
-        turn = self.said() if self.said is not None else None
-        if turn is not None and turn.user_messages:
-            msgs = turn.user_messages
-            self._asked = _Asked(turn.turn_id, len(msgs), msgs[-1], self._span(turn))
-
-    def done(self) -> None:
-        """An item was made: nothing is carried on from this turn."""
-        self._asked = None
-        turn = self.said() if self.said is not None else None
-        self._made_count = len(turn.user_messages) if turn is not None else -1
-
-    def label(self, label: str) -> str:
-        """A label that only restates the time is dropped (it isn't content)."""
-        return "" if label and Said("", self.cues).only_time_words(label) else label
-
-    def delay(self, total_s: int, *content: str) -> None:
-        """(c) a delay needs a number or a duration word, outside the content; and a
-        "half" or "quarter" said must be in it ("two and a half minutes" sent as 2
-        minutes, found by the bench)."""
-        words = self.words(*content)
-        if words is None:
-            return
-        if not words.has_delay():
-            raise Ask("The person didn't say how long. Ask.", "not_said")
-        for word, parts in (("half", (30, 1800)), ("quarter", (15, 45, 900, 2700))):
-            has_part = total_s % 60 in parts or total_s % 3600 in parts
-            if word in words.words and not has_part:
-                raise Ask(f"The {word} the person said is missing. Ask how long.", "not_said")
-
-    def clock(self, hour: Any, period: Any, *content: str) -> tuple[Any, Any]:
-        """(b), S5, (a), S3: the (hour, period) the words support, else ask."""
-        words = self.words(*content)
-        if words is None or hour in (None, ""):
-            return hour, period
-        if not words.has_clock_time():
-            raise Ask("The person didn't say a time. Ask when.", "not_said")
-        h = whole(hour, "hour", 0, 23)
-        if not words.hour_said(h):
-            raise Ask("That hour isn't the one the person said. Ask for the time.", "not_said")
-        cues = words.periods()
-        if len(cues) > 1:
-            raise Ask(
-                f"{h % 12 or 12}:00 in the morning or in the evening? Ask.", "ambiguous_period"
-            )
-        cue = next(iter(cues), None)
-        if h >= 13 or h == 0:
-            if words.says_hour(h) or cue == ("pm" if h >= 13 else "am"):
-                return h, ""  # "19:00", or "8 tonight" sent as 20
-            if cue is None:
-                return (h - 12 if h >= 13 else 12), ""  # the 12-hour reading: ask rules
-            raise Ask(f"{h % 12 or 12} in the morning or in the evening? Ask.", "ambiguous_period")
-        return h, cue or ""  # S3: the person's own cue wins over the model's period
+        return bool(words) and all(w in known or w in self.values or w.isdigit() for w in words)
