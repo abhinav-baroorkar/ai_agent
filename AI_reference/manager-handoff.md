@@ -85,7 +85,9 @@ are touched by several branches; rebase the later one and re-lock.
 
 ## Agreed interfaces
 
-- **API contract v0.1** (v0.2 will add adding and removing MCP connectors): a `speak=0|1`
+- **API contract v0.2 (wake word) is written;** the server and listener sessions build against
+  it. The MCP connector endpoints (add and remove) move to planned v0.3. For voice requests,
+  volume is capped at 0.6. Base v0.1: a `speak=0|1`
   parameter on the WebSocket (Home speaks every answer, bot chat tabs are silent); one
   conversation per socket; `PUT` connector returns the Connector; `pronouns` is an
   object; `voice.tts_languages`.
@@ -113,6 +115,8 @@ eyes; eyes stay as a switch.
 - Voice control is read-only by default; after the owner switches on device control for voice
   once in the Bots screen, limits apply (see `decisions.md`).
 - A session may create the start-at-login link, under the rule in `team.md`.
+- Device control by voice, after the one opt-in: a spoken yes for "all", any scene, or more
+  than 3 distinct devices in one turn (counted across all its calls).
 
 ## Risks
 
@@ -140,7 +144,7 @@ Our own design. In order:
    merged; opt-in until the measurement plan passes; see `decisions.md`).
 2. Check the full voice loop in the window with a real microphone.
 3. MCP connectors, with an approval step before any tool that changes something
-   (contract v0.2; a design note exists).
+   (contract v0.3; a design note exists).
 4. Per-stage speech timings in telemetry.
 5. Marathi (Phase 2).
 
