@@ -135,7 +135,7 @@ the Phase 0 real-light gate stays open and must pass before the v0.1 release.
 | 1 | Brain server, main window with face, bots, connectors screen, English voice loop | Rename is config only; release v0.1 and demo clip | Lights work by voice in English | In progress |
 | 2 | Marathi: IndicConformer, IndicTrans2, Indic Parler-TTS, fast path | Record code-mixed command set; cascade vs direct; v0.2 | A Marathi light command works end to end | |
 | 3 | Speaker ID and permissions, pets, camera vision | Speaker ID by room, distance and noise | Guests can only control lights | |
-| 4 | Gmail drafts, calendar brief, MCP connectors | Prompt-injection tests; demo video | Morning brief on screen; drafts only | |
+| 4 | Gmail drafts, calendar brief, MCP connectors | Prompt-injection tests; demo video | Morning brief on screen; drafts only. Before Gmail work merges: ask the owner again about the send-guard exception | |
 | 5 | Satellites on other devices, wake-word arbitration | Which device should answer; Wi-Fi latency per satellite | Two devices hear one wake word, the right one answers | |
 | 6 | Jetson port and backup brain | Big vs small model: quality, latency, watts; paper draft | All tests pass on the Jetson | |
 | Later | 3D avatar, robot body | | | |
