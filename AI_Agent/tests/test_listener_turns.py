@@ -192,3 +192,31 @@ def test_pause_while_offline_still_shows_paused() -> None:
         assert rig.indicator.states[-1] == "offline"
 
     go(body, healthy=False)
+
+
+def test_confirm_window_accepts_a_short_yes() -> None:
+    """The gate's minimum drops to 0.2 s only while the confirm window is open."""
+    from sasha.listener.gate import ANSWER_MIN_SPEECH_MS, MIN_SPEECH_MS
+
+    async def body(rig: Rig, lst: Listener) -> None:
+        rig.brain.on_segment = _confirm_brain(True)
+        await until(lambda: rig.brain.segments >= 1)
+        assert lst.gate.min_speech_ms == MIN_SPEECH_MS
+        await until(lambda: lst.confirm.is_open, 5)
+        assert lst.gate.min_speech_ms == ANSWER_MIN_SPEECH_MS
+        await until(lambda: rig.brain.segments >= 2, 5)  # the 0.3 s "yes" got through
+        await until(lambda: not lst.confirm.is_open)
+        assert lst.gate.min_speech_ms == MIN_SPEECH_MS
+
+    rig = Rig()
+    real = rig.capture
+    calls = {"n": 0}
+
+    def capture() -> CaptureProcess:  # the second microphone hears a short "yes"
+        calls["n"] += 1
+        if calls["n"] > 1:
+            rig.pattern = [(30, 600), (3000, 300), (30, 900)]
+        return real()
+
+    rig.capture = capture  # type: ignore[method-assign]
+    asyncio.run(rig.run(body))

@@ -139,3 +139,18 @@ def test_wrong_parent_never_starts_the_recorder() -> None:
     argv[argv.index(str(os.getpid()))] = "1"  # pretend the parent is someone else
     out = subprocess.run(argv, capture_output=True, text=True, timeout=10)
     assert out.returncode == 127 and "recording" not in out.stdout
+
+
+def test_children_may_only_be_spawned_from_the_main_thread() -> None:
+    """PR_SET_PDEATHSIG follows the forking *thread*: a worker thread is refused."""
+    import concurrent.futures
+
+    import pytest
+
+    from sasha.listener.capture import with_death_signal
+
+    with concurrent.futures.ThreadPoolExecutor(1) as pool:
+        future = pool.submit(with_death_signal, ["arecord"])
+        with pytest.raises(RuntimeError, match="main thread"):
+            future.result()
+    assert with_death_signal(["arecord"])[0][-1] == "arecord"  # main thread: fine

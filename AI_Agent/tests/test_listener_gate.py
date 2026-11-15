@@ -107,3 +107,16 @@ def test_real_silero_ignores_silence_and_noise() -> None:
     assert run(gate, chunks("quiet", 2000) + chunks("noise", 3000, amplitude=2000)) == []
     probs = [gate.vad.probability(np.zeros(512, dtype=np.float32)) for _ in range(5)]
     assert max(probs) < 0.5
+
+
+def test_a_short_answer_passes_only_with_the_answer_minimum() -> None:
+    """A crisp "yes" (~0.3 s) is too short for a wake segment but fine as an answer."""
+    from sasha.listener.gate import ANSWER_MIN_SPEECH_MS, MIN_SPEECH_MS
+
+    yes = chunks("quiet", 500) + chunks("speech", 300) + chunks("quiet", 800)
+    gate = Gate(FakeVad())
+    assert gate.min_speech_ms == MIN_SPEECH_MS
+    assert run(gate, yes) == []
+    gate.min_speech_ms = ANSWER_MIN_SPEECH_MS
+    assert run(gate, yes) == [300]
+    assert run(gate, chunks("speech", 100) + chunks("quiet", 800)) == []  # a click still isn't

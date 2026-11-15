@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 import logging
 import threading
 from collections.abc import Callable
@@ -30,14 +29,13 @@ from sasha.listener.brain import CLOSE_SLOT_TAKEN, HealthCheck, frame, segment_f
 from sasha.listener.capture import Backoff, CaptureProcess
 from sasha.listener.confirm import ConfirmWindow
 from sasha.listener.contracts import Connect, Indicator, ListenerSettings, SegmentSink, State
-from sasha.listener.gate import Gate, Segment
+from sasha.listener.gate import ANSWER_MIN_SPEECH_MS, MIN_SPEECH_MS, Gate, Segment
 from sasha.listener.guards import Guards
-from sasha.listener.indicator.base import EarconKind
+from sasha.listener.messages import handle_message
 from sasha.listener.playback import Player
 
 log = logging.getLogger(__name__)
 
-AFTER_SPEECH_S = 0.3
 STATS_EVERY_S = 60.0
 
 
@@ -98,6 +96,8 @@ class Listener:
 
     def _changed(self) -> None:
         """Re-decide now. Closing (and showing it) is synchronous; opening is scheduled."""
+        # A spoken yes/no is often shorter than the usual minimum; only then accept it.
+        self.gate.min_speech_ms = ANSWER_MIN_SPEECH_MS if self.confirm.is_open else MIN_SPEECH_MS
         allowed, _ = self.mic_allowed()
         if not allowed:
             self._close_mic()
@@ -263,66 +263,7 @@ class Listener:
         self._changed()
 
     async def _on_message(self, message: str | bytes) -> None:
-        if isinstance(message, bytes):
-            await self.player.write(message)
-            return
-        try:
-            msg = json.loads(message)
-        except ValueError:
-            return
-        kind = msg.get("type")
-        if kind == "tts_start":
-            self.playing = True
-            self._changed()  # closes the mic before the first sound
-            await self.player.start(int(msg.get("sample_rate") or 24000))
-        elif kind == "tts_end":
-            await self.player.finish()
-            await asyncio.sleep(AFTER_SPEECH_S)
-            self.playing = False
-            self.confirm.speech_done()  # a pending confirmation opens its window now
-            self._changed()
-        elif kind == "wake":
-            await self._on_wake(msg)
-        elif kind == "confirm":
-            self.confirm.announce(msg.get("timeout_s") or 5.0, lambda: self.playing)
-            self._changed()
-        elif kind == "confirm_result":
-            self.confirm.close()
-        elif kind == "armed_expired":
-            log.info("Armed window ended")
-            self._changed()
-        elif kind in ("pause_capture", "resume_capture"):
-            self.server_paused = kind == "pause_capture"
-            self._changed()
-        elif kind == "state":
-            if not self.online and self._ws is not None:
-                self.online = True
-                log.info("Connected to the brain")
-            self.server_state = str(msg.get("state"))
-            if self.server_state == "idle":
-                self.busy = False
-                self.confirm.close()
-            self._changed()
-        elif kind == "error":
-            log.warning("Brain error: %s", str(msg.get("message", ""))[:200])
-
-    async def _on_wake(self, msg: dict[str, Any]) -> None:
-        if not msg.get("heard"):
-            return  # a miss: no sound, nothing kept
-        if msg.get("command"):
-            self.busy = True
-            self._changed()  # the mic closes while the brain answers
-            await self._earcon("wake")
-        else:
-            await self._earcon("armed")
-
-    async def _earcon(self, kind: EarconKind) -> None:
-        try:
-            clip = self.indicator.earcon(kind)
-        except Exception as e:
-            log.warning("Earcon %s unavailable (%s)", kind, type(e).__name__)
-            return
-        await Player(self.player.command).play(clip.pcm, clip.sample_rate)
+        await handle_message(self, message)  # the brain's frames: see messages.py
 
     # --- background checks -----------------------------------------------------------
     async def _stats_loop(self) -> None:
