@@ -336,6 +336,23 @@ def test_telemetry_has_labels_and_timings_only(
     assert stt.hotwords == [name]  # the decoder is told the wake phrase
 
 
+def test_the_armed_follow_up_is_decoded_without_the_hint(
+    settings: Settings, tmp_path: Path, name: str
+) -> None:
+    """Review H1: after the phrase alone, the command is decoded with no hint."""
+    h, stt = make(settings, tmp_path)
+    stt.say(name)  # the phrase alone: arms
+    stt.say("lights on")  # the command, in the armed window
+    with h.client().websocket_connect(LISTENER) as ws:
+        listen(ws)
+        segment(ws)
+        assert ws.receive_json()["command"] is False
+        segment(ws)
+        assert ws.receive_json() == {"type": "wake", "heard": True, "command": True}
+        turn_frames(ws)
+    assert stt.hotwords == [name, None]
+
+
 def test_a_miss_says_why_with_a_label_only(settings: Settings, tmp_path: Path, name: str) -> None:
     h, stt = make(settings, tmp_path)
     stt.say("what a nice day", confidence=0.9)

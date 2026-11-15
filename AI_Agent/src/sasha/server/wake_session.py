@@ -276,7 +276,10 @@ class ListenerConversation(Conversation):
         assert self.stt is not None
         queued = time.perf_counter()
         segment_bytes = len(audio)
-        hotwords = self.gate.matcher.phrase  # without it a short phrase comes out as anything
+        # The phrase as a hint, without which a short phrase comes out as anything. Not on
+        # the armed follow-up (the command after the phrase alone): there the hint could
+        # write the phrase into the command (review H1).
+        hotwords = None if self.gate.armed else self.gate.matcher.phrase
         try:
             async with self.voice.stt_lock:  # waits while another socket transcribes
                 started = time.perf_counter()
