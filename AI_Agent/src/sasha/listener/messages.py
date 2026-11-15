@@ -100,7 +100,33 @@ async def _window(lst: Listener, command: bool) -> None:
         asyncio.get_running_loop().call_later(opener.config.closed_quickly_s, opener.check_closed)
 
 
+# What the brain decided, in plain words, for the `sasha listen` terminal. Labels only:
+# the brain never sends what was said, and nothing here is stored.
+WHY = {
+    "rejected_no_name": "the wake phrase wasn't heard",
+    "rejected_low_conf": "the wake phrase was unclear",
+    "rejected_mid_sentence": "the wake phrase wasn't at the start",
+    "rejected_possessive": "the name was talked about",
+    "rejected_continuation": "the name was talked about",
+    "dropped_busy": "busy answering",
+    "dropped_speaking": "it was speaking",
+    "cooldown_drop": "it had just answered",
+    "dropped_paused": "listening is paused",
+    "stt_error": "speech recognition failed",
+}
+
+
+def wake_line(msg: dict[str, Any]) -> str:
+    if msg.get("heard"):
+        if msg.get("command"):
+            return "[wake] heard the wake phrase and a command"
+        return "[wake] heard the wake phrase; say the command"
+    reason = str(msg.get("reason") or "")
+    return f"[wake] not a wake: {WHY.get(reason, reason or 'unknown')}"
+
+
 async def _on_wake(lst: Listener, msg: dict[str, Any]) -> None:
+    print(wake_line(msg), flush=True)
     if not msg.get("heard"):
         return  # a miss: no sound, nothing kept
     await _window(lst, bool(msg.get("command")))

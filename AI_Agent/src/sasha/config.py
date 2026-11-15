@@ -15,7 +15,7 @@ import yaml
 from dotenv import dotenv_values, load_dotenv
 from pydantic import BaseModel, Field, SecretStr, field_validator
 
-from sasha.config_app import AppText, WindowConfig
+from sasha.config_app import AppText, WakeWord, WindowConfig
 from sasha.config_prompts import PromptLines
 
 # src/sasha/config.py -> sasha -> src -> AI_Agent -> repo root
@@ -35,26 +35,19 @@ class Pronouns(BaseModel):
     possessive: str
 
 
-class WakeWord(BaseModel):
-    phrase: str
-    model: str | None = None
-    threshold: float = 0.5
-    # Other spellings speech-to-text may write for the phrase (matched as whole words).
-    variants: list[str] = Field(default_factory=list)
-
-
 class WakeConfig(BaseModel):
     """Wake-word rules on the brain (v1: detection by transcription; see server/wake.py).
 
     Persona-free: the phrase and its spellings live in assistant.yaml `wake_word`.
     """
 
-    armed_window_s: float = Field(default=5.0, gt=0, le=30)  # name alone → next segment
+    armed_window_s: float = Field(default=5.0, gt=0, le=30)  # phrase alone → next segment
     confirm_window_s: float = Field(default=5.0, gt=0, le=30)  # spoken yes after a question
     cooldown_s: float = Field(default=3.0, ge=0, le=60)  # after any turn, brain-wide
     speaking_tail_s: float = Field(default=0.3, ge=0, le=5)  # mic stays closed after tts_end
     max_segment_s: float = Field(default=8.0, gt=0, le=30)
-    min_confidence: float = Field(default=0.5, ge=0, le=1)  # for the name alone
+    # Phrase alone: correct ones score 0.45-0.60 (synthetic, 2026-11-16); reset from telemetry.
+    min_confidence: float = Field(default=0.35, ge=0, le=1)
     max_entities_per_turn: int = Field(default=3, ge=1, le=50)  # more needs a spoken yes
     max_calls_per_minute: int = Field(default=6, ge=1, le=60)  # device changes, brain-wide
     volume_cap: float = Field(default=0.6, ge=0, le=1)

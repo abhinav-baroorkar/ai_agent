@@ -98,8 +98,10 @@ Client → server (listener only):
 
 Server → client (listener only):
 - `{type:"wake", heard:bool, command:bool, armed_s?:number}`, after every segment:
-  - `heard:false, command:false`: not a wake (or dropped: busy, speaking, cool-down).
-    Nothing else about the segment is ever sent, logged or stored.
+  - `heard:false, command:false, reason`: not a wake (or dropped: busy, speaking,
+    cool-down). `reason` is the outcome label only (`rejected_no_name`,
+    `rejected_low_conf`, `dropped_busy`, …; v0.4.3), so the listener can say why.
+    Nothing else about the segment (no text) is ever sent, logged or stored.
   - `heard:true, command:true`: the name was followed by a command (or the segment
     filled an armed window); a normal spoken turn follows (`transcript` with the
     command only, `state`, `reply_delta`, `reply`, `tts_*`).
@@ -223,5 +225,7 @@ WebSocket `/ws/browser` (one viewer):
   the window only over `/ws/browser`. `agent` is `working` for the whole turn and pushed
   at once; `guard.refused` counts only the pages' own refusals, the rest is
   `background_refused`.
+- v0.4.3 (2026-11-16): `wake` misses carry `reason` (a label, never text). The wake
+  phrase is "hey" plus the name (assistant.yaml), not the name alone.
 - Planned for v0.5 (not built yet): `POST /api/connectors` and
   `DELETE /api/connectors/{id}` to add and remove MCP connectors from Settings.
