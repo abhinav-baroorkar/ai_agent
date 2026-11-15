@@ -30,7 +30,7 @@ from sasha.browser.backstop import LogOnlyBackstop
 from sasha.browser.leaks import QueryLeakError, check_query
 from sasha.browser.origin import SearchRefusedError, check_open_url, search_url
 from sasha.browser.pages import BrowserTabs, PageError, TabHook
-from sasha.browser.service import BrowserBusyError, BrowserService
+from sasha.browser.service import BrowserBusyError, BrowserService, BrowserStoppedError
 from sasha.conversation import current_turn
 from sasha.tools import Tool, ToolError
 
@@ -115,7 +115,8 @@ class BrowserConversation:
 
     def _op(self, use: Callable[[BrowserTabs], Awaitable[dict[str, Any]]]) -> dict[str, Any]:
         async def run() -> dict[str, Any]:
-            async with self.bridge.service.acquire(self.holder) as chrome:
+            service = self.bridge.service
+            async with service.acquire(self.holder, owner_stops=self.owner_stops) as chrome:
                 if self.tabs is None or id(chrome) != self.chrome_id:  # (re)started browser
                     self.tabs = BrowserTabs(chrome, self.bridge.backstop, self.bridge.on_tab)
                     self.chrome_id = id(chrome)
@@ -125,7 +126,7 @@ class BrowserConversation:
 
         try:
             result = self.bridge.run(run)
-        except (PageError, BrowserBusyError) as e:
+        except (PageError, BrowserBusyError, BrowserStoppedError) as e:
             raise ToolError(str(e)) from None
         return {**result, "note": NOTE} if "page" in result else result
 

@@ -8,6 +8,8 @@ search engine template: DuckDuckGo's HTML results page by default, changeable.
 from __future__ import annotations
 
 import itertools
+import threading
+from collections import OrderedDict
 from typing import Any
 
 from sasha.browser.chrome import find_chrome
@@ -53,7 +55,8 @@ class BrowserConnector:
 
     def __init__(self, bridge: BrowserBridge) -> None:
         self.bridge = bridge
-        self.holders: dict[str, str] = {}  # browser holder id -> the bot it serves
+        self.holders: OrderedDict[str, str] = OrderedDict()  # browser holder -> its bot
+        self._holders_lock = threading.Lock()
 
     @property
     def secret_env(self) -> list[str]:
@@ -83,9 +86,10 @@ class BrowserConnector:
         holder = f"conversation-{next(_conversations)}"
         bot = building_for_bot.get()
         if bot is not None:  # for the live view's holder_bot; the newest MAX_HOLDERS only
-            self.holders[holder] = bot
-            while len(self.holders) > MAX_HOLDERS:
-                self.holders.pop(next(iter(self.holders)))
+            with self._holders_lock:  # tools are built on several worker threads at once
+                self.holders[holder] = bot
+                while len(self.holders) > MAX_HOLDERS:
+                    self.holders.popitem(last=False)
         conv = BrowserConversation(
             self.bridge,
             holder=holder,

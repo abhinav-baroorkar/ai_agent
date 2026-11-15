@@ -60,7 +60,6 @@ class Screencast:
     async def start(self) -> None:
         self.session = await attach(self.pipe, self.target_id)
         self.pipe.on("Page.screencastFrame", self._on_frame)
-        await self.pipe.call("Page.enable", session_id=self.session)
         await self.pipe.call(
             "Page.startScreencast",
             {"format": "jpeg", "quality": QUALITY, "maxWidth": MAX_WIDTH, "maxHeight": MAX_WIDTH},

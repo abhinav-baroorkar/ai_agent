@@ -31,6 +31,10 @@ class BrowserBusyError(RuntimeError):
     """Another bot is using the browser right now."""
 
 
+class BrowserStoppedError(RuntimeError):
+    """The owner stopped the browser during this turn."""
+
+
 Starter = Callable[[Path, int], Awaitable[Chrome]]
 
 
@@ -58,7 +62,12 @@ class BrowserService:
         self.owner_stops = 0  # a turn that saw a different count was stopped by the owner
 
     @contextlib.asynccontextmanager
-    async def acquire(self, bot_id: str) -> AsyncIterator[Chrome]:
+    async def acquire(self, bot_id: str, owner_stops: int | None = None) -> AsyncIterator[Chrome]:
+        """`owner_stops`: the count the caller's turn began with. If the owner stopped the
+        browser since, refuse here too, so a stop that lands just before this step can't
+        be undone by the step starting a fresh Chrome."""
+        if owner_stops is not None and owner_stops != self.owner_stops:
+            raise BrowserStoppedError("The owner stopped the browser")
         if self.holder is not None and self.holder != bot_id:
             raise BrowserBusyError("The browser is in use by another bot")
         self.holder = bot_id
