@@ -40,6 +40,7 @@ class _Asked:
 
 
 _SPLIT = re.compile(r"(?<=\d)(?=[^\d\s])|(?<=[^\d\s:])(?=\d)")  # "7am" -> "7 am"
+_MINUTES = re.compile(r"\b(\d{1,2})[:.](\d{2})\b")  # "6:15", "7.30"
 _FILLER = {"a", "an", "and", "the", "for", "of", "timer", "alarm", "reminder"}
 
 
@@ -79,7 +80,13 @@ class Said:
         self.duration_words = {w.lower() for c in cue_list for w in c.duration_words}
         self.before_words = {w.lower() for c in cue_list for w in c.before_words}
         hour_words = {k.lower(): v for c in cue_list for k, v in c.hour_words.items()}
-        self.numbers = {int(w) for w in words if w.isdigit() and len(w) <= 4}
+        # The minutes of "6:15" are no hour: they don't count as a 13-23 hour (a pm cue)
+        # or as an hour said. Found by the bench ("At 6:15." with am became 18:15).
+        digits = [w for w in words if w.isdigit() and len(w) <= 4]
+        for minutes in _MINUTES.findall(text):
+            if minutes[1] in digits:
+                digits.remove(minutes[1])
+        self.numbers = {int(w) for w in digits}
         self.hours = {n % 12 or 12 for n in self.numbers if n <= 23}
         self.hours |= {hour_words[w] for w in words if w in hour_words}
 

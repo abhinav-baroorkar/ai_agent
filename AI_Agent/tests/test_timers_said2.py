@@ -141,6 +141,18 @@ def test_s4_a_cue_in_the_content_is_not_a_cue(tmp_path: Path) -> None:
 # --- S3: a cue that contradicts the period ------------------------------------------------------
 
 
+@pytest.mark.parametrize("said", ["At 6:15.", "Wake me at 6.15 please"])
+def test_minutes_are_no_evening_cue(tmp_path: Path, said: str) -> None:
+    """Bench run of fdc7aa6: "At 6:15." with am made the 15 a pm cue (18:15, wrong)."""
+    service, _, _ = make_service(tmp_path)
+    with pytest.raises(TimerAsk) as err:  # am made up and dropped: morning or evening?
+        one(service, said, "set_alarm", hour=6, minute=15, period="am", day="tomorrow")
+    assert err.value.reason == "ambiguous_period"
+    service2, _, _ = make_service(tmp_path / "b")
+    result = one(service2, "Set an alarm for 18:15.", "set_alarm", hour=18, minute=15)
+    assert due(service2, result).hour == 18  # a real 24-hour time still counts
+
+
 def test_s3_the_persons_cue_wins(tmp_path: Path) -> None:
     service, _, _ = make_service(tmp_path)
     result = one(service, "Wake me at 7 in the morning.", "set_alarm", hour=7, period="pm")
