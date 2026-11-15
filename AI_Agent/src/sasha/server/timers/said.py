@@ -142,21 +142,32 @@ class SaidCheck:
     ends once an item is made, or when a later turn isn't the answer.
     """
 
-    def __init__(self, said: UserTurn | None, cues: Iterable[TimeCues]) -> None:
+    def __init__(
+        self, said: UserTurn | None, cues: Iterable[TimeCues], window_s: float = 120.0
+    ) -> None:
         self.said = said
         self.cues = list(cues)
+        self.window_s = window_s  # an answer must follow its question within this
         self._asked: _Asked | None = None  # the last turn in which a tool asked back
+        self._made_count = -1  # user messages the conversation had when an item was made
 
     def _span(self, turn: TurnContext) -> int:
         """How many of the latest user messages are this turn's words: 1, or more when
-        this turn answers a question the tools asked in the turn just before."""
+        this turn answers a question asked in the turn just before, at most
+        `answer_window_s` ago: one a timer tool asked (S1), or one the assistant asked
+        by itself (its reply ended in "?") in a turn that made no item."""
         msgs, asked = turn.user_messages, self._asked
-        if asked is None:
-            return 1
-        if turn.turn_id == asked.turn_id:
+        if asked is not None and turn.turn_id == asked.turn_id:
             return asked.span  # a second call in the same turn
-        answering = len(msgs) == asked.count + 1 and msgs[-2] == asked.last
-        return min(asked.span + 1, MAX_SPAN) if answering else 1
+        fresh = turn.since_previous_s is None or turn.since_previous_s <= self.window_s
+        if not fresh or len(msgs) < 2:
+            return 1  # a stale question lends nothing to a new request
+        if asked is not None and len(msgs) == asked.count + 1 and msgs[-2] == asked.last:
+            return min(asked.span + 1, MAX_SPAN)
+        made_item_before = self._made_count == len(msgs) - 1
+        if turn.previous_reply_asked and not made_item_before:
+            return 2  # the one previous message, plus this one
+        return 1
 
     def _text(self) -> str | None:
         if self.said is None:
@@ -179,7 +190,10 @@ class SaidCheck:
             self._asked = _Asked(turn.turn_id, len(msgs), msgs[-1], self._span(turn))
 
     def done(self) -> None:
+        """An item was made: nothing is carried on from this turn."""
         self._asked = None
+        turn = self.said() if self.said is not None else None
+        self._made_count = len(turn.user_messages) if turn is not None else -1
 
     def label(self, label: str) -> str:
         """A label that only restates the time is dropped (it isn't content)."""

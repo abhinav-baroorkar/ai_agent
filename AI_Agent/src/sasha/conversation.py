@@ -21,6 +21,11 @@ class TurnContext:
     user_messages: tuple[str, ...]  # this conversation's user messages, the current one last
     input_mode: str  # "text", "voice" (window) or "wake"
     turn_id: int
+    # Did the assistant's previous reply in this conversation end in a question? Only
+    # the fact, never the reply's text (the timers' said-check uses it to read an
+    # answer such as "Morning." with the question's turn).
+    previous_reply_asked: bool = False
+    since_previous_s: float | None = None  # seconds since the previous turn ended
 
 
 current_turn: contextvars.ContextVar[TurnContext | None] = contextvars.ContextVar(
@@ -28,5 +33,12 @@ current_turn: contextvars.ContextVar[TurnContext | None] = contextvars.ContextVa
 )
 
 
-def new_turn(user_messages: tuple[str, ...], input_mode: str) -> TurnContext:
-    return TurnContext(user_messages, input_mode, next(_turn_ids))
+def new_turn(
+    user_messages: tuple[str, ...],
+    input_mode: str,
+    previous_reply_asked: bool = False,
+    since_previous_s: float | None = None,
+) -> TurnContext:
+    return TurnContext(
+        user_messages, input_mode, next(_turn_ids), previous_reply_asked, since_previous_s
+    )

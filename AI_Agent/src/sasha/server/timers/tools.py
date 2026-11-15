@@ -92,7 +92,8 @@ class TimerTools:
         self.source = source
         self.confirm = confirm
         # The turn's own user text, checked against the fields (server/timers/said.py).
-        self.check = SaidCheck(said, service.config.cues.values())
+        cfg = service.config
+        self.check = SaidCheck(said, cfg.cues.values(), cfg.answer_window_s)
         self.max_text = service.config.max_text
 
     # --- helpers -------------------------------------------------------------

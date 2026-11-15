@@ -60,6 +60,7 @@ class TimersConfig(BaseModel):
     late_fire_s: float = 12 * 3600  # timers/reminders up to this late still fire once
     alarm_late_s: float = 600  # alarms only if at most this late
     late_after_s: float = 60  # fired later than this (suspend): generic line only (D2)
+    answer_window_s: float = 120  # an answer is read with its question only this soon
     ring_wait_s: float = 30  # a ring waits at most this long for a turn's speech to end
     pending_keep_s: float = 12 * 3600  # undelivered items wait this long for a socket
     keep_done_days: float = 7  # missed/done items stay on the card

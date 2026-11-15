@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -73,6 +74,8 @@ class Assistant:
         self.system_prompt = system_prompt or settings.assistant.render_system_prompt()
         self._history: list[Message] = []
         self.last_tool_calls: list[dict[str, Any]] = []
+        self.clock: Callable[[], float] = time.monotonic  # the turn clock
+        self._last_turn_end: float | None = None
 
     @property
     def name(self) -> str:
@@ -80,6 +83,7 @@ class Assistant:
 
     def reset(self) -> None:
         self._history.clear()
+        self._last_turn_end = None
 
     def _messages(self, text: str) -> list[Message]:
         recent = self._history[-2 * self.history_turns :]
@@ -99,7 +103,11 @@ class Assistant:
         calls_made: list[dict[str, Any]] = []
         self.last_tool_calls = calls_made
         owner_said = (*(m["content"] for m in self._history if m["role"] == "user"), text)
-        token = current_turn.set(new_turn(owner_said, input_mode))  # for tools (B1)
+        replies = [m["content"] for m in self._history if m["role"] == "assistant"]
+        asked = bool(replies) and str(replies[-1]).strip().endswith("?")  # only the fact
+        since = None if self._last_turn_end is None else self.clock() - self._last_turn_end
+        turn = new_turn(owner_said, input_mode, asked, since)
+        token = current_turn.set(turn)  # for tools (B1; the timers' said-check)
         try:
             reply = self._run(text, trace, calls_made, hooks)
         except BaseException as exc:  # includes Ctrl-C: still write the telemetry line
@@ -115,6 +123,7 @@ class Assistant:
             {"role": "user", "content": text},
             {"role": "assistant", "content": reply.text},
         ]
+        self._last_turn_end = self.clock()
         return reply
 
     def _ask(
