@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +22,8 @@ from sasha.pipeline.llm import OllamaError
 from sasha.server.deps import ServerDeps
 from sasha.server.security import LocalOnlyMiddleware, allowed_hosts, allowed_origins
 from sasha.server.speaking import SpeakingTracker
+from sasha.server.timers.hub import Hub
+from sasha.server.timers.routes import add_timer_routes
 from sasha.server.voice import VoiceStages
 from sasha.server.wake_session import open_listener
 from sasha.server.ws import Conversation
@@ -62,7 +66,21 @@ def _bot_id(bot_id: str) -> str:
 def create_app(deps: ServerDeps, web_dir: Path | None = WEB_DIR) -> FastAPI:
     settings = deps.settings
     server = settings.profile.server
-    app = FastAPI(title="brain", version=__version__, docs_url=None, redoc_url=None)
+    hub = Hub(settings.profile.timers) if deps.timers is not None else None
+
+    @contextlib.asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        if deps.timers is not None:
+            deps.timers.start()  # the scheduler thread (tests drive `tick()` instead)
+        try:
+            yield
+        finally:
+            if deps.timers is not None:
+                deps.timers.stop()
+
+    app = FastAPI(
+        title="brain", version=__version__, docs_url=None, redoc_url=None, lifespan=lifespan
+    )
     wake = settings.profile.wake
     speaking = SpeakingTracker(wake.speaking_tail_s, wake.cooldown_s)
     voice = VoiceStages(stt=deps.stt, tts=deps.tts, speaking=speaking)  # shared by sockets
@@ -174,6 +192,11 @@ def create_app(deps: ServerDeps, web_dir: Path | None = WEB_DIR) -> FastAPI:
         result = deps.connectors.test(connector_id)
         return {"ok": result.ok, "message": result.message}
 
+    # --- timers (contract v0.3) ------------------------------------------------------
+    if deps.timers is not None and hub is not None:
+        hub.service, deps.timers.hub = deps.timers, hub
+        add_timer_routes(app, deps.timers, hub, _json_body)
+
     # --- conversation ----------------------------------------------------------
     async def refuse(websocket: WebSocket, reason: str, code: int = 1008) -> None:
         await websocket.send_json({"type": "error", "message": reason})
@@ -212,7 +235,7 @@ def create_app(deps: ServerDeps, web_dir: Path | None = WEB_DIR) -> FastAPI:
         if bot not in ("", VOICE_ID):
             await refuse(websocket, "A listener socket always uses the voice bot")
             return
-        conv = await open_listener(websocket, deps, voice, speak == "1")
+        conv = await open_listener(websocket, deps, voice, speak == "1", hub)
         await conv.run()
 
     async def conversation(websocket: WebSocket, bot: str, speak: str) -> None:
@@ -231,7 +254,7 @@ def create_app(deps: ServerDeps, web_dir: Path | None = WEB_DIR) -> FastAPI:
         for warning in warnings:
             log.warning("Bot %s: %s", chosen.id, warning)
         language = settings.assistant.languages.default
-        await Conversation(websocket, assistant, voice, speak == "1", language).run()
+        await Conversation(websocket, assistant, voice, speak == "1", language, hub).run()
 
     if web_dir is not None and web_dir.is_dir():
         app.mount("/", StaticFiles(directory=web_dir, html=True), name="web")

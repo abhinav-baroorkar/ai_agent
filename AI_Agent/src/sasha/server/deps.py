@@ -11,12 +11,19 @@ from typing import Any
 
 from sasha.bots import Bot, BotStore
 from sasha.config import Settings, reload_secrets
-from sasha.connectors import ConnectorRegistry, HomeAssistantConnector, build_connectors
+from sasha.connectors import (
+    ConnectorError,
+    ConnectorRegistry,
+    HomeAssistantConnector,
+    build_connectors,
+)
 from sasha.orchestrator import Assistant
 from sasha.pipeline.llm import LLM, OllamaLLM
 from sasha.pipeline.stt import SpeechToText
 from sasha.pipeline.tts import TextToSpeech
 from sasha.server.speaking import ListenerPresence
+from sasha.server.timers.service import TimerService
+from sasha.server.timers.tools import add_timer_tools
 from sasha.server.voice import load_voice_stages
 from sasha.server.wake_policy import RateLimiter
 from sasha.server.wake_truth import wake_control_allowed
@@ -33,6 +40,7 @@ from sasha.telemetry import TelemetryWriter
 from sasha.tools.clock import CLOCK_TOOL, clock_tool
 
 log = logging.getLogger(__name__)
+BROWSER_KIND = "browser"
 
 
 @dataclass
@@ -51,6 +59,7 @@ class ServerDeps:
     presence: ListenerPresence = field(default_factory=ListenerPresence)
     wake_limiter: RateLimiter | None = None
     recheck_placement: Callable[[], None] = lambda: None
+    timers: TimerService | None = None  # None: no timer tools, routes or frames
 
     def __post_init__(self) -> None:
         if self.wake_limiter is None:
@@ -59,8 +68,11 @@ class ServerDeps:
     def make_assistant(self, bot: Bot) -> tuple[Assistant, list[str]]:
         """A fresh conversation for `bot`, with its connectors' tools and the clock."""
         tools, warnings = self.connectors.tools_for(bot.connectors)
-        if CLOCK_TOOL not in tools:
-            tools.register(clock_tool())  # every bot: read-only, so no guessed times
+        if CLOCK_TOOL not in tools:  # every bot: read-only, so no guessed times
+            # The timers' clock and zone, so "now" and a resolved alarm time agree.
+            tools.register(clock_tool(self.timers.now_local) if self.timers else clock_tool())
+        if self.timers is not None and not self.has_browser(bot):
+            tools = add_timer_tools(tools, self.timers)  # D3: never with a browser
         assistant = Assistant(
             self.settings,
             self.make_llm(bot.model),
@@ -69,6 +81,22 @@ class ServerDeps:
             system_prompt=self.bots.prompt_for(bot),
         )
         return assistant, warnings
+
+    def has_browser(self, bot: Bot) -> bool:
+        """D3: a bot with any `browser` connector gets no timer tools (web pages could
+        otherwise set things that speak in the house)."""
+        for cid in bot.connectors:
+            try:
+                if self.connectors.get(cid).kind == BROWSER_KIND:
+                    return True
+            except ConnectorError:
+                continue  # gone: it gives no tools either
+        return False
+
+
+def make_timers(settings: Settings, telemetry: TelemetryWriter) -> TimerService:
+    store = JsonStore(settings.paths.state_dir / "timers.json")
+    return TimerService(settings.profile.timers, store, telemetry)
 
 
 def make_telemetry(settings: Settings) -> PlacementTelemetry:
@@ -173,4 +201,5 @@ def build_deps(settings: Settings, reload_env: bool = True) -> ServerDeps:
         warnings=warnings,
         presence=presence,
         recheck_placement=recheck_placement,
+        timers=make_timers(settings, telemetry),
     )

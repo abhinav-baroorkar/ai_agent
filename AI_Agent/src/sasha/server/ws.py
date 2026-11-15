@@ -26,6 +26,9 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 from sasha.orchestrator import Assistant, Reply, RequestFailed, TurnHooks
 from sasha.pipeline.llm import LLMCancelled, OllamaError
 from sasha.server.speech import Speaker
+from sasha.server.timers.hub import Hub
+from sasha.server.timers.ring import RingPlayer
+from sasha.server.timers.service import TimerError
 from sasha.server.voice import MIC_SAMPLE_RATE, VoiceStages, max_recording_bytes
 
 log = logging.getLogger(__name__)
@@ -57,6 +60,7 @@ class Conversation:
         voice: VoiceStages,
         speak: bool = False,
         language: str = "en",
+        timers: Hub | None = None,
     ) -> None:
         self.ws = ws
         self.assistant = assistant
@@ -70,6 +74,44 @@ class Conversation:
         self.turn: asyncio.Task[None] | None = None
         self.audio: bytearray | None = None
         self.loop = asyncio.get_running_loop()
+        # Timers (server/timers/): every socket gets the frames; a `speak=1` socket may
+        # be the one that speaks a ring (the Home window first, then the listener).
+        self.timers = timers
+        self.ring_role = "home" if speak else "tab"
+        self.ringer = RingPlayer(self, timers) if timers is not None else None
+
+    # --- timers (the hub calls these from any thread) ------------------------------
+    def push_threadsafe(self, frame: dict[str, Any]) -> None:
+        self.emit_threadsafe(frame)
+
+    def ring_threadsafe(self, item_id: str, say: str, tone: bool) -> None:
+        if self.ringer is not None:
+            self.ringer.ring_threadsafe(item_id, say, tone)
+
+    def ring_started(self, item_id: str) -> None:
+        """A ring's speech is about to start on this socket (the listener overrides)."""
+
+    async def ring_played(self, item_id: str) -> None:
+        """A ring's speech was sent (the listener opens its stop window)."""
+
+    async def _on_timer_frame(self, kind: str, msg: dict[str, Any]) -> None:
+        if self.timers is None:
+            self.error("Timers are not available")
+            return
+        service, item_id = self.timers.service, msg.get("id")
+        minutes = msg.get("minutes", service.config.snooze_minutes)
+        if not isinstance(item_id, str) or (
+            kind == "timer_snooze" and (isinstance(minutes, bool) or not isinstance(minutes, int))
+        ):
+            self.error("Bad timer message")
+            return
+        try:
+            if kind == "timer_dismiss":
+                await asyncio.to_thread(service.dismiss, item_id)
+            else:
+                await asyncio.to_thread(service.snooze, item_id, minutes)
+        except TimerError as exc:
+            self.error(str(exc))
 
     # --- sending -------------------------------------------------------------
     def emit(self, frame: Frame) -> None:
@@ -107,6 +149,8 @@ class Conversation:
     async def run(self) -> None:
         writer = asyncio.create_task(self._writer())
         self.state("idle")
+        if self.timers is not None:
+            self.timers.add(self)  # the `timers` snapshot, and any missed-items line
         try:
             while True:
                 message = await self.ws.receive()
@@ -124,6 +168,10 @@ class Conversation:
                 self.speaker.cancel()
             if self.turn is not None:
                 self.turn.cancel()
+            if self.timers is not None:
+                self.timers.remove(self)
+            if self.ringer is not None:
+                self.ringer.close()
             self.voice.speaking.ended(id(self))  # in case speech was cut before tts_end
             self.outbox.put_nowait(None)
             with contextlib.suppress(asyncio.CancelledError):
@@ -150,6 +198,8 @@ class Conversation:
             self._on_audio_start(msg.get("sample_rate"))
         elif kind == "audio_stop":
             self._on_audio_stop()
+        elif kind in ("timer_dismiss", "timer_snooze"):
+            await self._on_timer_frame(kind, msg)
         else:
             self.error(f"Unknown message type '{kind[:40]}'")
 

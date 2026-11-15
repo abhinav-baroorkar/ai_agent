@@ -15,6 +15,8 @@ this is the guarantee:
   "I didn't change: …", with names taken from the tool calls (cleaned, capped);
 - if no device changed at all but the held text claims one, it says
   "Nothing was changed.";
+- if a timer tool asked back (an unclear time) and nothing changed, the model's text
+  stands only if it ends as a question ("7:30 in the morning or the evening?");
 - otherwise the held text is released unchanged.
 The sentences come from `wake.reply_lines` per language (config), not from code.
 """
@@ -143,6 +145,8 @@ class TruthfulReply:
             )
             self.overridden = "reply_not_changed"
             return self._override(" ".join(parts))
+        if not policy.changed and getattr(policy, "asked", False) and tail.strip().endswith("?"):
+            return tail, model_text  # a timer tool asked back: the model's question stands
         if not policy.changed and (self.change_requested or claims_change(tail, lines)):
             self.overridden = "reply_nothing_changed"
             return self._override(lines.nothing_changed)

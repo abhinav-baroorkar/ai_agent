@@ -10,6 +10,8 @@ Anyone in earshot (or a television) can start a wake turn, so (design section 3)
   - a "no" (or no answer) refuses the rest of the turn's device changes;
   - `volume_level` capped at `volume_cap`;
   - at most `max_calls_per_minute` device changes from wake turns, brain-wide;
+- timer tools pass without the opt-in (nothing in the house changes); their own wake
+  limits and confirm live in server/timers/tools.py;
 - every other tool is left out of wake turns in v1.
 Decisions are reported through `record(label)`: labels only, never arguments.
 """
@@ -26,10 +28,13 @@ from collections.abc import Callable
 from typing import Any
 
 from sasha.config import CONTROLLABLE_DOMAINS, WakeConfig
+from sasha.server.timers.tools import TIMER_TOOLS, TimerAsk
 from sasha.tools import Tool, ToolError, ToolRegistry
 
 READ_ONLY_TOOLS = ("list_devices", "get_state", "get_current_time")
 CONTROL_TOOL = "call_service"
+TIMER_KINDS = {"set_alarm": "alarm", "set_reminder": "reminder"}
+TIMER_NAMES = {"timer": "Timer", "alarm": "Alarm", "reminder": "Reminder"}
 _CLEAN = re.compile(r"[^\w .-]+")
 
 
@@ -140,6 +145,8 @@ class WakeToolPolicy:
         `all` maps to "all <domain> devices" only for controllable domains. Anything
         else must be in the house's own device list, looked up once if needed.
         """
+        if domain == "timer":  # server words, never the item's label (T3)
+            return TIMER_NAMES.get(entity)
         if entity in ("", "all"):
             return f"all {domain} devices" if domain in CONTROLLABLE_DOMAINS else None
         if entity not in self.known_names and self._list_devices is not None:
@@ -168,6 +175,7 @@ class WakeToolPolicy:
         self.changed: list[tuple[str, str]] = []
         self.not_changed: list[tuple[str, str]] = []
         self.attempted = False
+        self.asked = False  # a timer tool asked back (an unclear time): the model asks
 
     def wrap(self, tools: ToolRegistry) -> ToolRegistry:
         """The wake-turn view of a bot's tools."""
@@ -181,10 +189,39 @@ class WakeToolPolicy:
                 )
             elif name in READ_ONLY_TOOLS:
                 allowed.register(tool)
+            elif name in TIMER_TOOLS:  # nothing in the house changes: no opt-in needed
+                timed = self._timer(name, tool.handler)
+                allowed.register(Tool(tool.name, tool.description, tool.parameters, timed))
             elif name == CONTROL_TOOL:
                 guarded = self._guard(tool.handler)
                 allowed.register(Tool(tool.name, tool.description, tool.parameters, guarded))
         return allowed
+
+    def _timer(self, name: str, handler: Callable[..., Any]) -> Callable[..., Any]:
+        """Timer tools on wake turns, for the truthful reply (design 5): a success is a
+        real change ("I've set a timer" stands), a refusal is named ("I didn't change:
+        Timer."), and a question back (an unclear time) lets the model ask it."""
+        if name == "list_timers":
+            return handler
+        kind = TIMER_KINDS.get(name, "timer")
+
+        def timer_tool(**kwargs: Any) -> Any:
+            self.attempted = True
+            try:
+                result = handler(**kwargs)
+            except TimerAsk:
+                self.asked = True
+                self.record("timer_asked")
+                raise
+            except Exception:
+                self.not_changed.append(("timer", kind))
+                self.record("timer_refused")
+                raise
+            self.changed.append(("timer", kind))
+            self.record("timer_allowed")
+            return result
+
+        return timer_tool
 
     def _listing(self, handler: Callable[..., Any]) -> Callable[..., Any]:
         def list_devices(**kwargs: Any) -> Any:

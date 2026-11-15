@@ -15,6 +15,8 @@ import yaml
 from dotenv import dotenv_values, load_dotenv
 from pydantic import BaseModel, Field, SecretStr, field_validator
 
+from sasha.config_timers import TimersConfig
+
 # src/sasha/config.py -> sasha -> src -> AI_Agent -> repo root
 _DEFAULT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_PROFILE = "laptop"
@@ -230,6 +232,7 @@ class Profile(BaseModel):
     tts: TTSConfig = Field(default_factory=TTSConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     wake: WakeConfig = Field(default_factory=WakeConfig)
+    timers: TimersConfig = Field(default_factory=TimersConfig)
 
 
 class HomeAssistantConfig(BaseModel):
