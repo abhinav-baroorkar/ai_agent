@@ -23,7 +23,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from sasha.browser.cdp import CDPError, CDPPipe
-from sasha.browser.history import forget_history
+from sasha.browser.history import forget_when_free
+from sasha.browser.profile import ProfileError, prepare_profile
 from sasha.listener.capture import with_death_signal
 from sasha.server.launch import CHROMIUM_BROWSERS, ISOLATION_FLAGS, browser_env
 
@@ -49,20 +50,11 @@ DENIED_PERMISSIONS = (
 REQUIRED_DENIALS = ("microphone", "camera")  # start fails if these can't be denied
 
 
+CLOSE_WAIT_S = 3.0  # for Chrome to exit after Browser.close, before it is killed
+
+
 class BrowserUnavailableError(RuntimeError):
     pass
-
-
-def profile_dir(data_dir: Path) -> Path:
-    return data_dir / "browser-profile"
-
-
-def check_profile(path: Path, data_dir: Path) -> Path:
-    """Only our own profile folder, never the owner's Chrome profile."""
-    resolved, expected = path.resolve(), profile_dir(data_dir).resolve()
-    if resolved != expected:
-        raise BrowserUnavailableError(f"Refusing a browser profile outside {expected}")
-    return resolved
 
 
 # Chrome's own background traffic, switched off at the source where a switch exists
@@ -159,6 +151,8 @@ class Chrome:
     async def stop(self) -> None:
         with contextlib.suppress(Exception):
             await self.pipe.call("Browser.close", timeout=3)
+        with contextlib.suppress(Exception):  # a clean exit first (review H2)
+            await asyncio.wait_for(self.process.wait(), CLOSE_WAIT_S)
         if self.process.returncode is None:
             with contextlib.suppress(ProcessLookupError):
                 self.process.kill()
@@ -172,11 +166,14 @@ async def start_chrome(data_dir: Path, proxy_port: int, exe: str | None = None) 
     exe = exe or find_chrome()
     if exe is None:
         raise BrowserUnavailableError("No Chrome or Chromium found")
-    profile = check_profile(profile_dir(data_dir), data_dir)
+    try:
+        profile = prepare_profile(data_dir)  # our own marked folder, never a link (H1)
+    except ProfileError as exc:
+        raise BrowserUnavailableError(str(exc)) from None
     (profile / "home").mkdir(parents=True, exist_ok=True, mode=0o700)
     (profile / "tmp").mkdir(exist_ok=True, mode=0o700)
     (profile / "DevToolsActivePort").unlink(missing_ok=True)
-    forget_history(profile)  # in case the last run was killed before it could
+    await forget_when_free(profile)  # in case the last run was killed before it could
     to_chrome_r, to_chrome_w = os.pipe()  # Chrome reads commands on its fd 3
     from_chrome_r, from_chrome_w = os.pipe()  # Chrome writes replies on its fd 4
     argv, hook = with_death_signal(

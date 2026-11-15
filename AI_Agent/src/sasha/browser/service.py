@@ -17,8 +17,9 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
-from sasha.browser.chrome import Chrome, profile_dir, start_chrome
-from sasha.browser.history import forget_history
+from sasha.browser.chrome import Chrome, start_chrome
+from sasha.browser.history import forget_when_free
+from sasha.browser.profile import profile_dir
 from sasha.browser.proxy import FilteringProxy
 
 log = logging.getLogger(__name__)
@@ -97,7 +98,7 @@ class BrowserService:
         self.chrome = self.proxy = None
         if chrome is not None:
             await chrome.stop()
-            forget_history(profile_dir(self.data_dir))  # after Chrome has exited
+            await forget_when_free(profile_dir(self.data_dir))  # once Chrome has exited
         if proxy is not None:
             await proxy.stop()
 

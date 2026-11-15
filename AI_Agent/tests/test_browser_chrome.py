@@ -16,11 +16,9 @@ import pytest
 
 from sasha.browser.chrome import (
     BrowserUnavailableError,
-    check_profile,
     chrome_flags,
     find_chrome,
     pipe_fd_script,
-    profile_dir,
     start_chrome,
 )
 from sasha.browser.proxy import FilteringProxy
@@ -58,13 +56,6 @@ def test_flags_are_pipe_only_and_locked_down(tmp_path: Path) -> None:
     assert len(off) == len(set(off))
     assert not any(f.startswith("--remote-debugging-port") for f in flags)
     assert sum(f.startswith("--host-resolver-rules") for f in flags) == 1
-
-
-def test_only_our_own_profile(tmp_path: Path) -> None:
-    assert check_profile(profile_dir(tmp_path), tmp_path) == profile_dir(tmp_path).resolve()
-    for other in (Path.home() / ".config" / "google-chrome", tmp_path / "other"):
-        with pytest.raises(BrowserUnavailableError):
-            check_profile(other, tmp_path)
 
 
 def test_pipe_fds_land_on_3_and_4_even_when_the_pipe_is_3_and_4() -> None:
@@ -156,22 +147,3 @@ def test_kill_9_of_the_brain_leaves_no_chrome(tmp_path: Path) -> None:
     finally:
         if parent.poll() is None:
             parent.kill()
-
-
-def test_forget_history_removes_url_files_and_keeps_the_rest(tmp_path: Path) -> None:
-    from sasha.browser.history import forget_history
-
-    profile = tmp_path / "browser-profile"
-    default = profile / "Default"
-    (default / "Sessions").mkdir(parents=True)
-    (default / "Sessions" / "Session_1").write_text("https://x/?q=secret")
-    for name in ("History", "History-journal", "Favicons", "Cookies", "Preferences"):
-        (default / name).write_text("data")
-    outside = tmp_path / "outside"
-    outside.mkdir()
-    (outside / "keep.txt").write_text("keep")
-    (default / "Cache").symlink_to(outside)  # a link out of the profile is only unlinked
-    assert forget_history(profile) == 5
-    assert sorted(p.name for p in default.iterdir()) == ["Cookies", "Preferences"]
-    assert (outside / "keep.txt").exists()
-    assert forget_history(tmp_path / "missing") == 0
