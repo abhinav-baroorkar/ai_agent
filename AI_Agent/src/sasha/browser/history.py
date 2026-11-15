@@ -64,12 +64,15 @@ def forget_history(profile: Path) -> int:
         log.warning("Browser history not cleared: %s", exc)
         return 0
     removed = 0
+    warned: set[Path] = set()
     for rel in URL_FILES:
         rel_path = Path(rel)
         parent = root / rel_path.parent
         try:
             if parent.resolve(strict=True) != parent:
-                log.warning("Browser history not cleared under a link (%s)", rel_path.parent)
+                if rel_path.parent not in warned:  # once per folder, not per entry
+                    warned.add(rel_path.parent)
+                    log.warning("Browser history not cleared under a link (%s)", rel_path.parent)
                 continue
         except OSError:
             continue  # the parent folder doesn't exist
