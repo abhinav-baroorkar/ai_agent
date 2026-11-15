@@ -6,7 +6,7 @@ import pytest
 
 from sasha.config import Settings, WakeConfig
 from sasha.server import wake
-from sasha.server.wake import WakeGate, WakeMatcher, is_yes
+from sasha.server.wake import WakeGate, WakeMatcher, confirm_reason, is_yes
 
 
 @pytest.fixture
@@ -132,3 +132,28 @@ def test_name_again_while_armed(matcher: WakeMatcher, name: str) -> None:
 )
 def test_is_yes(text: str, yes: bool) -> None:
     assert is_yes(text, WakeConfig().yes_words) is yes
+
+
+@pytest.mark.parametrize(
+    ("text", "reason"),
+    [
+        ("Yes.", "yes"),
+        ("Uh, yes", "yes"),
+        ("OK", "yes"),
+        ("yes please do it", "yes"),
+        ("yes, no wait", "unclear"),
+        ("Yes please don't", "unclear"),
+        ("yes do not do that", "unclear"),
+        ("yes yes yes yes yes", "unclear"),
+        ("no", "no"),
+        ("Nope, leave them", "no"),
+        ("Don't", "no"),
+        ("maybe yes", "unclear"),
+        ("turn off the lights", "unclear"),
+        ("", "unclear"),
+    ],
+)
+def test_confirm_reason_needs_a_clear_short_yes(text: str, reason: str) -> None:
+    """S2: a yes counts only if it leads, is short and carries no negation."""
+    cfg = WakeConfig()
+    assert confirm_reason(text, cfg.yes_words, cfg.no_words, cfg.fillers) == reason

@@ -153,11 +153,33 @@ def is_yes(text: str, yes_words: Sequence[str]) -> bool:
     return first is not None and first.group(1) in {w.lower() for w in yes_words}
 
 
-def confirm_reason(text: str, yes_words: Sequence[str], no_words: Sequence[str]) -> str:
-    """`yes`, `no` or `unclear` for a spoken answer. Only `yes` accepts."""
-    if is_yes(text, yes_words):
-        return "yes"
-    first = re.match(r"\W*([\w']+)", text.lower())
-    if first is not None and first.group(1) in {w.lower() for w in no_words}:
+NEGATIONS = frozenset({"no", "not", "don't", "dont", "wait", "stop", "cancel", "never"})
+MAX_YES_WORDS = 4
+
+
+def confirm_reason(
+    text: str,
+    yes_words: Sequence[str],
+    no_words: Sequence[str],
+    fillers: Sequence[str] = (),
+) -> str:
+    """`yes`, `no` or `unclear` for a spoken answer. Only `yes` accepts.
+
+    Yes only if, after leading fillers, the answer starts with a yes-word, has at
+    most 4 words and contains no no-word or negation ("yes, no wait" is not a yes).
+    "no" if it starts with a no-word; anything else is "unclear" (which also means no).
+    """
+    yes = {w.lower() for w in yes_words}
+    no = {w.lower() for w in no_words}
+    skip = {f.lower() for f in fillers} - yes  # "ok" is a yes, not a filler, here
+    words = re.findall(r"[\w']+", text.lower().replace(chr(0x2019), "'"))
+    while words and words[0] in skip:
+        words.pop(0)
+    if not words:
+        return "unclear"
+    if words[0] in no:
         return "no"
+    negated = any(w in NEGATIONS or w in no for w in words)
+    if words[0] in yes and len(words) <= MAX_YES_WORDS and not negated:
+        return "yes"
     return "unclear"
