@@ -421,3 +421,16 @@ Summary of the design that passed review (two rounds). Opt-in until the measurem
 - **Start at login:** the owner allowed a session to create the start-at-login link. See the
   team rule "One allowed write outside the project".
 
+## 2026-11-14 — Wake word corrections (appended)
+
+- **Correction to the voice-control rule above:** the spoken yes applies to "all", any scene,
+  or more than 3 distinct devices **in one turn (counted across all its calls)**, not "in one
+  request". Why: a model can split one request into several one-device calls. Volume is capped
+  at 0.6 for voice requests.
+- **Addition to "One reserved socket for the listener":** the slot is identified only by the
+  `wake=1` flag (local trust). It is not an authentication check; any local client could claim
+  it. Per-device tokens will tie it to a listener later.
+- **Contract numbering:** contract v0.2 (wake word) is written, and the server and listener
+  sessions build against it. The MCP connector endpoints (add and remove), which an earlier
+  entry planned for v0.2, are now planned for v0.3.
+
