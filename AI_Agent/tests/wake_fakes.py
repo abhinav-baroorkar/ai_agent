@@ -17,6 +17,13 @@ from tests.server_fakes import FakeTTS, Harness
 
 SEGMENT = b"\x01\x00" * 3200  # 0.2 s of 16 kHz audio
 SENTINEL = "zq-sentinel-household-talk-7731"  # must never leave the wake path
+# The fake house's exposed devices, with their real names (what list_devices returns).
+HOUSE = [
+    {"entity_id": "light.kitchen", "name": "Kitchen light", "state": "on"},
+    {"entity_id": "light.living_room", "name": "Living room light", "state": "on"},
+    {"entity_id": "light.bedroom", "name": "Bedroom light", "state": "on"},
+    {"entity_id": "light.hallway", "name": "Hallway light", "state": "on"},
+]
 
 
 class ScriptedSTT:
@@ -78,7 +85,7 @@ class DeviceConnector:
             return {"ok": True}
 
         return [
-            Tool("list_devices", "list", obj, lambda: []),
+            Tool("list_devices", "list", obj, lambda: list(HOUSE)),
             Tool("get_state", "state", obj, lambda **_: {}),
             Tool("call_service", "call", params, call_service),
         ]

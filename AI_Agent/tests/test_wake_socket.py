@@ -45,17 +45,17 @@ def name(settings: Settings) -> str:
 
 def test_name_and_command_runs_a_turn(settings: Settings, tmp_path: Path, name: str) -> None:
     h, stt = make(settings, tmp_path)
-    stt.say(f"{name}, turn on the light")
-    h.llm("big-model").responses = [resp("Here you go")]  # no device claim: kept as is
+    stt.say(f"{name}, tell me a joke")  # not a device request: the reply streams as is
+    h.llm("big-model").responses = [resp("Here you go")]
     with h.client().websocket_connect(LISTENER) as ws:
         listen(ws)
         segment(ws)
         got = turn_frames(ws)
     assert got[0] == {"type": "wake", "heard": True, "command": True}
-    assert {"type": "transcript", "text": "turn on the light", "final": True} in got
+    assert {"type": "transcript", "text": "tell me a joke", "final": True} in got
     assert any(f.get("type") == "reply" and f["text"] == "Here you go" for f in got)
     user = [m["content"] for m in h.llm("big-model").seen[0][0] if m["role"] == "user"]
-    assert user == ["turn on the light"]  # the name itself never reaches the LLM
+    assert user == ["tell me a joke"]  # the name itself never reaches the LLM
 
 
 def test_name_alone_then_command(settings: Settings, tmp_path: Path, name: str) -> None:

@@ -147,7 +147,7 @@ def test_c1_four_single_calls_ask_before_the_fourth(
         assert len(dev.calls) == 3  # held before the 4th
         segment(ws)
         turn_frames(ws)
-    assert asked[-1]["action"] == "turn off d"
+    assert asked[-1]["action"] == "turn off a device I don't know"  # light.d isn't listed
     assert len(dev.calls) == 4
 
 

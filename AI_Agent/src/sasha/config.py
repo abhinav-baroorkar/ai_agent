@@ -86,6 +86,36 @@ class ReplyLines(BaseModel):
     nothing_changed: str = "Nothing was changed."
     more: str = "and {count} more"
     joiner: str = ", "
+    unknown_one: str = "a device I don't know"
+    unknown_many: str = "{count} devices I don't know"
+    # A wake command asks for a change (so the model's text is held until the turn
+    # shows a change really happened) if it has a change verb, or a state word next
+    # to a device word and is not a question ("is the light on?" streams as usual).
+    change_verbs: list[str] = Field(
+        default_factory=lambda: [
+            "turn", "switch", "set", "dim", "brighten", "raise", "lower", "increase",
+            "decrease", "mute", "unmute", "start", "stop", "play", "pause", "activate",
+            "toggle",
+        ]
+    )  # fmt: skip
+    state_words: list[str] = Field(
+        default_factory=lambda: [
+            "on", "off", "up", "down", "brighter", "dimmer", "louder", "quieter",
+            "darker", "lighter",
+        ]
+    )  # fmt: skip
+    device_words: list[str] = Field(
+        default_factory=lambda: [
+            "light", "lights", "lamp", "lamps", "fan", "fans", "tv", "television",
+            "music", "volume", "speaker", "speakers", "scene", "it", "them", "everything",
+        ]
+    )  # fmt: skip
+    question_words: list[str] = Field(
+        default_factory=lambda: [
+            "is", "are", "was", "were", "what", "which", "who", "when", "where", "why",
+            "how", "does", "do", "did", "what's", "who's", "where's", "how's", "when's",
+        ]
+    )  # fmt: skip
     # Words that claim a device was changed ("I've turned off ..."). A plain state
     # report ("the hallway light is off") has none of them, so it is left alone.
     claim_words: list[str] = Field(

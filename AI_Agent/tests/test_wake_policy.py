@@ -116,7 +116,8 @@ def test_c1_entities_counted_per_turn_not_per_call() -> None:
         assert p.call(f"light.{room}")[0] is True
     assert p.asked == []
     assert p.call("light.d")[0] is True
-    assert p.asked == ["turn off d"] and len(p.devices.calls) == 4
+    # light.d isn't in the house's device list, so the question can't name it (T3)
+    assert p.asked == ["turn off a device I don't know"] and len(p.devices.calls) == 4
     p.policy.begin_turn()  # a new turn starts counting again
     p.asked.clear()
     assert p.call("light.e")[0] is True and p.asked == []
@@ -193,8 +194,23 @@ def test_rate_limit_six_per_minute_brain_wide() -> None:
     assert first.call("light.extra")[0] is True
 
 
-def test_describe_is_short_and_clean() -> None:
-    assert describe("light", "turn_off", ["all"]) == "turn off all light devices"
-    assert describe("scene", "turn_on", ["scene.movie_night"]) == "turn on movie night"
-    assert describe("light", "turn_on", ["light.a", "light.b"]) == "turn on 2 devices"
-    assert "<" not in describe("light", "turn_on", ["light.<script>"])
+def test_describe_uses_fixed_verbs_and_real_names_only() -> None:
+    """T3: the spoken question is in the server's voice: no model-written words."""
+    names = {"scene.movie_night": "Movie night"}
+    label = lambda d, e: names.get(e)  # noqa: E731
+    assert describe("light", "turn_off", ["all"], label) == "turn off all light devices"
+    assert describe("scene", "turn_on", ["scene.movie_night"], label) == "turn on Movie night"
+    assert describe("light", "turn_on", ["light.a", "light.b"], label) == "turn on 2 devices"
+    injected = describe("light", "unlock_the_door", ["light.unlock_the_front_door_now"], label)
+    assert injected == "change a device I don't know"
+    assert describe("lock", "turn_on", ["all"], label) == "turn on a device I don't know"
+
+
+def test_spoken_names_come_from_the_device_list() -> None:
+    p = Policy()
+    p.tools.call("list_devices", {})
+    p.devices.calls.clear()
+    assert p.policy.device_label("light", "light.a") is None  # listed without a name
+    p.policy._remember([{"entity_id": "light.k", "name": "Kitchen <b>light</b>"}])
+    assert p.policy.device_label("light", "light.k") == "Kitchen b light b"  # markup cleaned
+    assert p.policy.device_label("light", "light.unlock_the_front_door") is None

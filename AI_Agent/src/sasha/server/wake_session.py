@@ -185,7 +185,7 @@ class ListenerConversation(Conversation):
         lines = self.config.reply_lines
         line_set = lines.get(self.turn_language) or lines.get("en") or ReplyLines()
         truth = self.truth = (
-            TruthfulReply(line_set, self.policy) if self.config.truthful_replies else None
+            TruthfulReply(line_set, self.policy, text) if self.config.truthful_replies else None
         )
         try:
             reply = await super()._ask(text, input_mode)

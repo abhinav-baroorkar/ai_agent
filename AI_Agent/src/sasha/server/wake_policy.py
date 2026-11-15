@@ -25,7 +25,7 @@ from collections import deque
 from collections.abc import Callable
 from typing import Any
 
-from sasha.config import WakeConfig
+from sasha.config import CONTROLLABLE_DOMAINS, WakeConfig
 from sasha.tools import Tool, ToolError, ToolRegistry
 
 READ_ONLY_TOOLS = ("list_devices", "get_state", "get_current_time")
@@ -84,13 +84,31 @@ def _data_dict(data: Any) -> dict[str, Any] | None:
     return dict(data) if isinstance(data, dict) else None
 
 
-def describe(domain: str, service: str, entities: list[str]) -> str:
-    """A short plain sentence for the spoken question (model-made names are cleaned)."""
-    verb = _CLEAN.sub(" ", service.replace("_", " ")).strip()[:30]
+# The spoken question is in the server's own voice, so it uses only fixed verbs and
+# the house's real device names (T3), never words the model wrote.
+SPOKEN_VERBS = {
+    "turn_on": "turn on",
+    "turn_off": "turn off",
+    "toggle": "toggle",
+    "volume_set": "set the volume of",
+    "media_play": "play",
+    "media_pause": "pause",
+}
+UNKNOWN_DEVICE = "a device I don't know"
+
+
+def describe(
+    domain: str,
+    service: str,
+    entities: list[str],
+    label: Callable[[str, str], str | None] = lambda d, e: None,
+) -> str:
+    """A short plain sentence for the spoken question: fixed verbs, real names only."""
+    verb = SPOKEN_VERBS.get(service, "change")
     if entities == ["all"]:
-        target = f"all {_CLEAN.sub(' ', domain)[:20]} devices"
+        target = f"all {domain} devices" if domain in CONTROLLABLE_DOMAINS else UNKNOWN_DEVICE
     elif len(entities) == 1:
-        target = _CLEAN.sub(" ", entities[0].split(".", 1)[-1].replace("_", " "))[:40]
+        target = label(domain, entities[0]) or UNKNOWN_DEVICE
     else:
         target = f"{len(entities)} devices"
     return f"{verb} {target}".strip()
@@ -112,7 +130,35 @@ class WakeToolPolicy:
         self.limiter = limiter
         self.confirm = confirm
         self.record = record
+        self.known_names: dict[str, str] = {}  # exposed entity_id -> its real name
+        self._list_devices: Callable[[], Any] | None = None
         self.begin_turn()
+
+    def device_label(self, domain: str, entity: str) -> str | None:
+        """The real name of an exposed entity, or None (T3).
+
+        `all` maps to "all <domain> devices" only for controllable domains. Anything
+        else must be in the house's own device list, looked up once if needed.
+        """
+        if entity in ("", "all"):
+            return f"all {domain} devices" if domain in CONTROLLABLE_DOMAINS else None
+        if entity not in self.known_names and self._list_devices is not None:
+            self._remember(self._safe_list())
+            self._list_devices = None  # one lookup per policy, not per name
+        return self.known_names.get(entity)
+
+    def _safe_list(self) -> Any:
+        try:
+            return self._list_devices() if self._list_devices else []
+        except Exception:  # an HA error must never break the reply
+            return []
+
+    def _remember(self, devices: Any) -> None:
+        for device in devices if isinstance(devices, list) else []:
+            if isinstance(device, dict) and isinstance(device.get("entity_id"), str):
+                name = " ".join(_CLEAN.sub(" ", str(device.get("name") or "")).split())[:40]
+                if name:
+                    self.known_names[device["entity_id"]] = name
 
     def begin_turn(self) -> None:
         self.turn_entities: set[str] = set()
@@ -128,12 +174,25 @@ class WakeToolPolicy:
         allowed = ToolRegistry()
         for name in tools.names:
             tool = tools.get(name)
-            if name in READ_ONLY_TOOLS:
+            if name == "list_devices":  # remember real names for what the server says
+                self._list_devices = tool.handler
+                allowed.register(
+                    Tool(tool.name, tool.description, tool.parameters, self._listing(tool.handler))
+                )
+            elif name in READ_ONLY_TOOLS:
                 allowed.register(tool)
             elif name == CONTROL_TOOL:
                 guarded = self._guard(tool.handler)
                 allowed.register(Tool(tool.name, tool.description, tool.parameters, guarded))
         return allowed
+
+    def _listing(self, handler: Callable[..., Any]) -> Callable[..., Any]:
+        def list_devices(**kwargs: Any) -> Any:
+            devices = handler(**kwargs)
+            self._remember(devices)
+            return devices
+
+        return list_devices
 
     def _refuse(self, label: str, message: str) -> ToolError:
         self.record(label)
@@ -183,7 +242,7 @@ class WakeToolPolicy:
             )
             if needs_yes:
                 self.record("confirm_asked")
-                if not self.confirm(describe(domain, str(service), entities)):
+                if not self.confirm(describe(domain, str(service), entities, self.device_label)):
                     self.refused_rest = True
                     raise self._refuse("confirm_no", "Not confirmed; nothing was changed")
                 self.record("confirm_yes")

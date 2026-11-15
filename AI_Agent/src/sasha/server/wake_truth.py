@@ -5,7 +5,9 @@ off all the lights") made the model claim an action it never took, and after a r
 fourth light the model still said "all the lights are now off". The prompt line helps;
 this is the guarantee:
 
-- the model's streamed text is released one complete sentence at a time, and only
+- if the person's command asks for a change ("lights off"), all model text is held
+  until the turn ends, whatever its wording (T1: "Okay, it's dark in there now.");
+- otherwise the model's text is released one complete sentence at a time, and only
   while no device change has been attempted and the sentence claims none. From then
   on the rest is held until the turn ends (so nothing false is ever spoken);
 - at the end, if any device change was refused, unconfirmed or failed, the held text
@@ -20,6 +22,7 @@ The sentences come from `wake.reply_lines` per language (config), not from code.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 
 from sasha.config import ReplyLines, WakeConfig
 from sasha.server.wake_policy import WakeToolPolicy
@@ -34,20 +37,26 @@ def wake_control_allowed(config: WakeConfig) -> bool:
 
 
 _SENTENCE_END = re.compile(r"[.!?]+(?:\s+|$)")
-_CLEAN = re.compile(r"[^\w .-]+")
+STATE_NEAR = 3  # a state word within this many words of a device word
 
 
-def device_name(domain: str, entity: str) -> str:
-    """A short spoken name: `light.hallway` -> "hallway light"; `all` -> "all light devices"."""
-    domain = _CLEAN.sub(" ", entity.split(".", 1)[0] if "." in entity else domain).strip()
-    if entity in ("", "all"):
-        return f"all {domain} devices"[:48]
-    name = _CLEAN.sub(" ", entity.split(".", 1)[-1].replace("_", " ")).strip()[:40]
-    return name if domain in name.split() else f"{name} {domain}".strip()
-
-
-def names_text(pairs: list[tuple[str, str]], lines: ReplyLines) -> str:
-    names = [device_name(d, e) for d, e in pairs]
+def names_text(
+    pairs: list[tuple[str, str]], lines: ReplyLines, label: Callable[[str, str], str | None]
+) -> str:
+    """Spoken names, only from exposed entities' real names (T3): `label` returns None
+    for anything the house doesn't have, which becomes "a device I don't know"."""
+    names: list[str] = []
+    unknown = 0
+    for domain, entity in pairs:
+        name = label(domain, entity)
+        if name is None:
+            unknown += 1
+        elif name not in names:
+            names.append(name)
+    if unknown:
+        names.append(
+            lines.unknown_one if unknown == 1 else lines.unknown_many.format(count=unknown)
+        )
     shown = names[:MAX_NAMES]
     text = lines.joiner.join(shown)
     if len(names) > MAX_NAMES:
@@ -55,21 +64,51 @@ def names_text(pairs: list[tuple[str, str]], lines: ReplyLines) -> str:
     return text
 
 
+def _words(text: str) -> list[str]:
+    return re.findall(r"[\w']+", text.lower().replace(chr(0x2019), "'"))
+
+
 def claims_change(text: str, lines: ReplyLines) -> bool:
-    words = set(re.findall(r"[\w']+", text.lower()))
-    return bool(words & {w.lower() for w in lines.claim_words})
+    return bool(set(_words(text)) & {w.lower() for w in lines.claim_words})
+
+
+def requests_change(command: str, lines: ReplyLines) -> bool:
+    """Does the person's command ask for a device change? (T1)
+
+    A change verb anywhere ("can you turn off the light?") is a request. Otherwise a
+    state word next to a device word ("lights off") is one, unless the command is a
+    question ("is the light on?"), so honest state answers still stream.
+    """
+    words = _words(command)
+    if not words:
+        return False
+    if set(words) & {w.lower() for w in lines.change_verbs}:
+        return True
+    question = words[0] in {w.lower() for w in lines.question_words} or command.strip().endswith(
+        "?"
+    )
+    if question:
+        return False
+    states = {w.lower() for w in lines.state_words}
+    devices = {w.lower() for w in lines.device_words}
+    at_state = [i for i, w in enumerate(words) if w in states]
+    at_device = [i for i, w in enumerate(words) if w in devices]
+    return any(abs(s - d) <= STATE_NEAR for s in at_state for d in at_device)
 
 
 class TruthfulReply:
     """One per wake turn. Feed it streamed text; ask it for the final reply."""
 
-    def __init__(self, lines: ReplyLines, policy: WakeToolPolicy) -> None:
+    def __init__(self, lines: ReplyLines, policy: WakeToolPolicy, command: str = "") -> None:
         self.lines = lines
         self.policy = policy
         self.pending = ""  # text of the sentence still being written
         self.released = ""  # text already sent and spoken
         self.held = ""  # complete sentences kept back until the turn ends
-        self.holding = False
+        # T1: a command that asks for a change holds all model text from the start, so
+        # "The lights are off now." can't be spoken before the turn shows a change.
+        self.change_requested = requests_change(command, lines)
+        self.holding = self.change_requested
         self.overridden: str | None = None  # telemetry label when the server spoke
 
     def feed(self, piece: str) -> str:
@@ -94,15 +133,17 @@ class TruthfulReply:
         """(text still to send and speak, the final reply text)."""
         tail = self.held + self.pending
         self.pending = self.held = ""
-        policy, lines = self.policy, self.lines
+        policy, lines, label = self.policy, self.lines, self.policy.device_label
         if policy.not_changed:
             parts = []
             if policy.changed:
-                parts.append(lines.changed.format(names=names_text(policy.changed, lines)))
-            parts.append(lines.not_changed.format(names=names_text(policy.not_changed, lines)))
+                parts.append(lines.changed.format(names=names_text(policy.changed, lines, label)))
+            parts.append(
+                lines.not_changed.format(names=names_text(policy.not_changed, lines, label))
+            )
             self.overridden = "reply_not_changed"
             return self._override(" ".join(parts))
-        if not policy.changed and claims_change(tail, lines):
+        if not policy.changed and (self.change_requested or claims_change(tail, lines)):
             self.overridden = "reply_nothing_changed"
             return self._override(lines.nothing_changed)
         return tail, model_text  # nothing to correct: the model's own words stand
