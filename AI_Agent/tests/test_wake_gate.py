@@ -11,18 +11,43 @@ from sasha.server.wake import WakeGate, WakeMatcher, confirm_reason, is_yes
 
 @pytest.fixture
 def name(settings: Settings) -> str:
-    return settings.assistant.wake_word.phrase  # the name alone, never hard-coded here
+    return settings.assistant.wake_word.phrase  # "hey" plus the name, never hard-coded here
 
 
 @pytest.fixture
 def matcher(settings: Settings) -> WakeMatcher:
     ww, cfg = settings.assistant.wake_word, WakeConfig()
-    return WakeMatcher(ww.phrase, ww.variants, cfg.fillers, cfg.continuations)
+    return WakeMatcher(ww.phrase, ww.variants, cfg.fillers, cfg.continuations, ww.word_variants)
 
 
-def test_phrase_is_the_name_alone(settings: Settings, name: str) -> None:
-    assert name == settings.assistant.name
+def test_the_phrase_is_hey_plus_the_name_and_the_name_alone_no_longer_wakes(
+    settings: Settings, name: str, matcher: WakeMatcher
+) -> None:
+    """Owner's decision, 2026-11-16: "hey" plus the name (from assistant.yaml)."""
+    persona = settings.assistant.name
+    assert name.split()[-1] == persona and len(name.split()) > 1
     assert isinstance(settings.assistant.wake_word.variants, list)  # filled from measurements
+    assert matcher.match(f"{persona}, lights on")[0] == wake.REJECTED_NO_NAME
+    assert matcher.match(persona)[0] == wake.REJECTED_NO_NAME
+    assert matcher.match(f"{name}")[0] == wake.ACCEPTED_ALONE
+    assert matcher.match(f"{name}, lights on")[:2] == (wake.ACCEPTED_WITH_COMMAND, "lights on")
+
+
+def test_word_spellings_mix_and_whole_phrase_spellings_keep_their_index() -> None:
+    phrase = "hey Testname"  # a made-up name: the rules don't depend on the real one
+    matcher = WakeMatcher(
+        phrase,
+        variants=["eighty stname"],
+        fillers=WakeConfig().fillers,
+        word_variants={"hey": ["hay", "hi"], "TESTNAME": ["Testnaam"]},
+    )
+    assert matcher.match("hey Testname, lights on") == (wake.ACCEPTED_WITH_COMMAND, "lights on", 0)
+    assert matcher.match("Hay Testnaam, lights on")[2] == 1  # any mix of word spellings
+    assert matcher.match("hi, Testname.") == (wake.ACCEPTED_ALONE, None, 1)
+    assert matcher.match("eighty stname, lights on")[2] == 2
+    assert matcher.match("Testname, lights on")[0] == wake.REJECTED_NO_NAME
+    assert matcher.match("so hay Testname")[0] == wake.REJECTED_MID_SENTENCE
+    assert matcher.match("hayTestname")[0] == wake.REJECTED_NO_NAME
 
 
 @pytest.mark.parametrize(
@@ -68,7 +93,7 @@ def test_matcher_rules(
 def test_variant_spellings_match(name: str) -> None:
     variants = [f"Z{name[1:]}", f"{name}a"]  # spellings derived from the configured name
     matcher = WakeMatcher(name, variants, WakeConfig().fillers)
-    for index, variant in enumerate(variants, start=1):
+    for index, variant in enumerate(variants, start=2):  # 0: as written, 1: word spellings
         outcome, command, matched = matcher.match(f"{variant}, lights on")
         assert (outcome, command, matched) == (wake.ACCEPTED_WITH_COMMAND, "lights on", index)
     assert matcher.match(f"{name}, lights on")[2] == 0

@@ -32,6 +32,8 @@ def capability_section(tool_names: Iterable[str], lines: PromptLines) -> str:
         if phrase not in can:
             can.append(phrase)
     parts = [lines.can_head, *(f"- {p}" for p in can)] if can else [lines.no_tools]
+    if lines.answer_freely:
+        parts.append(lines.answer_freely)
     cannot = [limit.text for limit in lines.limits if not set(limit.unless_any) & set(names)]
     if cannot:
         parts += [lines.cannot_head, *(f"- {c}" for c in cannot)]

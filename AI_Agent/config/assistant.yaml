@@ -6,11 +6,19 @@ pronouns:
   object: her
   possessive: her
 wake_word:
-  phrase: Sasha        # the name alone; it must be the first word of what is said
-  # Other spellings speech-to-text writes for the name, from measurements only. With 5
-  # synthetic voices x 3 speeds, Whisper small wrote the name exactly every time it was
-  # followed by a command (45/45); add spellings seen in the owner-voice test here.
+  # What wakes her: it must come first in what is said. "hey" plus the name since
+  # 2026-11-16 (the owner's decision; the name alone no longer wakes her).
+  phrase: hey Sasha
+  # Other spellings speech-to-text writes for the whole phrase, from measurements only.
   variants: []
+  # Other spellings for one word of the phrase (any mix matches), from measurements only
+  # (bench/wake_synthetic.py; see Dependencies/team/wake-word-design.md).
+  word_variants: {}
+  # How people say it, as Kokoro phonemes, for bench/wake_synthetic.py only: a long
+  # "aa" (Indian English) and an "sh" start.
+  test_pronunciations: ["hˈeɪ sˈɑːʃə", "hˈeɪ ʃˈɑːʃə"]
+  # Names that sound like it, for the bench's false-wake set only.
+  test_soundalikes: [Masha, Sacha, Natasha, Shasha, Pasha]
   model: null          # path to a trained openWakeWord .onnx (later, on-device)
   threshold: 0.5
 voice:

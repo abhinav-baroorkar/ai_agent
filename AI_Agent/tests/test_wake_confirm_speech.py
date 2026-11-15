@@ -77,7 +77,12 @@ def test_w2_cancel_during_the_question_ends_at_once(settings: Settings, tmp_path
         rest = turn_frames(ws)
         elapsed = time.perf_counter() - started
         tts.release.set()  # let the held speech thread finish before the socket closes
-    assert early[-1] == {"type": "wake", "heard": False, "command": False}
+    assert early[-1] == {
+        "type": "wake",
+        "heard": False,
+        "command": False,
+        "reason": "dropped_busy",
+    }
     assert stt.calls == 1  # the early segment was never transcribed
     assert {"type": "confirm_result", "accepted": False, "reason": "no"} in rest
     assert dev.calls == [] and elapsed < 3  # no waiting out the 5 s window

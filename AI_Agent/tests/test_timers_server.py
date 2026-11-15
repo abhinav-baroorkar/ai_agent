@@ -244,7 +244,8 @@ def test_other_segments_do_not_stop_it(settings: Settings, tmp_path: Path, heard
     result = first(got, "stop_result")
     assert result == {"type": "stop_result", "id": item.id, "accepted": False, "action": None}
     assert service.items[item.id].state == "ringing"
-    assert got[-1] == {"type": "wake", "heard": False, "command": False}  # the normal check
+    last = got[-1]  # the normal wake check (main's frame also carries its reason now)
+    assert last["type"] == "wake" and last["heard"] is False and last["command"] is False
 
 
 def open_window(settings: Settings, tmp_path: Path) -> tuple[Any, Any, TimerService, TimerItem]:

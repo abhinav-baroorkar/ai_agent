@@ -5,10 +5,11 @@ transcribes a segment, asks `WakeGate.decide`, and on anything but a hit throws 
 text away. The phrase and its spellings come from assistant.yaml (`wake_word`), never
 from code.
 
-Rules (Dependencies/team/wake-word-design.md, section 2):
-- the name must be the FIRST word, after optional fillers ("uh", "hey", "ok");
-- "name, command" is a hit with the rest as the command;
-- the name alone arms a short window: the next segment is the command;
+Rules (Dependencies/team/wake-word-design.md, section 2; the phrase became "hey" plus
+the name on 2026-11-16, the owner's decision):
+- the phrase must come FIRST, after optional fillers ("uh", "ok");
+- "phrase, command" is a hit with the rest as the command;
+- the phrase alone arms a short window: the next segment is the command;
 - refused: the name mid-sentence or at the end, a possessive ("name's"), a word that
   means the name is talked about ("name is ..."), near names (whole-word match only),
   and the name alone below a confidence threshold.
@@ -18,7 +19,7 @@ from __future__ import annotations
 
 import re
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
 # Outcomes. Only these labels (never text) go to telemetry.
@@ -64,11 +65,23 @@ class WakeMatcher:
         variants: Sequence[str] = (),
         fillers: Sequence[str] = (),
         continuations: Sequence[str] = (),
+        word_variants: Mapping[str, Sequence[str]] | None = None,
     ) -> None:
-        forms = [f for f in (_words_pattern(p) for p in (phrase, *variants)) if f]
-        if not forms:
+        """`phrase` may be several words ("hey <name>"). `word_variants` gives other
+        spellings per word; any mix of them matches (form 1). Form 0 is the phrase as
+        written, forms 2+ are whole-phrase `variants`: the index goes to telemetry."""
+        self.phrase = phrase  # also the decoder's hotword for wake segments
+        exact = _words_pattern(phrase)
+        if not exact:
             raise ValueError("wake_word.phrase has no words")
-        self.forms = forms
+        spelled = {k.lower(): list(v) for k, v in (word_variants or {}).items()}
+        words = re.findall(r"\w+", phrase.lower())
+        mixed = r"\W+".join(
+            "(?:" + "|".join(f for f in map(_words_pattern, [w, *spelled.get(w, [])]) if f) + ")"
+            for w in words
+        )
+        forms = [exact, mixed if any(spelled.get(w) for w in words) else r"(?!)"]
+        self.forms = forms + [f for f in map(_words_pattern, variants) if f]
         filler = "|".join(re.escape(f.lower()) for f in fillers) or r"(?!)"
         self._lead = rf"^\W*(?:(?:{filler})\W+)*"
         self._continuations = {c.lower() for c in continuations}

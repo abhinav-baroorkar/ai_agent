@@ -31,7 +31,11 @@ async def open_listener(
         log.warning("Bot %s: %s", bot.id, warning)
     wake_word, config = settings.assistant.wake_word, settings.profile.wake
     matcher = WakeMatcher(
-        wake_word.phrase, wake_word.variants, config.fillers, config.continuations
+        wake_word.phrase,
+        wake_word.variants,
+        config.fillers,
+        config.continuations,
+        wake_word.word_variants,
     )
     assert deps.wake_limiter is not None
     conv = ListenerConversation(
@@ -52,11 +56,17 @@ async def open_listener(
         speak=speak,
         timers=timers,
     )
-    # The prompt states what wake turns can really do: the policy's view of the tools
-    # (the wake timer tools included), without device control unless it is allowed now.
-    # Then the wake turn's own line (a hint; TruthfulReply is the guarantee).
-    control = conv.policy.device_control()
-    names = [n for n in conv.assistant.tools.names if n != CONTROL_TOOL or control]
-    prompt = deps.prompt_for(bot, names, spoken=speak)
-    assistant.system_prompt = f"{prompt}\n{config.prompt_note}"
+
+    def wake_prompt() -> str:
+        """What wake turns can really do now: the policy's view of the tools (the wake
+        timer tools included), without device control unless it is allowed now; then
+        the wake turn's own line (a hint; TruthfulReply is the guarantee). Rebuilt every
+        turn, so turning the opt-in on or off takes effect at once."""
+        control = conv.policy.device_control()
+        names = [n for n in conv.assistant.tools.names if n != CONTROL_TOOL or control]
+        prompt = deps.prompt_for(deps.bots.get(VOICE_ID), names, spoken=speak)
+        return f"{prompt}\n{config.prompt_note}"
+
+    conv.wake_prompt = wake_prompt
+    assistant.system_prompt = wake_prompt()
     return conv
