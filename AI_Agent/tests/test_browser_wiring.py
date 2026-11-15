@@ -261,6 +261,8 @@ def test_leak_check_sees_through_rewritten_identifiers() -> None:
         "mango42",
         "42-mango",
         "m-a-n-g-o-4-2",
+        "mango four two",
+        "MANGO four-two",
         "AB 12 CD",
         "ab-12-cd tracking",
     ):

@@ -99,11 +99,16 @@ def check_query(
                 raise QueryLeakError("Searches can't contain long numbers" + REPHRASE)
 
     earlier_ids = set().union(*(_identifiers(m) for m in earlier)) - _identifiers(current)
-    squeezed_turn = _squeeze(turn)
-    turn_chunks = set(_CHUNKS.findall(turn))
+    spoken = _digits_from_words(turn)  # "mango four two" -> "mango 4 2"
+    squeezed_turn, squeezed_spoken = _squeeze(turn), _squeeze(spoken)
+    turn_chunks = set(_CHUNKS.findall(turn)) | set(_CHUNKS.findall(spoken))
     for ident in earlier_ids:
         chunks = _CHUNKS.findall(ident)
-        if ident in squeezed_turn or all(c in turn_chunks for c in chunks):
+        if (
+            ident in squeezed_turn
+            or ident in squeezed_spoken
+            or all(c in turn_chunks for c in chunks)
+        ):
             raise QueryLeakError(
                 "Searches can't contain codes or identifiers from earlier messages" + REPHRASE
             )
