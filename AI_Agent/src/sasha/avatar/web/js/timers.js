@@ -7,7 +7,7 @@
 import { api, MOCK } from './api.js';
 import { $, clear } from './dom.js';
 import { cleanTimer } from './clean.js';
-import { NAME, timerRow, titleOf } from './timers-view.js';
+import { NAME, timerRow } from './timers-view.js';
 
 const CONFIRM_MS = 4000; // how long "Really delete?" stays armed
 const ORDER = { ringing: 0, pending: 1, scheduled: 2, missed: 3, done: 4 };
@@ -111,7 +111,10 @@ export function initTimers({ conv, onRinging }) {
     el.bar.hidden = !first;
     onRinging(!!first);
     if (!first) return;
-    const fallback = first.late_s > 0 ? 'You have a missed reminder.' : `${NAME[first.kind]}: ${titleOf(first)}`;
+    // Without the server's sentence (the page opened mid-ring) the bar names only the kind.
+    // It never builds a sentence from the item's own text: what is shown here is what the
+    // server chose to say, and for late items that is deliberately a generic line.
+    const fallback = `${first.kind === 'alarm' ? 'An' : 'A'} ${NAME[first.kind].toLowerCase()} is ringing.`;
     const more = ringing.length > 1 ? `  (+${ringing.length - 1} more)` : '';
     el.barText.textContent = (says.get(first.id) || fallback) + more;
     el.barIcon.setAttribute('href', `#i-${first.kind === 'alarm' ? 'alarm' : first.kind === 'reminder' ? 'note' : 'timer'}`);
