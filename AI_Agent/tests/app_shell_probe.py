@@ -89,7 +89,17 @@ def run(profile: Path) -> dict[str, Any]:
 
     def finish() -> None:
         result["url_after_link"] = shell.page.url().toString()
-        app.quit()
+        from sasha.app.shell import bring_up
+
+        bring_up(app, shell, True, "probe")  # the wake: Home, and the entrance event
+        QTimer.singleShot(300, woke)
+
+    def woke() -> None:
+        def got(value: Any) -> None:
+            result["after_wake"] = value
+            app.quit()
+
+        shell.page.runJavaScript("(window.assistantWokeAt > 0) + ' ' + location.hash", 0, got)
 
     shell.page.titleChanged.connect(title)
     QTimer.singleShot(15000, app.quit)

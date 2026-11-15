@@ -89,3 +89,4 @@ def test_the_real_shell_offscreen(tmp_path: Path) -> None:
     assert r["mic"] == "granted:1"  # our origin, the fake device
     assert r["url_after_link"].startswith(f"http://127.0.0.1:{r['port']}/")  # stayed home
     assert r["blocked"] >= 3  # the other socket, the fetch, the image
+    assert r["after_wake"] == "true #home"  # a wake switches to Home and plays the entrance

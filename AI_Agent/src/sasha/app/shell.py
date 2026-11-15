@@ -30,7 +30,13 @@ CHROMIUM_FLAGS = (
     "--disable-domain-reliability",
     "--no-pings",
 )
-WAKE_JS = "location.hash = 'home';window.dispatchEvent(new CustomEvent('assistant-wake'));"
+# Home plays the entrance on this event; the time is left for a page still starting
+# (Home reads it when it is ready), so a cold start shows the entrance too.
+WAKE_JS = (
+    "window.assistantWokeAt = performance.now();"
+    "location.hash = 'home';"
+    "window.dispatchEvent(new CustomEvent('assistant-wake'));"
+)
 
 
 def chromium_flags(dead_proxy: int) -> str:
@@ -44,6 +50,8 @@ class Shell:
     page: Any
     profile: Any
     interceptor: Any
+    loaded: bool = False
+    pending_wake: bool = False
 
 
 def build(
@@ -116,8 +124,19 @@ def build(
     if icon is not None and icon.is_file():
         window.setWindowIcon(QIcon(str(icon)))
     window.resize(1100, 800)
+    shell = Shell(window, page, profile, interceptor)
+
+    def loaded(ok: bool) -> None:
+        if not ok:  # e.g. a refused navigation: the page we have is still there
+            return
+        shell.loaded = True
+        if shell.pending_wake:
+            shell.pending_wake = False
+            page.runJavaScript(WAKE_JS)
+
+    page.loadFinished.connect(loaded)
     page.load(QUrl(policy.own_origin(port) + (start if start.startswith("/") else "/")))
-    return Shell(window, page, profile, interceptor)
+    return shell
 
 
 def bring_up(app: Any, shell: Shell, wake: bool, notice: str) -> None:
@@ -130,7 +149,10 @@ def bring_up(app: Any, shell: Shell, wake: bool, notice: str) -> None:
     shell.window.raise_()
     shell.window.activateWindow()
     if wake:
-        shell.page.runJavaScript(WAKE_JS)
+        if shell.loaded:
+            shell.page.runJavaScript(WAKE_JS)
+        else:  # a cold start: once the page is there
+            shell.pending_wake = True
 
         def check() -> None:
             if app.activeWindow() is None:
