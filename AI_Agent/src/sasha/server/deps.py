@@ -113,6 +113,7 @@ def build_deps(settings: Settings, reload_env: bool = True) -> ServerDeps:
         main_prompt=settings.assistant.render_system_prompt(),
         default_model=settings.profile.llm.model,
         connector_ids=lambda: connectors.ids,
+        connector_kinds=lambda: connectors.kinds,
         main_connectors=[HomeAssistantConnector.id],
         installed_models=lambda: [m["name"] for m in list_models()],
         wake_control_allowed=lambda: wake_control_allowed(settings.profile.wake),

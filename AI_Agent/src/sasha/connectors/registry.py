@@ -46,6 +46,10 @@ class ConnectorRegistry:
     def ids(self) -> list[str]:
         return list(self._connectors)
 
+    @property
+    def kinds(self) -> dict[str, str]:
+        return {cid: c.kind for cid, c in self._connectors.items()}
+
     def get(self, connector_id: str) -> Connector:
         try:
             return self._connectors[connector_id]
@@ -125,7 +129,10 @@ class ConnectorRegistry:
         warnings: list[str] = []
         connector_ids = list(connector_ids)
         try:
-            check_combination(connector_ids)  # B4 again at run time, whatever was saved
+            # B4 again at run time, whatever was saved, on the connectors' real kinds
+            check_combination(
+                {c: getattr(self._connectors.get(c), "kind", None) for c in connector_ids}
+            )
         except BrowserCombinationError as exc:
             return registry, [str(exc)]
         for cid in connector_ids:
