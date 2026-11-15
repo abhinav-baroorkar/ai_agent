@@ -216,6 +216,10 @@ class Conversation:
             if self.speaker is not None:
                 speaker = self.speaker
                 await (speaker.finish() if reply is not None else speaker.abort())
+            if reply is not None and self.stop.is_set():
+                # Stopped (or talked over) while it was still being spoken: the reply is
+                # in the history, but the model should know it wasn't all heard.
+                self.assistant.mark_interrupted()
             spoken = True
         except Exception as exc:  # never let one turn kill the connection
             log.error("Turn failed: %s", type(exc).__name__)

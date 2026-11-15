@@ -204,6 +204,9 @@ class LLMConfig(BaseModel):
     keep_alive: str | None = None
     timeout_s: float = 120.0
     max_tool_rounds: int = 4
+    # Kept in the history (the model sees it, nobody else) when a reply was stopped.
+    interrupted_note: str = "[The owner stopped this reply here; it was not finished.]"
+    interrupted_keep_chars: int = 2000  # at most this much of a stopped reply is kept
 
 
 class TelemetryConfig(BaseModel):
