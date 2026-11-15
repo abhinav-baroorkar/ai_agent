@@ -38,9 +38,24 @@ export function openBotForm({ bot, models, connectors, preferModel }) {
   if (!connectors.length) f.conns.append(h('p', { class: 'check' }, h('small', {}, 'No connectors yet. Add them in Settings.')));
   for (const c of connectors) {
     const note = c.status === 'ok' ? `${c.tools.length} tools` : c.status === 'off' ? 'switched off' : c.status === 'needs_setup' ? 'needs setup' : 'has an error';
+    const alone = c.kind === 'browser' ? ', must be the only connector' : '';
     f.conns.append(h('label', { class: 'check' },
-      h('input', { type: 'checkbox', value: c.id, checked: bot ? bot.connectors.includes(c.id) : false }),
-      c.name, h('small', {}, note)));
+      h('input', { type: 'checkbox', value: c.id, checked: bot ? bot.connectors.includes(c.id) : false,
+        dataset: { kind: c.kind }, onchange: exclusive }),
+      c.name, h('small', {}, note + alone)));
+  }
+  exclusive();
+
+  // A bot that browses can have no other connector (the server enforces it too):
+  // ticking Browser clears and locks the rest, so the form can't offer a refused mix.
+  function exclusive() {
+    const boxes = [...f.conns.querySelectorAll('input')];
+    const browsing = boxes.some((b) => b.dataset.kind === 'browser' && b.checked);
+    for (const b of boxes) {
+      if (b.dataset.kind === 'browser') continue;
+      if (browsing) b.checked = false;
+      b.disabled = browsing;
+    }
   }
 
   return new Promise((resolve) => {

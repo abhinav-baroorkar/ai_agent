@@ -40,6 +40,22 @@ export function cleanHealth(hl) {
   };
 }
 
+// What the assistant's browser is doing. Sites and titles come from web pages.
+export function cleanBrowserState(b) {
+  const s = b && typeof b === 'object' ? b : {};
+  const g = s.guard && typeof s.guard === 'object' ? s.guard : {};
+  const count = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Math.floor(Number(v)) : 0);
+  const refused = {};
+  if (g.refused && typeof g.refused === 'object') for (const [k, v] of Object.entries(g.refused)) refused[str(k)] = count(v);
+  return {
+    enabled: s.enabled === true, running: s.running === true, agent: s.agent === 'working' ? 'working' : 'idle',
+    tabs: (Array.isArray(s.tabs) ? s.tabs : []).filter((t) => t && typeof t === 'object').slice(0, 20).map((t) => ({
+      tab: count(t.tab), site: str(t.site).slice(0, 255), title: str(t.title).slice(0, 80), current: t.current === true,
+    })),
+    guard: { allowed: count(g.allowed), refused, background_refused: count(g.background_refused) },
+  };
+}
+
 const KINDS = ['timer', 'alarm', 'reminder'];
 const TIMER_STATES = ['scheduled', 'ringing', 'pending', 'missed', 'done'];
 

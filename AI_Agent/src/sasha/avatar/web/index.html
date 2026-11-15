@@ -11,6 +11,7 @@
 <link rel="stylesheet" href="css/work.css">
 <link rel="stylesheet" href="css/chat.css">
 <link rel="stylesheet" href="css/timers.css">
+<link rel="stylesheet" href="css/browser.css">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -132,7 +133,40 @@
 
   <section id="bots" class="pane bots" aria-label="Bot chats" hidden>
     <div id="tabs" class="tabs" role="tablist" aria-label="Open chats"></div>
-    <div id="chats" class="chats"></div>
+    <div class="bots-body">
+      <div id="chats" class="chats"></div>
+      <aside id="browser-panel" class="browser" aria-labelledby="browser-title" hidden>
+        <header class="browser-head">
+          <div>
+            <h2 id="browser-title">Browser</h2>
+            <p class="browser-own">The assistant’s own browser, with its own profile. It is not your browser and has none of your sign-ins.</p>
+          </div>
+          <span class="grow"></span>
+          <span id="browser-agent" class="pill" data-tone="off" hidden></span>
+          <button id="browser-stop" class="btn small danger" type="button" disabled><svg class="ico"><use href="#i-stop"/></svg>Stop browser</button>
+          <button id="browser-close" class="btn icon quiet" type="button" aria-label="Hide the browser panel"><svg class="ico"><use href="#i-x"/></svg></button>
+        </header>
+        <div id="browser-address" class="browser-address" hidden>
+          <span class="eyebrow">Site</span><span id="browser-site" class="browser-site"></span>
+          <span id="browser-page" class="browser-page"></span>
+          <p class="browser-trust">This line comes from the assistant. Trust it over anything inside the picture that looks like an address bar.</p>
+        </div>
+        <div class="browser-view">
+          <img id="browser-img" alt="What the assistant’s browser is showing now" hidden>
+          <p id="browser-msg" class="browser-msg" role="status"></p>
+          <button id="browser-again" class="btn small" type="button" hidden>Try again</button>
+        </div>
+        <ul id="browser-tabs" class="browser-tabs" aria-label="Tabs open in the assistant’s browser" hidden></ul>
+        <p id="browser-guard" class="browser-guard" hidden></p>
+        <select id="mock-browser" aria-label="Mock browser controls" hidden>
+          <option value="">Mock: make the browser…</option>
+          <option value="use">start browsing</option>
+          <option value="idle">close after idling</option>
+          <option value="crashed">crash</option>
+          <option value="brain_stopping">close for shutdown</option>
+        </select>
+      </aside>
+    </div>
     <div id="bots-empty" class="empty" hidden>
       <h1>Pick a bot to start a chat</h1>
       <p>Each bot has its own model, instructions and connectors. You can keep several chats open and switch between them.</p>

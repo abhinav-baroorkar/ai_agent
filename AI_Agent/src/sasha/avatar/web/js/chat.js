@@ -9,7 +9,7 @@ function chip(tool) {
 }
 
 export class ChatView {
-  constructor(bot, { onBusy, onEdit }) {
+  constructor(bot, { onBusy, onEdit, onBrowser }) {
     this.bot = bot;
     this.onBusy = onBusy;
     this.busy = false;
@@ -28,11 +28,15 @@ export class ChatView {
     this.stopBtn = h('button', { class: 'btn danger', type: 'button', hidden: true,
       onclick: () => this.conv.cancel() }, icon('stop'), 'Stop');
     this.refused = false;
+    // shows or hides the live view of the assistant's browser beside this chat
+    this.browserBtn = h('button', { class: 'btn small quiet', type: 'button', 'aria-pressed': 'false',
+      onclick: () => onBrowser(this.bot) }, 'Browser');
 
     this.el = h('section', { class: 'chat', role: 'tabpanel' },
       h('header', { class: 'chat-head' }, this.avatar,
         h('div', {}, this.title, h('div', {}, this.meta)),
         h('span', { class: 'grow' }), this.offline,
+        this.browserBtn,
         h('button', { class: 'btn small quiet', type: 'button', onclick: () => this.restart() }, 'Clear chat'),
         h('button', { class: 'btn small', type: 'button', onclick: () => onEdit(this.bot) }, 'Edit bot')),
       this.log,

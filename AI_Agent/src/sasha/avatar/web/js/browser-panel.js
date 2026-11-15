@@ -1,0 +1,167 @@
+// The live view of the assistant's own browser, beside a bot's chat: watch and
+// stop, nothing more. Everything that comes from a web page is untrusted: the
+// picture is shown only as a JPEG in an <img>, and the site and title only as
+// plain text. Nothing from it goes into the page title, the address, the
+// console or any storage.
+import { api, MOCK } from './api.js';
+import { $, h, clear } from './dom.js';
+import { cleanBrowserState } from './clean.js';
+import { BrowserLink } from './browser-link.js';
+
+const MAX_JPEG_CHARS = 720000; // a little over the server's own 512 KB limit, as base64
+const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
+const STOPPED = {
+  idle: 'The browser closed itself after sitting idle.',
+  owner: 'You stopped the browser.',
+  brain_stopping: 'The browser closed because the assistant is shutting down.',
+  crashed: 'The browser crashed. It starts again the next time it is needed.',
+};
+const WAITING = 'The browser isn’t running. It starts when you ask the assistant to look something up.';
+
+export function initBrowserPanel(health) {
+  const el = {
+    panel: $('#browser-panel'), title: $('#browser-title'), agent: $('#browser-agent'), stop: $('#browser-stop'),
+    close: $('#browser-close'), address: $('#browser-address'), site: $('#browser-site'), page: $('#browser-page'),
+    img: $('#browser-img'), msg: $('#browser-msg'), again: $('#browser-again'), tabs: $('#browser-tabs'),
+    guard: $('#browser-guard'), mock: $('#mock-browser'), body: $('.bots-body'),
+  };
+  const link = new BrowserLink();
+  let bot = null;
+  let hasConnector = false;
+  let open = false;
+  let state = cleanBrowserState(null);
+  let lastStop = '';
+  let failed = '';
+  let onClose = () => {};
+  el.title.textContent = `${health.assistant.name}’s browser`;
+
+  const visible = () => open && !$('#bots').hidden && !document.hidden;
+
+  // Connect only for a panel that is open on a bot that can browse; ask for frames
+  // only while it can actually be seen. Nobody watching means nothing is captured.
+  function sync() {
+    if (open && hasConnector) link.open(); else link.close();
+    link.watch(visible() && hasConnector);
+    render();
+  }
+
+  function message() {
+    if (!hasConnector) {
+      return `${bot ? bot.name : 'This bot'} can’t use the browser. To let a bot browse: Edit bot, tick Browser, and untick everything else (a browsing bot can have no other connector).`;
+    }
+    if (link.status === 'busy') return 'Another window is already watching the browser. Only one can watch at a time.';
+    if (link.status === 'refused') return 'The assistant refused this window’s request to watch the browser.';
+    if (link.status === 'offline') return 'Can’t reach the assistant. Trying again…';
+    if (link.status !== 'open') return 'Connecting…';
+    if (!state.enabled) return 'The browser is off. Turn it on in Settings.';
+    if (!state.running) return [lastStop, WAITING].filter(Boolean).join(' ');
+    return el.img.hidden ? 'Waiting for the first picture…' : '';
+  }
+
+  function render() {
+    el.panel.hidden = !open;
+    el.body.classList.toggle('with-browser', open);
+    if (!open) return;
+    const live = hasConnector && link.status === 'open' && state.running;
+    if (!live) dropPicture();
+    el.address.hidden = !live;
+    el.stop.disabled = !live;
+    el.agent.hidden = !(hasConnector && link.status === 'open');
+    el.agent.dataset.tone = !state.running ? 'off' : state.agent === 'working' ? 'thinking' : 'ok';
+    el.agent.textContent = !state.running ? 'Not running' : state.agent === 'working' ? 'In use now' : 'Open, idle';
+    const text = failed || message();
+    el.msg.textContent = text;
+    el.msg.hidden = !text;
+    el.again.hidden = !(hasConnector && (link.status === 'busy' || link.status === 'refused'));
+
+    const tab = state.tabs.find((t) => t.current) || state.tabs[0];
+    el.site.textContent = live && tab ? tab.site || '(no site)' : '';
+    el.page.textContent = live && tab ? tab.title : '';
+    clear(el.tabs).append(...(live ? state.tabs : []).map((t) => h('li', { class: 'browser-tab', 'aria-current': t.current ? 'true' : null },
+      h('span', { class: 'n' }, String(t.tab)), h('span', { class: 'site' }, t.site || '(no site)'), h('span', { class: 'title' }, t.title))));
+    el.tabs.hidden = !live || state.tabs.length < 2;
+    el.guard.textContent = live ? guardLine(state.guard) : '';
+    el.guard.hidden = !live;
+  }
+
+  function dropPicture() {
+    el.img.hidden = true;
+    el.img.removeAttribute('src'); // nothing stale stays on screen
+  }
+
+  async function onFrame(m) {
+    const seq = m.seq;
+    const ok = visible() && state.running && typeof m.jpeg === 'string' && m.jpeg.length <= MAX_JPEG_CHARS && BASE64.test(m.jpeg);
+    if (ok) {
+      const w = Number(m.w);
+      const hgt = Number(m.h);
+      if (w > 0 && hgt > 0) el.img.style.aspectRatio = `${w} / ${hgt}`;
+      el.img.src = `data:image/jpeg;base64,${m.jpeg}`; // only ever a JPEG in an <img>
+      try {
+        await el.img.decode();
+        if (visible() && state.running) {
+          el.img.hidden = false;
+          el.msg.hidden = true;
+        }
+      } catch {
+        dropPicture(); // not a picture after all
+      }
+    }
+    link.ack(seq); // always, so the stream never stalls on a frame we skipped
+  }
+
+  link
+    .on('status', () => { if (link.status !== 'open') state = cleanBrowserState(null); render(); })
+    .on('state', (m) => { state = cleanBrowserState(m); if (state.running) lastStop = ''; failed = ''; render(); })
+    .on('frame', onFrame)
+    .on('stopped', (m) => { lastStop = STOPPED[m.reason] || 'The browser stopped.'; dropPicture(); render(); })
+    .on('error', (m) => { failed = String(m.message ?? ''); render(); });
+
+  el.stop.addEventListener('click', async () => {
+    failed = '';
+    if (link.stop()) return;
+    try {
+      await api('POST', '/api/browser/stop');
+    } catch (err) {
+      failed = err.message;
+      render();
+    }
+  });
+  el.close.addEventListener('click', () => onClose());
+  el.again.addEventListener('click', () => { failed = ''; link.again(); });
+  document.addEventListener('visibilitychange', sync);
+  window.addEventListener('hashchange', () => setTimeout(sync, 0)); // after the screens have switched
+  window.addEventListener('pagehide', () => link.close());
+
+  if (MOCK) {
+    el.mock.hidden = false;
+    el.mock.addEventListener('change', async () => {
+      const mock = await import('./mock-browser.js');
+      if (el.mock.value === 'use') mock.use(); else if (el.mock.value) mock.stop(el.mock.value);
+      el.mock.value = '';
+    });
+  }
+
+  return {
+    // Which chat is in front, whether its bot may browse, and whether its panel is open.
+    show(nextBot, canBrowse, isOpen, close) {
+      const changedBot = (nextBot && nextBot.id) !== (bot && bot.id);
+      bot = nextBot;
+      hasConnector = !!canBrowse;
+      open = !!isOpen && !!bot;
+      onClose = close || (() => {});
+      if (changedBot) { lastStop = ''; failed = ''; }
+      sync();
+    },
+  };
+}
+
+// "3 addresses refused" and friends: the safety net, in one quiet line.
+function guardLine(guard) {
+  const refused = Object.values(guard.refused).reduce((a, b) => a + b, 0);
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+  const parts = [`${plural(refused, 'address', 'addresses')} refused`];
+  if (guard.background_refused) parts.push(`${plural(guard.background_refused, 'background request', 'background requests')} refused`);
+  parts.push(`${guard.allowed} allowed`);
+  return parts.join(' · ');
+}
