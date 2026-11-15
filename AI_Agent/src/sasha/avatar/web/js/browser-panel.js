@@ -3,7 +3,7 @@
 // picture is shown only as a JPEG in an <img>, and the site and title only as
 // plain text. Nothing from it goes into the page title, the address, the
 // console or any storage.
-import { api, MOCK } from './api.js';
+import { api, HAS_TOKEN, MOCK } from './api.js';
 import { $, h, clear } from './dom.js';
 import { cleanBrowserState } from './clean.js';
 import { BrowserLink } from './browser-link.js';
@@ -53,7 +53,11 @@ export function initBrowserPanel(health) {
       return `${bot ? bot.name : 'This bot'} can’t use the browser. To let a bot browse: Edit bot, tick Browser, and untick everything else (a browsing bot can have no other connector).`;
     }
     if (link.status === 'busy') return 'Another window is already watching the browser. Only one can watch at a time.';
-    if (link.status === 'refused') return 'The assistant refused this window’s request to watch the browser.';
+    if (link.status === 'refused') {
+      return HAS_TOKEN
+        ? 'The assistant refused this window’s request to watch the browser.'
+        : 'Open the window with “sasha window” (or reopen it) to watch the browser.';
+    }
     if (link.status === 'offline') return 'Can’t reach the assistant. Trying again…';
     if (link.status !== 'open') return 'Connecting…';
     if (!state.enabled) return 'The browser is off. Turn it on in Settings.';

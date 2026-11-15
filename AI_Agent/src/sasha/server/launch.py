@@ -21,6 +21,7 @@ import httpx
 from sasha.config import Settings
 from sasha.server.security import is_loopback
 from sasha.server.warmup import WARMUP_TIMEOUT_S
+from sasha.server.window_token import read_token, write_start_page
 
 CHROMIUM_BROWSERS = ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser")
 # A fresh profile must not reach Google or the desktop keyring: no background
@@ -246,7 +247,13 @@ def open_window(
             return 1
 
     profile_dir = settings.paths.data_dir / "chrome-profile"
-    window = browser_command(url, profile_dir, proxy_port)
+    token = read_token(settings.paths.state_dir)
+    if token is None:  # an older brain: the window works, its browser panel doesn't
+        print("[warn] No window token from the brain; the browser panel will be refused.")
+        start = url
+    else:  # opened on a private local page, so the token is never on a command line
+        start = write_start_page(profile_dir, url, token).as_uri()
+    window = browser_command(start, profile_dir, proxy_port)
     if window is None:
         print(
             "No Chrome/Chromium found. Not opening your default browser, because it can't "

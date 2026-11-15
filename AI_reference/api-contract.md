@@ -174,6 +174,15 @@ guard:{allowed:int, refused:{<category>:int}, background_refused:int}}`.
   allow), by category. `background_refused`: everything else refused, which is Chrome's
   own background traffic (update, account and similar calls), not anything the page did.
 
+Window token (v0.4.2): every `/api/browser*` route needs the header
+`X-Window-Token: <token>` (401 `{error}` otherwise), and `/ws/browser` needs the
+subprotocols `["brain.v1", "token.<token>"]` (close 1008 otherwise; the server accepts
+with `brain.v1` only). The token is made by the brain at each start and reaches the
+window only through `sasha window`, as the address fragment `#t=<token>`. The UI reads
+it, keeps it in memory, and strips it from the address with `history.replaceState`. A
+window opened another way (or reloaded) has no token, and its browser panel is refused.
+The other routes and `/ws` don't need it yet.
+
 WebSocket `/ws/browser` (one viewer):
 - Same Host and Origin checks as `/ws`, and an `Origin` header is required (the
   window's own); a socket from a non-loopback peer or without `Origin` is closed with
@@ -223,5 +232,7 @@ WebSocket `/ws/browser` (one viewer):
   the window only over `/ws/browser`. `agent` is `working` for the whole turn and pushed
   at once; `guard.refused` counts only the pages' own refusals, the rest is
   `background_refused`.
+- v0.4.2 (2026-11-15): the window token on `/api/browser*` (`X-Window-Token`) and
+  `/ws/browser` (subprotocols `brain.v1` and `token.<token>`).
 - Planned for v0.5 (not built yet): `POST /api/connectors` and
   `DELETE /api/connectors/{id}` to add and remove MCP connectors from Settings.

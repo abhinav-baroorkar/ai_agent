@@ -18,7 +18,7 @@ from sasha.bots import BOT_ID_RE, MAIN_ID, VOICE_ID, BotError, BotNotFound, pars
 from sasha.browser.hooks import attach_browser
 from sasha.connectors import ConnectorError
 from sasha.pipeline.llm import OllamaError
-from sasha.server.browser_view import BROWSER_SOCKETS, add_browser_routes
+from sasha.server.browser_view import BROWSER_SOCKETS, add_browser_routes, attach_window_token
 from sasha.server.deps import ServerDeps
 from sasha.server.security import LocalOnlyMiddleware, allowed_hosts, allowed_origins
 from sasha.server.speaking import SpeakingTracker
@@ -182,6 +182,7 @@ def create_app(deps: ServerDeps, web_dir: Path | None = WEB_DIR) -> FastAPI:
         return {"ok": result.ok, "message": result.message}
 
     app.state.browser_view = add_browser_routes(app, deps)  # v0.4, before the static mount
+    attach_window_token(app, deps.window_token, settings.paths.state_dir)
 
     # --- conversation ----------------------------------------------------------
     async def refuse(websocket: WebSocket, reason: str, code: int = 1008) -> None:

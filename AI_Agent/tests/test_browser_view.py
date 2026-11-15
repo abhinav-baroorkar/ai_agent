@@ -21,8 +21,24 @@ from sasha.config import load_settings
 from sasha.connectors import ConnectorRegistry
 from sasha.connectors.browser import BrowserConnector
 from sasha.server.app import create_app
+from sasha.server.window_token import WindowToken
 from sasha.state import JsonStore
 from tests.server_fakes import BASE_URL, WS, Harness
+
+TOKEN = "ab" * 32
+PROTOCOLS = ["brain.v1", f"token.{TOKEN}"]
+
+
+class WindowClient(TestClient):
+    """A test client that talks like the window: token header and subprotocols."""
+
+    def __init__(self, app: Any, **kwargs: Any) -> None:
+        super().__init__(app, headers={"x-window-token": TOKEN}, **kwargs)
+
+    def websocket_connect(self, url: str, subprotocols: Any = None, **kwargs: Any) -> Any:
+        protocols = PROTOCOLS if subprotocols is None else subprotocols
+        return super().websocket_connect(url, subprotocols=protocols, **kwargs)
+
 
 JPEG = base64.b64encode(b"\xff\xd8\xff\xe0" + b"x" * 64).decode()
 LOCAL = ("127.0.0.1", 50000)
@@ -103,7 +119,8 @@ def setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
     harness.deps.connectors = ConnectorRegistry(
         [connector], JsonStore(tmp_path / "connectors.json")
     )
-    client = TestClient(create_app(harness.deps, web_dir=None), base_url=BASE_URL, client=LOCAL)
+    harness.deps.window_token = WindowToken(TOKEN)
+    client = WindowClient(create_app(harness.deps, web_dir=None), base_url=BASE_URL, client=LOCAL)
     client.harness = harness  # type: ignore[attr-defined]
     client.connector = connector  # type: ignore[attr-defined]
     with client:
@@ -152,7 +169,7 @@ def test_http_checks(setup: Any) -> None:
     )
     plain = {"content-type": "text/plain"}
     assert client.post("/api/browser/stop", content=b"stop", headers=plain).status_code == 415
-    with TestClient(client.app, base_url=BASE_URL, client=("203.0.113.5", 1)) as remote:
+    with WindowClient(client.app, base_url=BASE_URL, client=("203.0.113.5", 1)) as remote:
         assert remote.get("/api/browser").status_code == 403
     _start(client, service)
     assert client.post("/api/browser/stop").json() == {"ok": True}
@@ -222,7 +239,7 @@ def test_socket_checks_and_its_own_slot(setup: Any) -> None:
     evil = {"origin": "http://evil.example"}
     with pytest.raises(WebSocketDisconnect), client.websocket_connect(url, headers=evil):
         pass
-    with TestClient(client.app, base_url=BASE_URL, client=("198.51.100.2", 1)) as remote:
+    with WindowClient(client.app, base_url=BASE_URL, client=("198.51.100.2", 1)) as remote:
         with (
             pytest.raises(WebSocketDisconnect) as far,
             remote.websocket_connect(url, headers=window) as ws,

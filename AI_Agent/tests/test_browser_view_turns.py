@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi.testclient import TestClient
 
 import sasha.server.browser_view as browser_view
 from sasha.browser.proxy import FilteringProxy
@@ -17,9 +16,10 @@ from sasha.connectors import ConnectorRegistry
 from sasha.connectors.browser import BrowserConnector
 from sasha.conversation import building_for_bot, current_turn, finish_turn, new_turn
 from sasha.server.app import create_app
+from sasha.server.window_token import WindowToken
 from sasha.state import JsonStore
 from tests.server_fakes import BASE_URL, WS, Harness
-from tests.test_browser_view import LOCAL, FakeChrome
+from tests.test_browser_view import LOCAL, TOKEN, FakeChrome, WindowClient
 
 
 def test_working_lasts_the_whole_turn(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -32,7 +32,8 @@ def test_working_lasts_the_whole_turn(tmp_path: Path, monkeypatch: pytest.Monkey
     harness = Harness(load_settings(), tmp_path)
     connector = BrowserConnector(BrowserBridge(service))
     harness.deps.connectors = ConnectorRegistry([connector], JsonStore(tmp_path / "c.json"))
-    client = TestClient(create_app(harness.deps, web_dir=None), base_url=BASE_URL, client=LOCAL)
+    harness.deps.window_token = WindowToken(TOKEN)
+    client = WindowClient(create_app(harness.deps, web_dir=None), base_url=BASE_URL, client=LOCAL)
     token = building_for_bot.set("main")
     try:
         tools = {t.name: t for t in connector.build_tools({})}

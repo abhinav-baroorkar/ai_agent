@@ -14,6 +14,7 @@ import contextlib
 import logging
 from collections import Counter
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
@@ -27,6 +28,7 @@ from sasha.browser.reader import clean
 from sasha.browser.screencast import Screencast
 from sasha.browser.service import BrowserService
 from sasha.server.security import is_loopback
+from sasha.server.window_token import HEADER, PROTOCOL, WindowToken, remove_token, write_token
 
 log = logging.getLogger(__name__)
 
@@ -252,9 +254,13 @@ def add_browser_routes(app: FastAPI, deps: Any) -> BrowserView:
 
     view = BrowserView(bridge.service if bridge is not None else None, enabled, holder_bot)
 
+    token = deps.window_token
+
     def refused(request: Request) -> JSONResponse | None:
         if not _local(request.client.host if request.client else None):
             return JSONResponse({"error": "Loopback only"}, status_code=403)
+        if not token.matches(request.headers.get(HEADER)):
+            return JSONResponse({"error": "Open the window with `sasha window`"}, status_code=401)
         if not _fetch_site_ok(request):
             return JSONResponse({"error": "Cross-site request not allowed"}, status_code=403)
         return None
@@ -276,7 +282,10 @@ def add_browser_routes(app: FastAPI, deps: Any) -> BrowserView:
 
     @app.websocket("/ws/browser")
     async def browser_socket(websocket: WebSocket) -> None:
-        await websocket.accept()
+        if not token.in_subprotocols(websocket.scope.get("subprotocols") or []):
+            await websocket.close(code=1008, reason="Open the window with `sasha window`")
+            return
+        await websocket.accept(subprotocol=PROTOCOL)  # never echoes the token
         client = websocket.client.host if websocket.client else None
         if not _local(client) or websocket.headers.get("origin") is None:
             await websocket.close(code=1008, reason="Only the window may watch the browser")
@@ -291,3 +300,19 @@ def add_browser_routes(app: FastAPI, deps: Any) -> BrowserView:
             view.viewers -= 1
 
     return view
+
+
+def attach_window_token(app: FastAPI, token: WindowToken, state_dir: Path) -> None:
+    """Write the token when the server starts; remove it when it stops."""
+
+    async def on_start() -> None:
+        try:
+            write_token(state_dir, token)
+        except OSError as exc:  # the window then can't reach the browser routes
+            log.warning("Window token not written (%s)", type(exc).__name__)
+
+    async def on_stop() -> None:
+        remove_token(state_dir, token)
+
+    app.router.on_startup.append(on_start)
+    app.router.on_shutdown.append(on_stop)
