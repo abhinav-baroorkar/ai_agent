@@ -15,7 +15,9 @@ from sasha.orchestrator import Assistant
 from sasha.pipeline.llm import LLM, OllamaLLM
 from sasha.pipeline.stt import SpeechToText
 from sasha.pipeline.tts import TextToSpeech
+from sasha.server.speaking import ListenerPresence
 from sasha.server.voice import load_voice_stages
+from sasha.server.wake_policy import RateLimiter
 from sasha.server.warmup import (
     LLMPlacement,
     PlacementTelemetry,
@@ -41,6 +43,15 @@ class ServerDeps:
     stt: SpeechToText | None = None
     tts: TextToSpeech | None = None
     warnings: list[str] = field(default_factory=list)
+    # Wake word: is a listener on (keep_alive), the brain-wide device-change budget,
+    # and a GPU-placement re-check to run after resume or an Ollama reload.
+    presence: ListenerPresence = field(default_factory=ListenerPresence)
+    wake_limiter: RateLimiter | None = None
+    recheck_placement: Callable[[], None] = lambda: None
+
+    def __post_init__(self) -> None:
+        if self.wake_limiter is None:
+            self.wake_limiter = RateLimiter(self.settings.profile.wake.max_calls_per_minute)
 
     def make_assistant(self, bot: Bot) -> tuple[Assistant, list[str]]:
         """A fresh conversation for `bot`, with only its connectors' tools."""
@@ -75,12 +86,15 @@ def build_deps(settings: Settings, reload_env: bool = True) -> ServerDeps:
     connectors = build_connectors(settings, secrets)
     llms: dict[str, OllamaLLM] = {}
     lock = threading.Lock()
+    presence = ListenerPresence(settings.profile.wake.keep_alive_while_listening)
 
     def make_llm(model: str) -> LLM:
         with lock:  # one shared HTTP client per model; httpx.Client is thread-safe
             if model not in llms:
                 cfg = settings.profile.llm
-                llms[model] = OllamaLLM(cfg, host=settings.secrets.ollama_host, model=model)
+                llm = OllamaLLM(cfg, host=settings.secrets.ollama_host, model=model)
+                llm.keep_alive_override = presence.keep_alive
+                llms[model] = llm
             return llms[model]
 
     def list_models() -> list[dict[str, Any]]:
@@ -115,6 +129,15 @@ def build_deps(settings: Settings, reload_env: bool = True) -> ServerDeps:
     telemetry.voice_models = {
         name: stage.model_version for name, stage in (("stt", stt), ("tts", tts)) if stage
     }
+
+    def recheck_placement() -> None:
+        """Re-measure how much of the LLM is on the GPU (after resume or a reload)."""
+        current = bots.get("main").model
+        share = gpu_share(host, current)
+        telemetry.placement = LLMPlacement(model=current, gpu_share=share)
+        if warning := gpu_share_warning(current, share):
+            log.warning(warning)
+
     return ServerDeps(
         settings=settings,
         bots=bots,
@@ -125,4 +148,6 @@ def build_deps(settings: Settings, reload_env: bool = True) -> ServerDeps:
         stt=stt,
         tts=tts,
         warnings=warnings,
+        presence=presence,
+        recheck_placement=recheck_placement,
     )

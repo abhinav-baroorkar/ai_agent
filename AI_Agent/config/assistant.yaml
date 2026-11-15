@@ -6,8 +6,9 @@ pronouns:
   object: her
   possessive: her
 wake_word:
-  phrase: Hey Sasha
-  model: null          # path to a trained openWakeWord .onnx (Phase 1)
+  phrase: Sasha        # the name alone; it must be the first word of what is said
+  variants: [Sacha, Sascha, Saasha, Sashaa]  # other spellings speech-to-text may write
+  model: null          # path to a trained openWakeWord .onnx (later, on-device)
   threshold: 0.5
 voice:
   tts_speaker: Sunita  # Indic Parler-TTS named voice (Phase 2)
