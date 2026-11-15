@@ -235,6 +235,9 @@ def test_reply_lines_follow_the_turn_language() -> None:
         def device_label(self, domain: str, entity: str) -> str | None:
             return {"light.hallway": "Hallway light"}.get(entity)
 
+        def scene_names(self) -> list[str]:
+            return []
+
     mr = ReplyLines(not_changed="बदलले नाही: {names}.")
     truth = TruthfulReply(mr, Policy())  # type: ignore[arg-type]
     assert truth.finish("ignored")[1] == "बदलले नाही: Hallway light."

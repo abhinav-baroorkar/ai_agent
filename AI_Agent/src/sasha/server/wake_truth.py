@@ -40,6 +40,7 @@ def wake_control_allowed(config: WakeConfig) -> bool:
 
 _SENTENCE_END = re.compile(r"[.!?]+(?:\s+|$)")
 STATE_NEAR = 3  # a state word within this many words of a device word
+SHORT_COMMAND = 3  # a command this short with any state word is a request ("off.")
 
 
 def names_text(
@@ -74,28 +75,77 @@ def claims_change(text: str, lines: ReplyLines) -> bool:
     return bool(set(_words(text)) & {w.lower() for w in lines.claim_words})
 
 
-def requests_change(command: str, lines: ReplyLines) -> bool:
-    """Does the person's command ask for a device change? (T1)
+def _is_verb(word: str, verbs: set[str]) -> bool:
+    """A change verb, also as "-ing" ("turning", "dimming", "cutting")."""
+    if word in verbs:
+        return True
+    if word.endswith("ing") and len(word) > 5:
+        stem = word[:-3]
+        return stem in verbs or stem[:-1] in verbs or f"{stem}e" in verbs
+    return False
 
-    A change verb anywhere ("can you turn off the light?") is a request. Otherwise a
-    state word next to a device word ("lights off") is one, unless the command is a
-    question ("is the light on?"), so honest state answers still stream.
+
+def _informational(command: str, words: list[str], lines: ReplyLines) -> bool:
+    """A wh-question that asks for information, not a change (narrow on purpose, P1).
+
+    Not one: a suggestion ("how about", "why don't you", "what if"), or a later clause
+    (after a comma or "and") that starts with a change verb ("where's the fan, turn it
+    on"). A miss costs a possibly false claim; a false positive only the plain line.
+    """
+    if not words or words[0] not in {w.lower() for w in lines.wh_words}:
+        return False
+    head = " ".join(words[:3])
+    if any(head.startswith(s) for s in lines.suggestion_starts):
+        return False
+    verbs = {w.lower() for w in lines.change_verbs}
+    for clause in re.split(r",|\band\b", command.lower())[1:]:
+        first = [w for w in _words(clause) if w not in ("please", "you", "just")][:1]
+        if first and _is_verb(first[0], verbs):
+            return False
+    return True
+
+
+def requests_change(
+    command: str, lines: ReplyLines, scenes: Callable[[], list[str]] | None = None
+) -> bool:
+    """Does the person's command ask for a device change? (T1, P1)
+
+    Requests: a change verb ("can you turn off the light?", "how about turning it
+    off"), a comparative ("a bit dimmer please"), a device word with a number or
+    "percent", a state word next to a device word ("lights off"), any short command
+    with a state word ("off."), or a bare scene name ("goodnight"). Informational
+    wh-questions ("how do I turn off the TV?") and yes/no questions about state ("is
+    the light on?") are not, so honest answers still stream.
     """
     words = _words(command)
-    if not words:
+    if not words or _informational(command, words, lines):
         return False
-    if set(words) & {w.lower() for w in lines.change_verbs}:
+    verbs = {w.lower() for w in lines.change_verbs}
+    if any(_is_verb(w, verbs) for w in words):
         return True
-    question = words[0] in {w.lower() for w in lines.question_words} or command.strip().endswith(
-        "?"
-    )
-    if question:
+    if set(words) & {w.lower() for w in lines.comparatives}:
+        return True
+    devices = {w.lower() for w in lines.device_words}
+    numbers = {w.lower() for w in lines.number_words}
+    has_number = any(w.isdigit() or w in numbers for w in words)
+    if has_number and set(words) & devices:
+        return True  # "lights at fifty percent"
+    # A yes/no question about state ("is the light on?"). Wh-words were already judged
+    # above, narrowly, so a suggestion like "how about lights off" isn't one.
+    yes_no = {w.lower() for w in lines.question_words} - {w.lower() for w in lines.wh_words}
+    if words[0] in yes_no or command.strip().endswith("?"):
         return False
     states = {w.lower() for w in lines.state_words}
-    devices = {w.lower() for w in lines.device_words}
+    if len(words) <= SHORT_COMMAND and set(words) & states:
+        return True  # "off." after an armed name, "all off", "lights out please"
     at_state = [i for i, w in enumerate(words) if w in states]
     at_device = [i for i, w in enumerate(words) if w in devices]
-    return any(abs(s - d) <= STATE_NEAR for s in at_state for d in at_device)
+    if any(abs(s - d) <= STATE_NEAR for s in at_state for d in at_device):
+        return True
+    if scenes is not None and len(words) <= SHORT_COMMAND:
+        said = " ".join(words)
+        return any(said == " ".join(_words(name)) for name in scenes())  # "goodnight"
+    return False
 
 
 class TruthfulReply:
@@ -109,7 +159,7 @@ class TruthfulReply:
         self.held = ""  # complete sentences kept back until the turn ends
         # T1: a command that asks for a change holds all model text from the start, so
         # "The lights are off now." can't be spoken before the turn shows a change.
-        self.change_requested = requests_change(command, lines)
+        self.change_requested = requests_change(command, lines, policy.scene_names)
         self.holding = self.change_requested
         self.overridden: str | None = None  # telemetry label when the server spoke
 

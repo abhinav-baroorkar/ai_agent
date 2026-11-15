@@ -19,10 +19,16 @@ class Spirit extends Stage {
     this.glee = 0; // a moment of being pleased, right after it has spoken
     this.burst = 0; // companions scattering when it "gets" something
     this.orbit = 0;
+    this.ringing = false; // a timer or alarm is ringing: the being keeps pulsing
+    this.pulseAt = 0;
     this.motes = Array.from({ length: 8 }, (_, i) => ({
       a: (i / 8) * 6.283 + rand(0, 0.5), r: rand(1.3, 1.75), tilt: rand(-0.5, 0.5), sp: rand(0.35, 0.7) * (i % 2 ? 1 : -1),
       ph: rand(0, 6.28), size: rand(0.6, 1.1),
     }));
+  }
+
+  setRinging(on) {
+    this.ringing = !!on;
   }
 
   setState(state) {
@@ -50,6 +56,13 @@ class Spirit extends Stage {
     const now = performance.now();
     const R0 = u * 0.56;
 
+    // ringing: a steady, insistent pulse with a swirl of the mist, about once a second
+    if (this.ringing && !this.calm && now > this.pulseAt) {
+      this.pulseAt = now + 950;
+      this.size.vel += 1.0;
+      this.mist.kick();
+      if (this.shimmer.p < 0) this.shimmer.p = 0;
+    }
     // idle surprises: now and then it drifts off to look at something, or a shimmer crosses it
     if (w.idle > 0.9 && !this.calm) {
       if (now > this.goal.next) {

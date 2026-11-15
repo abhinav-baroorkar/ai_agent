@@ -97,19 +97,45 @@ class ReplyLines(BaseModel):
         default_factory=lambda: [
             "turn", "switch", "set", "dim", "brighten", "raise", "lower", "increase",
             "decrease", "mute", "unmute", "start", "stop", "play", "pause", "activate",
-            "toggle",
+            "toggle", "kill", "cut", "shut",
         ]
     )  # fmt: skip
     state_words: list[str] = Field(
         default_factory=lambda: [
             "on", "off", "up", "down", "brighter", "dimmer", "louder", "quieter",
-            "darker", "lighter",
+            "darker", "lighter", "out",
         ]
     )  # fmt: skip
     device_words: list[str] = Field(
         default_factory=lambda: [
             "light", "lights", "lamp", "lamps", "fan", "fans", "tv", "television",
             "music", "volume", "speaker", "speakers", "scene", "it", "them", "everything",
+        ]
+    )  # fmt: skip
+    # A command starting with one of these is a question even if it has a change verb
+    # ("when does the sun set?"); polite requests start with can/could/please instead.
+    comparatives: list[str] = Field(
+        default_factory=lambda: [
+            "brighter", "dimmer", "louder", "quieter", "warmer", "cooler", "darker",
+            "lighter", "softer", "higher", "lower",
+        ]
+    )  # fmt: skip
+    number_words: list[str] = Field(
+        default_factory=lambda: [
+            "percent", "half", "full", "max", "maximum", "minimum", "ten", "twenty",
+            "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety", "hundred",
+        ]
+    )  # fmt: skip
+    suggestion_starts: list[str] = Field(
+        default_factory=lambda: [
+            "how about", "what about", "why don't you", "why dont you", "why not",
+            "what if",
+        ]
+    )  # fmt: skip
+    wh_words: list[str] = Field(
+        default_factory=lambda: [
+            "what", "which", "who", "when", "where", "why", "how", "what's", "who's",
+            "where's", "how's", "when's",
         ]
     )  # fmt: skip
     question_words: list[str] = Field(

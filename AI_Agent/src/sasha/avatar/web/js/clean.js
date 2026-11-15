@@ -40,4 +40,21 @@ export function cleanHealth(hl) {
   };
 }
 
+const KINDS = ['timer', 'alarm', 'reminder'];
+const TIMER_STATES = ['scheduled', 'ringing', 'pending', 'missed', 'done'];
+
+// A timer, alarm or reminder. Returns null for anything without an id or a readable time.
+export function cleanTimer(t) {
+  const item = t && typeof t === 'object' ? t : {};
+  const due = Date.parse(str(item.due_at));
+  if (!str(item.id) || !Number.isFinite(due)) return null;
+  const late = Number(item.late_s);
+  return {
+    id: str(item.id), kind: KINDS.includes(item.kind) ? item.kind : 'timer', label: str(item.label), text: str(item.text),
+    due, repeat: ['daily', 'weekdays', 'weekends'].includes(item.repeat) ? item.repeat : 'none',
+    state: TIMER_STATES.includes(item.state) ? item.state : 'scheduled', late_s: Number.isFinite(late) && late > 0 ? late : 0,
+    voice: item.created_by === 'wake',
+  };
+}
+
 export const initial = (name) => str(name).trim().charAt(0).toUpperCase() || '?';
