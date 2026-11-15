@@ -112,6 +112,24 @@ class ReplyLines(BaseModel):
     )  # fmt: skip
     # A command starting with one of these is a question even if it has a change verb
     # ("when does the sun set?"); polite requests start with can/could/please instead.
+    comparatives: list[str] = Field(
+        default_factory=lambda: [
+            "brighter", "dimmer", "louder", "quieter", "warmer", "cooler", "darker",
+            "lighter", "softer", "higher", "lower",
+        ]
+    )  # fmt: skip
+    number_words: list[str] = Field(
+        default_factory=lambda: [
+            "percent", "half", "full", "max", "maximum", "minimum", "ten", "twenty",
+            "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety", "hundred",
+        ]
+    )  # fmt: skip
+    suggestion_starts: list[str] = Field(
+        default_factory=lambda: [
+            "how about", "what about", "why don't you", "why dont you", "why not",
+            "what if",
+        ]
+    )  # fmt: skip
     wh_words: list[str] = Field(
         default_factory=lambda: [
             "what", "which", "who", "when", "where", "why", "how", "what's", "who's",

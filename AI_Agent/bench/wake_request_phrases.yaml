@@ -33,7 +33,22 @@ request:
   - toggle the desk lamp
   - lights brighter
   - everything off
+  # suggestion forms and a change clause after a wh-question (review P1)
+  - how about turning the lights off
+  - why don't you switch it off
+  - why not turn the fan off
+  - what if you dim the lights
+  - how about lights off
+  - where's the fan, turn it on
+  - what's the volume, set it to 20
+  # comparatives anywhere, a device with a number
+  - a bit dimmer please
+  - make it warmer in here
+  - lights at fifty percent
+  - volume to 30
 stream:
+  - how do I turn off the TV?
+  - who turned the lights on?
   - is the hallway light on?
   - are the lights off?
   - what's on tv tonight

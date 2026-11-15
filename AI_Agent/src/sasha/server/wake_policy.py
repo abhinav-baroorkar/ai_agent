@@ -134,6 +134,13 @@ class WakeToolPolicy:
         self._list_devices: Callable[[], Any] | None = None
         self.begin_turn()
 
+    def scene_names(self) -> list[str]:
+        """The house's exposed scene names, so a bare "goodnight" counts as a request."""
+        if self._list_devices is not None and not self.known_names:
+            self._remember(self._safe_list())
+            self._list_devices = None
+        return [n for e, n in self.known_names.items() if e.startswith("scene.")]
+
     def device_label(self, domain: str, entity: str) -> str | None:
         """The real name of an exposed entity, or None (T3).
 

@@ -29,6 +29,15 @@ def test_questions_and_chat_still_stream(command: str) -> None:
     assert not requests_change(command, ReplyLines()), command
 
 
+def test_bare_scene_name_is_a_request() -> None:
+    """Scene names come from the house's device list at run time ("goodnight")."""
+    scenes = lambda: ["Goodnight", "Movie night"]  # noqa: E731
+    assert requests_change("goodnight", ReplyLines(), scenes)
+    assert requests_change("movie night!", ReplyLines(), scenes)
+    assert not requests_change("goodnight", ReplyLines(), lambda: [])
+    assert not requests_change("good morning", ReplyLines(), scenes)
+
+
 def test_armed_name_then_a_bare_state_word() -> None:
     """'<name>.' then 'off.': the follow-up command is just the state word."""
     for command in ("off.", "On!", "lights out", "all down"):
