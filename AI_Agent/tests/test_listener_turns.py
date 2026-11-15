@@ -177,3 +177,18 @@ def test_pause_shows_paused_in_the_same_step_as_the_kill() -> None:
         assert not proc.running and rig.indicator.states[-1] == "paused"
 
     go(body)
+
+
+def test_pause_while_offline_still_shows_paused() -> None:
+    """The indicator decides pause/resume from the last state: a pause must read as
+    `paused`, not `offline`, even with the brain down."""
+
+    async def body(rig: Rig, lst: Listener) -> None:
+        await asyncio.sleep(0.2)
+        assert rig.indicator.states[-1] == "offline"
+        lst._toggle_pause()
+        assert rig.indicator.states[-1] == "paused"
+        lst._toggle_pause()
+        assert rig.indicator.states[-1] == "offline"
+
+    go(body, healthy=False)

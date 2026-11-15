@@ -29,9 +29,10 @@ from typing import Any
 from sasha.listener.brain import CLOSE_SLOT_TAKEN, HealthCheck, frame, segment_frames, writer
 from sasha.listener.capture import Backoff, CaptureProcess
 from sasha.listener.confirm import ConfirmWindow
-from sasha.listener.contracts import Connect, Indicator, ListenerSettings, SegmentSink
+from sasha.listener.contracts import Connect, Indicator, ListenerSettings, SegmentSink, State
 from sasha.listener.gate import Gate, Segment
 from sasha.listener.guards import Guards
+from sasha.listener.indicator.base import EarconKind
 from sasha.listener.playback import Player
 
 log = logging.getLogger(__name__)
@@ -114,6 +115,7 @@ class Listener:
     def _show(self, mic_open: bool | None = None) -> None:
         if mic_open is None:
             mic_open = self._capture is not None and self._capture.running
+        state: State
         if mic_open:
             if self.debug_sink is not None:
                 state = "debug"
@@ -121,6 +123,8 @@ class Listener:
                 state = "listening"
             else:
                 state = "waiting"
+        elif self.paused:  # first: the indicator reads the pause direction from this
+            state = "paused"
         elif not self.online:
             state = "offline"
         elif self.playing or self.server_state == "speaking":
@@ -186,14 +190,14 @@ class Listener:
         if self._ws is None:
             return
         if self.confirm.is_open:
-            self._send_segment(segment)  # read by the brain only as yes or no
+            self._forward_segment(segment)  # read by the brain only as yes or no
             self.confirm.close()
             return
         if self.busy:
             return  # nothing is sent while the brain answers
-        self._send_segment(segment)
+        self._forward_segment(segment)
 
-    def _send_segment(self, segment: Segment) -> None:
+    def _forward_segment(self, segment: Segment) -> None:
         if self.debug_sink is not None:
             self.debug_sink(segment)
         for part in segment_frames(segment.pcm):
@@ -312,7 +316,7 @@ class Listener:
         else:
             await self._earcon("armed")
 
-    async def _earcon(self, kind: str) -> None:
+    async def _earcon(self, kind: EarconKind) -> None:
         try:
             clip = self.indicator.earcon(kind)
         except Exception as e:
