@@ -68,7 +68,8 @@ export function initBrowserPanel(health) {
     el.stop.disabled = !live;
     el.agent.hidden = !(hasConnector && link.status === 'open');
     el.agent.dataset.tone = !state.running ? 'off' : state.agent === 'working' ? 'thinking' : 'ok';
-    el.agent.textContent = !state.running ? 'Not running' : state.agent === 'working' ? 'In use now' : 'Open, idle';
+    const inUse = state.user ? `In use by ${state.user}` : 'In use now';
+    el.agent.textContent = !state.running ? 'Not running' : state.agent === 'working' ? inUse : 'Open, idle';
     const text = failed || message();
     el.msg.textContent = text;
     el.msg.hidden = !text;

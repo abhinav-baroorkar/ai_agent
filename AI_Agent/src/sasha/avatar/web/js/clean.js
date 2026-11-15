@@ -45,10 +45,11 @@ export function cleanBrowserState(b) {
   const s = b && typeof b === 'object' ? b : {};
   const g = s.guard && typeof s.guard === 'object' ? s.guard : {};
   const count = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Math.floor(Number(v)) : 0);
+  const who = s.holder_bot && typeof s.holder_bot === 'object' ? str(s.holder_bot.name).slice(0, 60) : '';
   const refused = {};
   if (g.refused && typeof g.refused === 'object') for (const [k, v] of Object.entries(g.refused)) refused[str(k)] = count(v);
   return {
-    enabled: s.enabled === true, running: s.running === true, agent: s.agent === 'working' ? 'working' : 'idle',
+    enabled: s.enabled === true, running: s.running === true, agent: s.agent === 'working' ? 'working' : 'idle', user: who, // the bot using it, if the server says
     tabs: (Array.isArray(s.tabs) ? s.tabs : []).filter((t) => t && typeof t === 'object').slice(0, 20).map((t) => ({
       tab: count(t.tab), site: str(t.site).slice(0, 255), title: str(t.title).slice(0, 80), current: t.current === true,
     })),

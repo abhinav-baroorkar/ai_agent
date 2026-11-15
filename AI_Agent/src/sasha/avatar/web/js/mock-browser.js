@@ -13,7 +13,7 @@ const PAGES = [
   { site: 'weather.example', title: 'Forecast for the week', ink: '#0f4c5c', bar: 'weather.example/week' },
 ];
 const state = {
-  enabled: mode !== 'off', running: false, agent: 'idle', holder: null, tabs: [],
+  enabled: mode !== 'off', running: false, agent: 'idle', holder: null, holder_bot: null, tabs: [],
   guard: { allowed: 0, refused: {}, background_refused: 0 },
 };
 let current = 0;
@@ -71,20 +71,21 @@ function sendFrame(viewer) {
 export function use() {
   if (!state.enabled || mode === 'busy') return;
   clearTimeout(stopTimer);
-  Object.assign(state, { running: true, agent: 'working', holder: 'conversation-1', tabs: tabs() });
+  const holder_bot = { id: 'b-web', name: 'Web researcher' };
+  Object.assign(state, { running: true, agent: 'working', holder: 'conversation-1', holder_bot, tabs: tabs() });
   state.guard.allowed += 7;
   state.guard.refused = { private_network: 2, not_https: 1 };
   state.guard.background_refused += 4;
   changed();
   setTimeout(() => { current = (current + 1) % PAGES.length; state.tabs = tabs(); state.guard.allowed += 5; changed(); }, 6000);
-  setTimeout(() => { state.agent = 'idle'; state.holder = null; changed(); }, 11000);
+  setTimeout(() => { state.agent = 'idle'; state.holder = null; state.holder_bot = null; changed(); }, 11000);
   stopTimer = setTimeout(() => stop('idle'), 40000);
 }
 
 export function stop(reason) {
   clearTimeout(stopTimer);
   const was = state.running;
-  Object.assign(state, { running: false, agent: 'idle', holder: null, tabs: [], guard: { allowed: 0, refused: {}, background_refused: 0 } });
+  Object.assign(state, { running: false, agent: 'idle', holder: null, holder_bot: null, tabs: [], guard: { allowed: 0, refused: {}, background_refused: 0 } });
   if (was) tell({ type: 'browser_stopped', reason });
   changed();
 }
