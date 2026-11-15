@@ -335,3 +335,26 @@ connections outside this computer and nothing written outside the project folder
   and removes temp entries older than 7 days. Why: the temp folder is inside the project and
   must not grow without limit.
 
+- **Correction to the Content-Security-Policy entry above.** Why: injected script can't fetch
+  or open WebSockets to anything off this computer. It doesn't stop navigation, and it can
+  still use the local API, which is why text is always inserted as plain text and the guard
+  test enforces it.
+- **Correction to the `fix/server-followups-2` entry above:** the 3 s bound applies to the
+  capability checks behind `/api/models`, not to the whole endpoint.
+- **Correction:** "`main` at `f2bfae5`" in the heading above was true when it merged; `main`
+  is `d45935b` after `fix/stt-runtime-fallback` (`3f76eee`).
+
+## 2026-11-14 — Always-on wake word (design stage, no code yet)
+
+- **The owner asked for an always-on wake word on this device:** a listener that starts at
+  login, hears the wake phrase, answers, and shows a small icon on screen. The server author
+  writes a design note first, and the reviewer checks the design before any code.
+- **No listening without a visible sign and a one-click pause.** Why: the same rule as the
+  window's microphone; the owner must always be able to see and stop it.
+- **Audio that doesn't begin with the wake phrase is dropped and never stored or logged.**
+  Why: privacy; the assistant must not keep what it was not addressed with.
+- **First version detects the phrase with the existing speech-to-text.** A trained wake-word
+  model can replace it later. Why: nothing new to install or train to get a working loop.
+- **The start-at-login file lives outside the project folder,** so the owner approves it or
+  runs the install command personally. Why: the stay-inside-the-folder rule.
+
