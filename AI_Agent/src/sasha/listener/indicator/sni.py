@@ -234,7 +234,7 @@ class SniItem:
             else:
                 msg.fail("org.freedesktop.DBus.Error.UnknownProperty", str(msg.body[1]))
         elif key == (ITEM, "Activate"):
-            if self._from_tray(msg):
+            if self._may_toggle(msg):
                 msg.reply("", ())
                 self.on_pause_toggle()
         elif key in ((ITEM, "SecondaryActivate"), (ITEM, "ContextMenu"), (ITEM, "Scroll")):
@@ -244,13 +244,16 @@ class SniItem:
         else:
             msg.fail("org.freedesktop.DBus.Error.UnknownMethod", f"{msg.interface}.{msg.member}")
 
-    def _from_tray(self, msg: Incoming) -> bool:
-        """Clicks count only when they come from the tray itself.
+    def _may_toggle(self, msg: Incoming) -> bool:
+        """Anyone may pause; only the tray itself may resume.
 
-        Any program on the session bus can call these methods. Without this check one
-        of them could switch listening back on after the owner paused it.
+        Any program on the session bus can call these methods. Turning the microphone
+        off is always safe, so a pause is accepted from any caller: if this desktop's
+        tray ever clicked from a name we did not expect, the owner could still switch
+        the microphone off. Turning it back on is the dangerous direction, so a resume
+        (a toggle while the state is `paused`) counts only from the tray's own bus name.
         """
-        if self.tray is not None and msg.sender == self.tray:
+        if self.state != "paused" or (self.tray is not None and msg.sender == self.tray):
             return True
         msg.fail("org.freedesktop.DBus.Error.UnknownMethod", f"{msg.interface}.{msg.member}")
         return False
@@ -275,15 +278,19 @@ class SniItem:
         elif msg.member == "GetProperty":
             msg.reply("v", (self.row(int(body[0])).get(str(body[1]), ("s", "")),))
         elif msg.member == "Event":
-            if self._from_tray(msg):
+            click = body[0] == TOGGLE_ROW and body[1] == "clicked"
+            if not click:
                 msg.reply("", ())
-                if body[0] == TOGGLE_ROW and body[1] == "clicked":
-                    self.on_pause_toggle()
+            elif self._may_toggle(msg):
+                msg.reply("", ())
+                self.on_pause_toggle()
         elif msg.member == "EventGroup":
-            if self._from_tray(msg):
+            click = any(e[0] == TOGGLE_ROW and e[1] == "clicked" for e in body[0])
+            if not click:
                 msg.reply("ai", ([],))
-                if any(e[0] == TOGGLE_ROW and e[1] == "clicked" for e in body[0]):
-                    self.on_pause_toggle()
+            elif self._may_toggle(msg):
+                msg.reply("ai", ([],))
+                self.on_pause_toggle()
         elif msg.member == "AboutToShow":
             msg.reply("b", (False,))
         elif msg.member == "AboutToShowGroup":

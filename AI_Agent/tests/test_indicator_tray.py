@@ -67,29 +67,65 @@ def test_activate_and_menu_click_both_toggle_pause() -> None:
     assert clicks == ["toggle", "toggle"]
 
 
-def test_clicks_from_any_other_program_are_refused() -> None:
-    """Only the tray may toggle: nobody else can switch listening back on."""
-    item, bus, clicks = make_item()
-    assert item.tray == TRAY
-    stranger = ":1.99"
-    attempts = [
-        Call(ITEM_PATH, ITEM, "Activate", 1, 1, sender=stranger),
-        Call(MENU_PATH, MENU, "Event", 2, "clicked", ("i", 0), 0, sender=stranger),
-        Call(MENU_PATH, MENU, "EventGroup", [(2, "clicked", ("i", 0), 0)], sender=stranger),
-        Call(ITEM_PATH, ITEM, "Activate", 1, 1, sender=ME),  # not even ourselves
+def _click_attempts(sender: str) -> list[Call]:
+    return [
+        Call(ITEM_PATH, ITEM, "Activate", 1, 1, sender=sender),
+        Call(MENU_PATH, MENU, "Event", 2, "clicked", ("i", 0), 0, sender=sender),
+        Call(MENU_PATH, MENU, "EventGroup", [(2, "clicked", ("i", 0), 0)], sender=sender),
     ]
-    for attempt in attempts:
-        assert item.handle(attempt.msg) is True
-        assert attempt.errors == ["org.freedesktop.DBus.Error.UnknownMethod"]
-        assert not attempt.replies
+
+
+def test_anyone_may_pause_but_only_the_tray_may_resume() -> None:
+    """Off is always allowed; on is allowed only from the tray's own bus name."""
+    item, _, clicks = make_item()
+    assert item.tray == TRAY
+    for sender in (":1.99", ME, TRAY):  # a stranger, ourselves, the tray
+        item.set_state("waiting")
+        for attempt in _click_attempts(sender):
+            assert item.handle(attempt.msg) is True
+            assert len(attempt.replies) == 1 and not attempt.errors, sender
+    assert len(clicks) == 9  # every pause was passed on
+
+    clicks.clear()
+    item.set_state("paused")
+    for sender in (":1.99", ME):  # nobody but the tray can switch the microphone back on
+        for attempt in _click_attempts(sender):
+            assert item.handle(attempt.msg) is True
+            assert attempt.errors == ["org.freedesktop.DBus.Error.UnknownMethod"]
+            assert not attempt.replies
     assert clicks == []
-    item.handle(Call(MENU_PATH, MENU, "EventGroup", [(2, "clicked", ("i", 0), 0)]).msg)
-    assert clicks == ["toggle"]
-    bus.tray_vanishes()  # no tray: nobody's clicks count
+    for attempt in _click_attempts(TRAY):
+        item.handle(attempt.msg)
+        assert len(attempt.replies) == 1 and not attempt.errors
+    assert clicks == ["toggle"] * 3
+
+
+def test_with_no_tray_known_pause_still_works_and_resume_does_not() -> None:
+    item, bus, clicks = make_item()
+    bus.tray_vanishes()
     item.handle(bus.incoming.pop(0))
-    gone = Call(ITEM_PATH, ITEM, "Activate", 1, 1)
-    item.handle(gone.msg)
-    assert gone.errors and clicks == ["toggle"]
+    assert item.tray is None
+    item.set_state("waiting")
+    for attempt in _click_attempts(TRAY):
+        item.handle(attempt.msg)
+        assert len(attempt.replies) == 1
+    assert clicks == ["toggle"] * 3
+    item.set_state("paused")
+    for attempt in _click_attempts(TRAY):  # the old tray's name is no longer trusted
+        item.handle(attempt.msg)
+        assert attempt.errors and not attempt.replies
+    assert clicks == ["toggle"] * 3
+
+
+def test_other_menu_events_from_a_stranger_are_harmless_while_paused() -> None:
+    item, _, clicks = make_item()
+    item.set_state("paused")
+    hover = Call(MENU_PATH, MENU, "Event", 2, "hovered", ("i", 0), 0, sender=":1.99")
+    status_row = Call(MENU_PATH, MENU, "Event", 1, "clicked", ("i", 0), 0, sender=":1.99")
+    for call in (hover, status_row):
+        item.handle(call.msg)
+        assert len(call.replies) == 1 and not call.errors
+    assert clicks == []
 
 
 def test_what_the_tray_asks_for_is_answered() -> None:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections import Counter
 from pathlib import Path
 from typing import NamedTuple
 
@@ -90,6 +91,11 @@ def _send_lines(text: str) -> list[str]:
     return [line.strip() for line in text.splitlines() if METHOD_SEND.search(line)]
 
 
+def _extra_sends(text: str, allowed: tuple[str, ...]) -> list[str]:
+    """`.send(` lines beyond the allowed ones, counted: a repeat of an allowed line is extra."""
+    return sorted((Counter(_send_lines(text)) - Counter(allowed)).elements())
+
+
 def _imports(text: str, module: str) -> bool:
     return bool(re.search(rf"^\s*(?:import|from)\s+{re.escape(module)}(?:[.\s,]|$)", text, re.M))
 
@@ -104,7 +110,7 @@ def test_no_send_function_anywhere() -> None:
         for pat in SEND_PATTERNS + MAIL_PATTERNS:
             if not pat.search(text):
                 continue
-            if pat is METHOD_SEND and exempt and set(_send_lines(text)) <= set(exempt.lines):
+            if pat is METHOD_SEND and exempt and not _extra_sends(text, exempt.lines):
                 continue
             offenders.append(f"{p.relative_to(REPO_ROOT)}: {pat.pattern}")
     assert not offenders, f"Send-like code found: {offenders}"
@@ -130,7 +136,9 @@ def test_send_guard_catches_what_it_should() -> None:
     """The exemption is per line, and the mail patterns have no exemption at all."""
     allowed = "self._conn.send(message, serial=serial)"
     assert _send_lines(f"    {allowed}\n") == [allowed]
-    assert set(_send_lines(f"{allowed}\nother.send(x)\n")) - {allowed} == {"other.send(x)"}
+    assert _extra_sends(f"{allowed}\nother.send(x)\n", (allowed,)) == ["other.send(x)"]
+    assert _extra_sends(f"{allowed}\n  {allowed}\n", (allowed,)) == [allowed]  # a second copy
+    assert _extra_sends(f"{allowed}\n", (allowed,)) == []
     mail = [
         "server.sendmail(a, b, c)",
         "smtp.send_message(m)",
