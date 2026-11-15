@@ -1,51 +1,150 @@
 <!doctype html>
-<!-- Placeholder only. The real UI is built in the web-ui branch and replaces this file. -->
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Assistant</title>
-  <style>
-    body { font: 16px system-ui, sans-serif; margin: 2rem; background: #111; color: #eee; }
-    #log { white-space: pre-wrap; margin: 1rem 0; }
-    input { width: 70%; padding: .5rem; }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' ws://127.0.0.1:* ws://localhost:*; img-src 'self' data:; style-src 'self'; style-src-attr 'unsafe-inline'; base-uri 'none'; form-action 'self'">
+<title>Assistant</title>
+<link rel="icon" href="assets/icon.svg">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/home.css">
+<link rel="stylesheet" href="css/work.css">
+<link rel="stylesheet" href="css/chat.css">
 </head>
 <body>
-  <h1 id="name">Assistant</h1>
-  <p>Placeholder page: the real face arrives with the web UI.</p>
-  <div id="log"></div>
-  <form id="f"><input id="t" autocomplete="off" placeholder="Type a message"> <button>Send</button></form>
-  <script>
-    const log = document.getElementById("log");
-    fetch("/api/health").then(r => r.json()).then(h => {
-      document.getElementById("name").textContent = h.assistant.name;
-      document.title = h.assistant.name;
-    });
-    const ws = new WebSocket(`ws://${location.host}/ws?bot=main`);
-    let current = null;
-    ws.onmessage = (e) => {
-      if (typeof e.data !== "string") return;
-      const m = JSON.parse(e.data);
-      if (m.type === "reply_delta") {
-        if (!current) { current = document.createElement("div"); log.append(current); }
-        current.textContent += m.text;
-      } else if (m.type === "reply") {
-        if (!current) { current = document.createElement("div"); log.append(current); }
-        current.textContent = "> " + m.text;
-        current = null;
-      } else if (m.type === "error") {
-        log.append(Object.assign(document.createElement("div"), {textContent: "[error] " + m.message}));
-      }
-    };
-    document.getElementById("f").onsubmit = (e) => {
-      e.preventDefault();
-      const t = document.getElementById("t");
-      if (!t.value.trim()) return;
-      log.append(Object.assign(document.createElement("div"), {textContent: "you: " + t.value}));
-      ws.send(JSON.stringify({type: "text", text: t.value}));
-      t.value = "";
-    };
-  </script>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="M5 12h13M13 6l6 6-6 6"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="M19 12H6M11 6l-6 6 6 6"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4A2.5 2.5 0 0 1 4 13.5z"/></symbol>
+    <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3v5M15 3v5M6.5 8h11v3.5a5.5 5.5 0 0 1-11 0zM12 17v4"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 7h11M8 12h11M8 17h11M4.5 7h.01M4.5 12h.01M4.5 17h.01"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+  </defs>
+</svg>
+
+<button id="mic-on" class="mic-on" type="button" hidden>
+  <span class="dot"></span>Microphone is on<span class="mic-on-stop">Stop</span>
+</button>
+
+<div id="offline" class="banner" role="status" hidden>
+  <span class="dot"></span><span id="offline-text">Offline. Trying to reconnect…</span>
+</div>
+
+<main id="home" class="view home">
+  <header class="home-top">
+    <div class="who">
+      <span class="who-name" data-assistant-name>&nbsp;</span>
+      <span id="home-status" class="pill" data-tone="idle">Starting</span>
+    </div>
+    <nav class="home-nav" aria-label="Sections">
+      <button id="history-open" class="btn quiet" type="button" aria-expanded="false" aria-controls="history"><svg class="ico"><use href="#i-list"/></svg>History</button>
+      <a class="btn" href="#bots"><svg class="ico"><use href="#i-chat"/></svg>Bots and chats</a>
+      <a class="btn quiet" href="#settings"><svg class="ico"><use href="#i-plug"/></svg>Settings</a>
+    </nav>
+  </header>
+
+  <div class="stage">
+    <div id="face" class="face" data-state="idle" role="img" aria-label="Assistant">
+    </div>
+    <div class="subtitles" aria-live="polite">
+      <p id="heard" class="heard" lang=""></p>
+      <p id="said" class="said" lang=""></p>
+      <p id="notice" class="notice" role="status" hidden></p>
+    </div>
+  </div>
+
+  <div class="base">
+  <dl class="readout" aria-label="Where this runs">
+    <div><dt>Time</dt><dd id="r-time">&nbsp;</dd></div>
+    <div><dt>Runs</dt><dd>On this computer</dd></div>
+  </dl>
+  <footer class="dock">
+    <button id="mic" class="mic" type="button" aria-pressed="false" hidden>
+      <svg class="ico"><use href="#i-mic"/></svg><span id="mic-label">Talk</span>
+    </button>
+    <form id="say-form" class="say" autocomplete="off">
+      <label class="sr" for="say-text">Type a message</label>
+      <input id="say-text" type="text" placeholder="Or type here" maxlength="2000">
+      <button class="btn icon" type="submit" aria-label="Say it"><svg class="ico"><use href="#i-send"/></svg></button>
+    </form>
+    <button id="cancel" class="btn danger" type="button" hidden><svg class="ico"><use href="#i-stop"/></svg>Stop</button>
+  </footer>
+  <dl class="readout right" aria-label="Assistant status">
+    <div><dt>Model</dt><dd id="r-model">&nbsp;</dd></div>
+    <div><dt>Link</dt><dd id="r-link">Connecting</dd></div>
+    <div><dt>Last answer</dt><dd id="r-last">None yet</dd></div>
+  </dl>
+  </div>
+  <p id="voice-hint" class="voice-hint" hidden>Voice isn't set up on this machine yet, so the microphone is hidden. Typing works.</p>
+  <aside id="history" class="drawer" aria-label="This conversation" hidden>
+    <header><h2>This conversation</h2><button id="history-close" class="btn icon quiet" type="button" aria-label="Close history"><svg class="ico"><use href="#i-x"/></svg></button></header>
+    <ol id="history-list"></ol>
+    <p id="history-empty" class="drawer-empty">Nothing said yet. What you say and the answers will be listed here until you close the window.</p>
+  </aside>
+</main>
+
+<div id="work" class="view work" hidden>
+  <aside class="rail">
+    <a class="rail-home" href="#home"><svg class="ico"><use href="#i-back"/></svg>
+      <svg id="mini-face" class="mini-face" data-state="idle" viewBox="0 0 64 64" aria-hidden="true"><circle class="mf-glow" cx="32" cy="32" r="30"/><circle class="mf-body" cx="32" cy="32" r="19"/><circle class="mf-core" cx="32" cy="32" r="8"/></svg><span>Back to <span data-assistant-name>the face</span></span></a>
+    <nav aria-label="Workspace">
+      <a class="rail-link" href="#bots" data-nav="bots"><svg class="ico"><use href="#i-chat"/></svg>Bots</a>
+      <a class="rail-link" href="#settings" data-nav="settings"><svg class="ico"><use href="#i-plug"/></svg>Settings</a>
+    </nav>
+    <div id="bot-list" class="bot-list" hidden>
+      <h2 class="eyebrow">Your bots</h2>
+      <ul id="bot-items"></ul>
+      <button id="new-bot" class="btn wide" type="button"><svg class="ico"><use href="#i-plus"/></svg>New bot</button>
+    </div>
+    <p class="rail-foot">Everything here runs on this computer.</p>
+  </aside>
+
+  <section id="bots" class="pane bots" aria-label="Bot chats" hidden>
+    <div id="tabs" class="tabs" role="tablist" aria-label="Open chats"></div>
+    <div id="chats" class="chats"></div>
+    <div id="bots-empty" class="empty" hidden>
+      <h1>Pick a bot to start a chat</h1>
+      <p>Each bot has its own model, instructions and connectors. You can keep several chats open and switch between them.</p>
+    </div>
+  </section>
+
+  <section id="settings" class="pane settings" aria-label="Settings" hidden>
+    <h1>Settings</h1>
+    <h2 class="eyebrow">Main assistant</h2>
+    <dl id="assistant-facts" class="facts"></dl>
+    <h2 class="eyebrow">Connectors</h2>
+    <p class="lede">Connectors let the assistant and your bots act outside the chat. Each bot only gets the connectors you tick for it.</p>
+    <div id="connector-grid" class="cards"></div>
+  </section>
+</div>
+
+<dialog id="bot-dialog" aria-labelledby="bot-dialog-title">
+  <form id="bot-form" method="dialog" autocomplete="off">
+    <h2 id="bot-dialog-title">New bot</h2>
+    <label for="bot-name">Name</label>
+    <input id="bot-name" type="text" required maxlength="40" placeholder="Recipe helper">
+    <label for="bot-model">Model</label>
+    <select id="bot-model" required></select>
+    <label for="bot-prompt">Instructions</label>
+    <textarea id="bot-prompt" rows="5" placeholder="What this bot is for and how it should answer."></textarea>
+    <fieldset id="bot-connectors"><legend>Connectors it may use</legend></fieldset>
+    <p id="bot-error" class="form-error" role="alert" hidden></p>
+    <div class="dialog-actions">
+      <button id="bot-delete" class="btn danger" type="button" hidden>Delete bot</button>
+      <span class="grow"></span>
+      <button id="bot-cancel" class="btn quiet" type="button">Cancel</button>
+      <button id="bot-save" class="btn primary" type="submit">Create bot</button>
+    </div>
+  </form>
+</dialog>
+
+<p id="file-warning" class="file-warning" hidden>This page can't run straight from a file. From this folder run <code>python3 -m http.server 8799</code>, then open <code>localhost:8799/?mock=1</code> in the browser.</p>
+<script src="js/file-warning.js"></script>
+<script type="module" src="js/main.js"></script>
 </body>
 </html>
