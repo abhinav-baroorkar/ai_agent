@@ -16,13 +16,13 @@ from collections.abc import Callable
 from typing import Any
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse
 
 from sasha.browser.cdp import CDPError
 from sasha.browser.hooks import find_bridge
 from sasha.browser.pages import domain_of
 from sasha.browser.reader import clean
-from sasha.browser.screencast import Screencast, snapshot
+from sasha.browser.screencast import Screencast
 from sasha.browser.service import BrowserService
 from sasha.server.security import is_loopback
 
@@ -30,6 +30,7 @@ log = logging.getLogger(__name__)
 
 BROWSER_SOCKETS = 1  # the live view's own slot, apart from max_sockets and the listener
 STATE_POLL_S = 0.5
+MAX_FAILURES = 5  # state-loop errors in a row before the socket is closed with 1011
 TITLE_CHARS = 80
 SITE_CHARS = 255
 SAFE_FETCH_SITES = {None, "same-origin", "none"}
@@ -92,18 +93,6 @@ class BrowserView:
             )
         return out
 
-    async def frame(self) -> bytes | None:
-        if self.service is None or not self.running():
-            return None
-        chrome = self.service.chrome
-        assert chrome is not None
-        if chrome.current_target is None:
-            return None
-        try:
-            return await snapshot(chrome.pipe, chrome.current_target)
-        except CDPError:
-            return None
-
     async def stop(self) -> None:
         if self.service is not None:
             await self.service.stop("owner")
@@ -123,37 +112,53 @@ class BrowserView:
         async def end_cast() -> None:
             nonlocal cast
             if cast is not None:
-                counts["sent"] += cast.sent
-                counts["dropped"] += cast.dropped
-                await cast.stop()
-                cast = None
+                ending, cast = cast, None  # gone even if its stop fails
+                counts["sent"] += ending.sent
+                counts["dropped"] += ending.dropped
+                await ending.stop()
+
+        seen: dict[str, Any] = {"last": None, "running": False}
+
+        async def step() -> None:
+            """Bring the state and the screencast in step with the browser, once."""
+            nonlocal cast
+            state = await self.state()
+            if seen["running"] and not state["running"]:
+                await end_cast()
+                reason = self.service.last_stop if self.service is not None else None
+                await emit({"type": "browser_stopped", "reason": reason or "crashed"})
+            seen["running"] = state["running"]
+            if state != seen["last"]:
+                await emit({"type": "browser_state", **state})
+                seen["last"] = state
+            chrome = self.service.chrome if self.service is not None else None
+            target = chrome.current_target if chrome is not None and self.running() else None
+            if cast is not None and (not watching or cast.target_id != target):
+                await end_cast()
+            if watching and cast is None and chrome is not None and target is not None:
+                if target not in chrome.tab_targets:  # the tab list is changing
+                    return
+                cast = Screencast(chrome.pipe, target, chrome.tab_targets.index(target) + 1, emit)
+                await cast.start()
 
         async def follow() -> None:
-            """Keep the state and the screencast in step with the browser."""
-            nonlocal cast
-            last: dict[str, Any] | None = None
-            was_running = False
+            """Run `step` until the socket closes. An error is logged (its type only) and
+            the loop goes on; after MAX_FAILURES in a row the socket is closed with 1011
+            so the window reconnects instead of showing a frozen state (review L2)."""
+            failures = 0
             while True:
-                state = await self.state()
-                if was_running and not state["running"]:
-                    await end_cast()
-                    reason = self.service.last_stop if self.service is not None else None
-                    await emit({"type": "browser_stopped", "reason": reason or "crashed"})
-                was_running = state["running"]
-                if state != last:
-                    await emit({"type": "browser_state", **state})
-                    last = state
-                chrome = self.service.chrome if self.service is not None else None
-                target = chrome.current_target if chrome is not None and self.running() else None
-                if cast is not None and (not watching or cast.target_id != target):
-                    await end_cast()
-                if watching and cast is None and chrome is not None and target is not None:
-                    tab = chrome.tab_targets.index(target) + 1
-                    cast = Screencast(chrome.pipe, target, tab, emit)
-                    try:
-                        await cast.start()
-                    except CDPError:
+                try:
+                    await step()
+                    failures = 0
+                except Exception as exc:
+                    failures += 1
+                    log.warning("Browser view: %s in the state loop", type(exc).__name__)
+                    with contextlib.suppress(Exception):
                         await end_cast()
+                    if failures >= MAX_FAILURES:
+                        with contextlib.suppress(Exception):
+                            await websocket.close(code=1011, reason="Live view failed")
+                        return
                 await asyncio.sleep(STATE_POLL_S)
 
         follower = asyncio.create_task(follow())
@@ -228,15 +233,6 @@ def add_browser_routes(app: FastAPI, deps: Any) -> BrowserView:
     @app.get("/api/browser", response_model=None)
     async def browser_state(request: Request) -> Any:
         return refused(request) or await view.state()
-
-    @app.get("/api/browser/frame", response_model=None)
-    async def browser_frame(request: Request) -> Any:
-        if (no := refused(request)) is not None:
-            return no
-        jpeg = await view.frame()
-        if jpeg is None:
-            return JSONResponse({"error": "The browser isn't running"}, status_code=404)
-        return Response(jpeg, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
 
     @app.post("/api/browser/stop", response_model=None)
     async def browser_stop(request: Request) -> Any:

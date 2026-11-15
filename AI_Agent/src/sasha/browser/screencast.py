@@ -46,22 +46,6 @@ async def attach(pipe: CDPPipe, target_id: str) -> str:
     return str(attached["sessionId"])
 
 
-async def snapshot(pipe: CDPPipe, target_id: str) -> bytes:
-    """One JPEG of the tab, through a session of its own (for GET /api/browser/frame)."""
-    session = await attach(pipe, target_id)
-    try:
-        shot = await pipe.call(
-            "Page.captureScreenshot", {"format": "jpeg", "quality": QUALITY}, session_id=session
-        )
-    finally:
-        with contextlib.suppress(CDPError):
-            await pipe.call("Target.detachFromTarget", {"sessionId": session})
-    data = str(shot.get("data", ""))
-    if not is_jpeg(data):
-        raise CDPError("not a JPEG")
-    return base64.b64decode(data)
-
-
 class Screencast:
     def __init__(self, pipe: CDPPipe, target_id: str, tab: int, emit: Emit) -> None:
         self.pipe, self.target_id, self.tab, self.emit = pipe, target_id, tab, emit

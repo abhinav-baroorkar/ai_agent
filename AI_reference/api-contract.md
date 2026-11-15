@@ -151,8 +151,7 @@ request with `Sec-Fetch-Site` other than `same-origin` or `none` gets 403):
 
 | Method + path | Returns / does |
 | --- | --- |
-| `GET /api/browser` | `BrowserState` (below) |
-| `GET /api/browser/frame` | one JPEG (`image/jpeg`, `Cache-Control: no-store`) of the current tab; 404 `{error}` when the browser isn't running |
+| `GET /api/browser` | `BrowserState` (below). There is no picture route: frames go only over `/ws/browser` |
 | `POST /api/browser/stop` | stop the browser now (Chrome and its proxy); `{ok:true}`, also when it wasn't running. No body needed; a body that is sent must be JSON |
 
 `BrowserState` = `{enabled:bool, running:bool, agent:"idle"|"working", holder:string|null,
@@ -211,9 +210,11 @@ WebSocket `/ws/browser` (one viewer):
   `audio_start.wake`; `listener_state`, `listener_stats`; `wake`, `armed_expired`,
   `confirm`, `confirm_result`, `pause_capture`, `resume_capture`; built-in `voice` bot and
   `Bot.wake_device_control`; health `wake.available` and `limits.reserved_sockets`.
-- v0.4 (2026-11-15): browser live view: `GET /api/browser`, `GET /api/browser/frame`,
+- v0.4 (2026-11-15): browser live view: `GET /api/browser`,
   `POST /api/browser/stop`; `/ws/browser` with `browser_state`, `browser_frame`,
   `browser_stopped`, `browser_watch`, `browser_ack`, `browser_stop`; health
   `limits.browser_sockets`; `BrowserState.holder_bot`.
+- v0.4.1 (2026-11-15): `GET /api/browser/frame` removed (review L1): frames reach
+  the window only over `/ws/browser`.
 - Planned for v0.5 (not built yet): `POST /api/connectors` and
   `DELETE /api/connectors/{id}` to add and remove MCP connectors from Settings.

@@ -36,12 +36,14 @@ class FakePipe:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, Any], str | None]] = []
         self.listeners: dict[str, list[Callable[[dict[str, Any]], None]]] = {}
+        self.attach_failures = 0
 
     def on(self, method: str, listener: Callable[[dict[str, Any]], None]) -> None:
         self.listeners.setdefault(method, []).append(listener)
 
     def off(self, method: str, listener: Callable[[dict[str, Any]], None]) -> None:
-        self.listeners.get(method, []).remove(listener)
+        if listener in self.listeners.get(method, []):  # tolerant, like CDPPipe.off
+            self.listeners[method].remove(listener)
 
     def emit(self, method: str, params: dict[str, Any]) -> None:
         for listener in list(self.listeners.get(method, [])):
@@ -62,9 +64,10 @@ class FakePipe:
             ]
             return {"targetInfos": infos}
         if method == "Target.attachToTarget":
+            if self.attach_failures > 0:  # a reply without a sessionId (KeyError later)
+                self.attach_failures -= 1
+                return {}
             return {"sessionId": "view-1"}
-        if method == "Page.captureScreenshot":
-            return {"data": JPEG}
         return {}
 
     def named(self, method: str) -> list[dict[str, Any]]:
@@ -125,7 +128,7 @@ def test_state_shows_hostnames_and_short_titles_only(setup: Any) -> None:
     client, service, _ = setup
     off = client.get("/api/browser").json()
     assert off["running"] is False and off["tabs"] == [] and off["enabled"] is False
-    assert client.get("/api/browser/frame").status_code == 404
+    assert client.get("/api/browser/frame").status_code == 404  # no picture route (L1)
     _start(client, service)
     state = client.get("/api/browser").json()
     assert state["running"] is True and state["agent"] == "idle"
@@ -133,10 +136,7 @@ def test_state_shows_hostnames_and_short_titles_only(setup: Any) -> None:
     assert len(state["tabs"][1]["title"]) <= 80 and not state["tabs"][1]["current"]
     assert "secret" not in str(state) and "https://" not in str(state)
     assert state["guard"] == {"allowed": 0, "refused": {}, "background_refused": 0}
-    frame = client.get("/api/browser/frame")
-    assert frame.headers["content-type"] == "image/jpeg"
-    assert frame.headers["cache-control"] == "no-store"
-    assert frame.content[:3] == b"\xff\xd8\xff"
+    assert client.get("/api/browser/frame").status_code == 404  # not even while running
     assert client.get("/api/health").json()["limits"]["browser_sockets"] == 1
 
 
@@ -144,9 +144,7 @@ def test_http_checks(setup: Any) -> None:
     client, service, chrome = setup
     cross = {"sec-fetch-site": "cross-site"}
     assert client.get("/api/browser", headers=cross).status_code == 403
-    assert (
-        client.get("/api/browser/frame", headers={"sec-fetch-site": "same-site"}).status_code == 403
-    )
+    assert client.get("/api/browser", headers={"sec-fetch-site": "same-site"}).status_code == 403
     assert (
         client.post("/api/browser/stop", headers={"origin": "http://evil.example"}).status_code
         == 403
@@ -303,3 +301,41 @@ def test_state_names_the_bot_using_the_browser(setup: Any) -> None:
     assert state["agent"] == "working" and state["holder"] == holder
     assert state["holder_bot"] == {"id": "main", "name": main.name}
     assert client.get("/api/browser").json()["holder_bot"] is None  # not held now
+
+
+def test_a_state_loop_error_is_logged_and_the_loop_goes_on(
+    setup: Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    client, service, chrome = setup
+    chrome.pipe.attach_failures = 2
+    _start(client, service)
+    url, window = f"{WS}/ws/browser", {"origin": BASE_URL}
+    with client.websocket_connect(url, headers=window) as ws:
+        assert ws.receive_json()["running"] is True
+        ws.send_json({"type": "browser_watch", "on": True})
+        _until(lambda: bool(chrome.pipe.named("Page.startScreencast")))  # third try works
+        _frame(client, chrome, 21)
+        assert ws.receive_json()["type"] == "browser_frame"
+    warnings = [r.message for r in caplog.records if "state loop" in r.message]
+    assert warnings == ["Browser view: KeyError in the state loop"] * 2
+
+
+def test_repeated_errors_close_the_socket_with_1011(
+    setup: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = setup[0]
+    calls = {"n": 0}
+
+    async def broken(self: Any) -> dict[str, Any]:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return {"running": False}
+        raise ValueError("boom")
+
+    monkeypatch.setattr(browser_view.BrowserView, "state", broken)
+    url, window = f"{WS}/ws/browser", {"origin": BASE_URL}
+    with client.websocket_connect(url, headers=window) as ws:
+        assert ws.receive_json()["type"] == "browser_state"
+        with pytest.raises(WebSocketDisconnect) as closed:
+            ws.receive_json()
+    assert closed.value.code == 1011 and calls["n"] == 1 + browser_view.MAX_FAILURES
