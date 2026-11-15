@@ -21,7 +21,7 @@ Last updated: 2026-11-14, late evening.
   (git-ignored) and its own `.venv` there. The main checkout is Primary's.
 - Flow per task: brief → worker commits on its branch → Primary sends the branch
   to the reviewer → worker fixes findings → reviewer approves → Primary merges
-  and pushes. The owner told Primary this directly on 2026-11-14; `CLAUDE.md` step 3 still says "once the owner says go" and is the owner's to update.
+  and pushes. The owner decided this on 2026-11-14, and `CLAUDE.md` step 3 now says so.
   Nothing is posted on GitHub except the pushed commits.
 - **Strict rule (owner, 2026-11-14):** no session changes anything outside the
   project folder. Reading elsewhere is fine. Caches and downloads go under
@@ -47,7 +47,10 @@ only for now; satellites on other devices come later.
 
 ## State of `main`
 
-- `main` is `95f584d` (2026-11-14, late evening). 279 tests passed at `d45935b`.
+- `main` is `4e71b41` (2026-11-14, late evening). 377 tests pass with all extras.
+- **Wake word:** the tray icon, `sasha listen` and `sasha autostart` are merged. The listener
+  can't open the microphone until `feat/wake-server` is on `main`. Nothing has run on real
+  audio yet.
 - **Window runs from `main`; goal reached for typed input.** `sasha window` was started on
   the laptop. The server came up with voice on (`stt` and `tts` true), the window's page
   connected, and a typed question on a `speak=1` socket was answered in text and speech:
@@ -74,9 +77,9 @@ only for now; satellites on other devices come later.
 | `chore/env-tmpdir-notes` | | `env.sh` refuses to run outside a bash checkout of the repo and removes temp entries older than 7 days | merged and pushed (`f2bfae5`) |
 | `fix/warmup-timeouts` | | short connect timeout for the model warm-up; voice turns record the STT and TTS model versions in telemetry | merged and pushed |
 | `fix/stt-runtime-fallback` | | speech-to-text falls back to CPU for a request when the GPU fails | merged and pushed (`3f76eee`) |
-| `feat/wake-server` | Staff SDE | brain side of the wake word: gate, abuse limits, reserved socket, contract v0.2 | in progress, not merged |
-| `feat/wake-listener` | Jack of all tasks | `sasha listen` (always-on listener), `sasha autostart` | in progress, not merged |
-| `feat/wake-indicator` | Design expert | tray icon and two short sounds | in progress, not merged |
+| `feat/wake-server` | Staff SDE | brain side of the wake word: gate, abuse limits, reserved socket, contract v0.2 | in its fix round (one blocking finding: a volume cap bypass through a string value; four smaller); not merged |
+| `feat/wake-listener` | Jack of all tasks | `sasha listen` (always-on listener), `sasha autostart` | merged and pushed after two review rounds; follow-up `fix/wake-listener-notes` merged |
+| `feat/wake-indicator` | Design expert | tray icon and chimes | merged and pushed; the send guard is stricter (exemptions pinned to exact lines, mail-sending calls forbidden in every file) |
 | `docs/scope-refresh` | Grunt work | plan.md, decisions.md, linkedin-notes.md, README, .env.example for the new scope | merged and pushed (`6fbc60d`, 86 tests pass) |
 | `docs/handoff` | Documentation engineer | this file, `team.md`, devlog; owner notes in `User_reference/` | merged and pushed (`main` is `5bd49eb`); work continues on this branch with new commits. Also owns `plan.md`, `decisions.md`, `linkedin-notes.md`, `README.md`, `.env.example` |
 
@@ -118,6 +121,15 @@ eyes; eyes stay as a switch.
 - Device control by voice, after the one opt-in: a spoken yes for "all", any scene, or more
   than 3 distinct devices in one turn (counted across all its calls).
 
+- The listener does not listen while the screen is locked.
+- Sessions may access the project's secrets file for now; team practice stays as written in
+  `team.md`. The owner tells Primary when that stops.
+- Claude's own memory folder for this project may be used for notes.
+- The GPL text-to-phoneme question stays open; features come first.
+- The real-light test (Docker and Home Assistant) is postponed for a few days.
+- `CLAUDE.md` "Current phase" (Phase 1, Phase 0 gate open and postponed) and step 3 (the
+  manager merges after the reviewer approves) were edited on the owner's instruction.
+
 ## Risks
 
 - **Limits of the wake word v1:** anyone in earshot or a television can trigger it. A false
@@ -140,6 +152,10 @@ eyes; eyes stay as a switch.
 ## Next after these land
 
 Our own design. In order:
+0. **After the wake word: the assistant's own browser** (own profile inside the project, live
+   view, take over, approval before anything that changes something, no access to the local
+   network; voice-started requests are read-only there). Ideas from an earlier project of the
+   owner's only; own code.
 1. **Always-on wake word on this device** (design approved; three branches in progress, none
    merged; opt-in until the measurement plan passes; see `decisions.md`).
 2. Check the full voice loop in the window with a real microphone.
@@ -167,9 +183,6 @@ Ideas from an earlier project of the owner's: read-only, no copying (owner's dec
   Memory notes are paused until the owner says so.
 - Which smart-display and TV devices to support.
 - Whether to keep eyes as a switch on the face (the default is without eyes).
-- `CLAUDE.md` "Current phase" says to stop and check with the owner before adding voice.
-  Only the owner changes that line. `CLAUDE.md` step 3 ("once the owner says go") also
-  differs from how merging works now; the owner updates it.
 - **GPL text-to-phoneme packages for the English voice.** The voice is Kokoro-82M via
   `kokoro-onnx` (weights Apache-2.0, `kokoro-onnx` MIT). It depends on two GPL-3.0
   packages, `phonemizer` and `espeakng-loader` (bundles espeak-ng). Tonight's

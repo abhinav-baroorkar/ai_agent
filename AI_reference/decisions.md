@@ -434,3 +434,23 @@ Summary of the design that passed review (two rounds). Opt-in until the measurem
   sessions build against it. The MCP connector endpoints (add and remove), which an earlier
   entry planned for v0.2, are now planned for v0.3.
 
+## 2026-11-14 — Owner decisions, night
+
+- **Next feature after the wake word: the assistant's own browser.** Own profile inside the
+  project, live view, take over, approval before anything that changes something, no access to
+  the local network, and voice-started requests are read-only there. Ideas from an earlier
+  project of the owner's only; own code.
+- **The listener does not listen while the screen is locked.** (Matches the design.)
+- **Secrets file:** sessions may access it for now; the owner will say when that stops. Team
+  practice stays as written in the earlier secrets entries (load at run time, names only, don't
+  open it unless a task needs it and Primary agrees).
+- **The GPL text-to-phoneme question stays open.** Why: features first.
+- **The real-light test (Docker and Home Assistant) is postponed for a few days.**
+- **Claude's own memory folder for this project may be used for notes.**
+- **`CLAUDE.md` edited on the owner's instruction:** step 3 (the manager merges after the
+  reviewer approves) and the current phase (Phase 1, with the Phase 0 gate open and postponed).
+  This resolves the earlier note that the owner would edit those lines.
+- **Send guard stricter (`feat/wake-indicator`):** exemptions are pinned to exact lines, and
+  mail-sending calls are forbidden in every file. Why: the rule is that no send function
+  exists anywhere; the test must not have loose exceptions.
+
