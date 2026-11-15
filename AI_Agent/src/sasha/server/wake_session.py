@@ -28,15 +28,16 @@ from sasha.config import WakeConfig
 from sasha.orchestrator import Assistant, Reply
 from sasha.server.deps import ServerDeps
 from sasha.server.speaking import ListenerPresence
+from sasha.server.speech import Speaker
 from sasha.server.voice import MIC_SAMPLE_RATE, VoiceStages
-from sasha.server.wake import WakeGate, WakeMatcher, confirm_reason
+from sasha.server.wake import WakeGate, WakeMatcher
+from sasha.server.wake_confirm import ConfirmFlow, PlaybackClock
 from sasha.server.wake_policy import RateLimiter, WakeToolPolicy
-from sasha.server.ws import Conversation
+from sasha.server.ws import Conversation, Frame
 from sasha.telemetry import TelemetryWriter
 
 log = logging.getLogger(__name__)
 BYTES_PER_S = MIC_SAMPLE_RATE * 2
-CONFIRM_SPEECH_WAIT_S = 30.0  # longest we wait for the spoken question to finish
 RELOAD_MS = 1000.0  # an LLM stage with load_ms above this means Ollama reloaded the model
 
 
@@ -98,12 +99,24 @@ class ListenerConversation(Conversation):
         self.presence = presence
         self.recheck_placement = recheck_placement
         self.paused = True  # fail closed until the listener says it is listening
-        self.confirm_waiter: asyncio.Future[bytes] | None = None
         self.armed_timer: asyncio.TimerHandle | None = None
+        self.turn_language = language
+        self.playback = PlaybackClock()
+        self.confirm = ConfirmFlow(self)
         self.policy = WakeToolPolicy(
-            config, device_control, limiter, self._confirm_blocking, self._record_tool
+            config, device_control, limiter, self.confirm.blocking, self.record_tool
         )
         assistant.tools = self.policy.wrap(assistant.tools)
+
+    def emit(self, frame: Frame) -> None:
+        if isinstance(frame, bytes):
+            self.playback.frame(len(frame))
+        elif frame.get("type") == "tts_start":
+            self.playback.tts_start(int(frame.get("sample_rate") or 1))
+        super().emit(frame)
+
+    def make_turn_speaker(self) -> Speaker | None:
+        return self._make_speaker(self.turn_language)
 
     # --- lifecycle ---------------------------------------------------------------
     async def run(self) -> None:
@@ -115,7 +128,7 @@ class ListenerConversation(Conversation):
             self.voice.speaking.unsubscribe(id(self))
             self.presence.set(id(self), False)
             self._disarm()
-            self._resolve_confirm(b"")
+            self.confirm.cancel()
 
     def _background(self, fn: Callable[[], None]) -> None:
         async def run() -> None:
@@ -140,7 +153,7 @@ class ListenerConversation(Conversation):
         kind = msg.get("type") if isinstance(msg, dict) else None
         if not isinstance(msg, dict) or kind in ("cancel", "reset") or not isinstance(kind, str):
             if kind in ("cancel", "reset"):
-                self._resolve_confirm(b"")  # a pending question counts as "no"
+                self.confirm.cancel()  # a pending question counts as "no"
             await super()._on_text_frame(raw)  # errors and cancel/reset as on any socket
         elif kind == "listener_state":
             self.paused = msg.get("paused") is not False
@@ -194,8 +207,7 @@ class ListenerConversation(Conversation):
         if self.audio is None:
             return
         audio, self.audio = bytes(self.audio), None
-        if self.confirm_waiter is not None and not self.confirm_waiter.done():
-            self.confirm_waiter.set_result(audio)  # the answer to a pending question
+        if self.confirm.offer(audio):  # the answer to a pending question
             return
         reason = self._drop_reason()
         if reason is not None:
@@ -254,6 +266,7 @@ class ListenerConversation(Conversation):
         self._check(decision.outcome, segment_bytes, timings)
         self.emit({"type": "transcript", "text": command, "final": True})
         self.policy.begin_turn()
+        self.turn_language = language
         await self._turn(command, language, "wake")
 
     def _miss(self, outcome: str, segment_bytes: int, extra: dict[str, Any] | None = None) -> None:
@@ -279,58 +292,6 @@ class ListenerConversation(Conversation):
             self.emit({"type": "armed_expired"})
             self._check("followup_expired", 0, {})
 
-    # --- confirmation (called from the LLM worker thread) --------------------------------
-    def _confirm_blocking(self, action: str) -> bool:
-        future = asyncio.run_coroutine_threadsafe(self._ask_confirm(action), self.loop)
-        try:
-            return bool(
-                future.result(timeout=CONFIRM_SPEECH_WAIT_S + self.config.confirm_window_s + 5)
-            )
-        except Exception:
-            future.cancel()
-            return False
-
-    async def _ask_confirm(self, action: str) -> bool:
-        if self.stop.is_set() or self.stt is None:
-            return False
-        window = self.config.confirm_window_s
-        self.emit({"type": "confirm", "action": action, "timeout_s": window})
-        if self.speaker is not None:
-            self.speaker.say(f"Should I {action}?")
-            for _ in range(60):  # up to 3 s for the question's speech to begin
-                if self.voice.speaking.speaking():
-                    break
-                await asyncio.sleep(0.05)
-        # The window starts at the end of the question's speech (tts_end + tail).
-        await self.voice.speaking.wait_quiet(CONFIRM_SPEECH_WAIT_S)
-        self.confirm_waiter = self.loop.create_future()
-        try:
-            audio = await asyncio.wait_for(self.confirm_waiter, window)
-        except asyncio.TimeoutError:
-            self._record_tool("confirm_timeout")
-            return self._confirm_result("timeout")
-        finally:
-            self.confirm_waiter = None
-        if not audio:  # cancelled or disconnected
-            return self._confirm_result("no")
-        try:
-            async with self.voice.stt_lock:
-                answer = await asyncio.to_thread(self.stt.transcribe, audio, MIC_SAMPLE_RATE)
-        except Exception:
-            return self._confirm_result("unclear")
-        reason = confirm_reason(answer.text, self.config.yes_words, self.config.no_words)
-        del answer, audio  # the answer's text is not kept, like any other wake audio
-        return self._confirm_result(reason)
-
-    def _confirm_result(self, reason: str) -> bool:
-        accepted = reason == "yes"
-        self.emit({"type": "confirm_result", "accepted": accepted, "reason": reason})
-        return accepted
-
-    def _resolve_confirm(self, audio: bytes) -> None:
-        if self.confirm_waiter is not None and not self.confirm_waiter.done():
-            self.confirm_waiter.set_result(audio)
-
     # --- telemetry (labels and numbers only) ---------------------------------------------
     def _check(self, outcome: str, segment_bytes: int, extra: dict[str, Any]) -> None:
         self._write(
@@ -342,7 +303,7 @@ class ListenerConversation(Conversation):
             }
         )
 
-    def _record_tool(self, decision: str) -> None:
+    def record_tool(self, decision: str) -> None:
         self._write({"kind": "wake_tool", "decision": decision})
 
     def _write(self, record: dict[str, Any]) -> None:

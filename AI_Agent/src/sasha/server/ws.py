@@ -195,8 +195,10 @@ class Conversation:
         self.loop.call_soon_threadsafe(self._on_delta, piece)
 
     async def _turn(self, text: str, language: str, input_mode: str) -> None:
-        # Kept in self.speaker until speech is over, so a disconnect can cancel it.
-        speaker = self.speaker = self._make_speaker(language)
+        # Kept in self.speaker until speech is over, so a disconnect can cancel it. A
+        # wake confirmation may swap it mid-turn (server/wake_confirm.py), so the end of
+        # the turn always uses the current one.
+        self.speaker = self._make_speaker(language)
         spoken = False
         try:
             self.state("thinking")
@@ -211,15 +213,16 @@ class Conversation:
                         "timing": _timing(reply),
                     }
                 )
-            if speaker is not None:
+            if self.speaker is not None:
+                speaker = self.speaker
                 await (speaker.finish() if reply is not None else speaker.abort())
             spoken = True
         except Exception as exc:  # never let one turn kill the connection
             log.error("Turn failed: %s", type(exc).__name__)
             self.error(f"Something went wrong ({type(exc).__name__})")
         finally:
-            if speaker is not None and not spoken:  # error or cancelled: stop speech now
-                speaker.cancel()
+            if self.speaker is not None and not spoken:  # error or cancelled: stop now
+                self.speaker.cancel()
             self.speaker = None
             self.voice.speaking.turn_ended()  # wake cool-down starts at any turn's end
             self.state("idle")
