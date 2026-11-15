@@ -115,7 +115,8 @@ def main() -> int:
             for (f, phon), c in itertools.product(forms.items(), COMMANDS)
         ]
     else:
-        texts = ORDINARY + [m.format(name=name) for m in MENTIONS]
+        persona = s.assistant.name  # a mention is the bare name, not the wake phrase
+        texts = ORDINARY + [m.format(name=persona) for m in MENTIONS]
         items = [(f"o{i}", ph(t), False) for i, t in enumerate(texts)]
     speeds, levels = ([1.0], LEVELS[:1]) if a.quick else ([0.85, 1.0, 1.2], LEVELS)
     rng, rows = np.random.default_rng(7), []
