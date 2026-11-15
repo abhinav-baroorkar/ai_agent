@@ -93,6 +93,24 @@ def test_stale_temp_folders_are_removed_but_not_fresh_or_linked(tmp_path: Path) 
     stamp = time.time() - 2 * 86400
     for d in (old, mine, root / "link", outside):
         os.utime(d, (stamp, stamp), follow_symlinks=False)
-    _clean_stale(root, mine)
+    _clean_stale(root, mine, repo=tmp_path)
     assert not old.exists() and fresh.exists() and mine.exists()
     assert outside.exists() and (root / "link").is_symlink()
+
+
+def test_stale_cleanup_does_nothing_when_base_resolves_outside_the_repo(tmp_path: Path) -> None:
+    import os
+    import time
+
+    from tests.conftest import _clean_stale
+
+    repo, outside = tmp_path / "repo", tmp_path / "outside"
+    (repo / "Data").mkdir(parents=True)
+    old, mine = outside / "old", outside / "mine"
+    for d in (old, mine):
+        d.mkdir(parents=True)
+    stamp = time.time() - 2 * 86400
+    os.utime(old, (stamp, stamp))
+    (repo / "Data" / "pytest-tmp").symlink_to(outside)
+    _clean_stale(repo / "Data" / "pytest-tmp", mine, repo=repo)
+    assert old.exists() and mine.exists()

@@ -17,14 +17,21 @@ PYTEST_TMP = PYTEST_TMP_ROOT / str(os.getpid())
 STALE_AFTER_S = 24 * 3600
 
 
-def _clean_stale(root: Path, keep: Path) -> None:
-    """Remove folders directly under `root` that are over a day old (finished runs)."""
+def _clean_stale(root: Path, keep: Path, repo: Path = REPO_ROOT) -> None:
+    """Remove folders directly under `root` that are over a day old (finished runs).
+
+    Does nothing if `root` resolves outside `repo` (for example a symlinked `Data/`).
+    """
     base = root.resolve()
+    if not base.is_relative_to(repo.resolve()):
+        return
     for entry in base.iterdir():
         if entry == keep.resolve() or entry.resolve().parent != base:
             continue  # never our own folder, never anything that resolves elsewhere
         if time.time() - entry.lstat().st_mtime > STALE_AFTER_S:
-            shutil.rmtree(entry, ignore_errors=True) if entry.is_dir() else entry.unlink()
+            shutil.rmtree(entry, ignore_errors=True) if entry.is_dir() else entry.unlink(
+                missing_ok=True
+            )
 
 
 def pytest_configure(config: pytest.Config) -> None:
