@@ -113,7 +113,7 @@ def test_telemetry_records_startup_gpu_share(settings: Settings, tmp_path: Any) 
 
 def test_telemetry_records_voice_models_on_voice_turns_only(tmp_path: Any) -> None:
     writer = PlacementTelemetry(tmp_path, "a", "p", enabled=False)
-    writer.voice_models = {"stt": "whisper@x", "tts": "kokoro@y"}
+    writer.voice_models = {"stt": lambda: "whisper@x", "tts": lambda: "kokoro@y"}
     voice = writer.start(input_mode="voice").models
     assert voice["stt"] == "whisper@x" and voice["tts"] == "kokoro@y"
     assert "stt" not in writer.start(input_mode="text").models
@@ -154,3 +154,33 @@ def test_build_deps_puts_voice_versions_in_voice_telemetry(
     models = deps.telemetry.start(input_mode="voice").models
     assert (models["stt"], models["tts"]) == ("fake-stt", "fake-tts")
     assert deps.warnings == []
+
+
+class _ChangingSTT:
+    """A stage whose version changes between turns, like a GPU -> CPU fallback."""
+
+    def __init__(self) -> None:
+        self.used = "cuda:float16"
+
+    def model_version(self) -> str:
+        return f"whisper@x:{self.used}"
+
+
+def test_voice_telemetry_reads_the_version_at_each_turn(tmp_path: Any) -> None:
+    stt = _ChangingSTT()
+    writer = PlacementTelemetry(tmp_path, "a", "p", enabled=False)
+    writer.voice_models = {"stt": stt.model_version}
+    assert writer.start(input_mode="voice").models["stt"] == "whisper@x:cuda:float16"
+    stt.used = "cpu:int8:fallback"
+    assert writer.start(input_mode="voice").models["stt"] == "whisper@x:cpu:int8:fallback"
+    stt.used = "cuda:float16"
+    assert writer.start(input_mode="voice").models["stt"] == "whisper@x:cuda:float16"
+
+
+def test_a_failing_version_call_never_breaks_a_turn(tmp_path: Any) -> None:
+    def broken() -> str:
+        raise RuntimeError("boom")
+
+    writer = PlacementTelemetry(tmp_path, "a", "p", enabled=False)
+    writer.voice_models = {"stt": broken}
+    assert writer.start(input_mode="voice").models["stt"] == "unknown"
