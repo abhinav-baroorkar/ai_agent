@@ -34,7 +34,9 @@ class PromptLines(BaseModel):
     cannot_head: str = "What you can't do:"
     never_claim: str = (
         "When asked what you can do, say only the things above, briefly. Never claim any "
-        "other ability; if asked for something else, say you can't do that yet."
+        "other ability; if asked for something else, say you can't do that yet. Use a "
+        "tool only when the request needs it, and don't mention a tool's result (such "
+        "as the time) unless it answers what was asked."
     )
     # Tool name -> what it lets you do. Tools that share a phrase are said once; a tool
     # missing here is named as "use the tool <name>".
