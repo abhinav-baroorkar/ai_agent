@@ -16,11 +16,9 @@ import pytest
 
 from sasha.browser.chrome import (
     BrowserUnavailableError,
-    check_profile,
     chrome_flags,
     find_chrome,
     pipe_fd_script,
-    profile_dir,
     start_chrome,
 )
 from sasha.browser.proxy import FilteringProxy
@@ -48,15 +46,16 @@ def test_flags_are_pipe_only_and_locked_down(tmp_path: Path) -> None:
         "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1",
     ):
         assert must in flags, must
+    for must in ("--disable-background-networking", "--disable-component-update", "--no-pings"):
+        assert must in flags, must
+    features = [f for f in flags if f.startswith("--disable-features=")]
+    assert len(features) == 1  # a second one would replace the first
+    off = features[0].split("=", 1)[1].split(",")
+    for name in ("BackForwardCache", "Translate", "AutofillServerCommunication", "MediaRouter"):
+        assert name in off, name
+    assert len(off) == len(set(off))
     assert not any(f.startswith("--remote-debugging-port") for f in flags)
     assert sum(f.startswith("--host-resolver-rules") for f in flags) == 1
-
-
-def test_only_our_own_profile(tmp_path: Path) -> None:
-    assert check_profile(profile_dir(tmp_path), tmp_path) == profile_dir(tmp_path).resolve()
-    for other in (Path.home() / ".config" / "google-chrome", tmp_path / "other"):
-        with pytest.raises(BrowserUnavailableError):
-            check_profile(other, tmp_path)
 
 
 def test_pipe_fds_land_on_3_and_4_even_when_the_pipe_is_3_and_4() -> None:

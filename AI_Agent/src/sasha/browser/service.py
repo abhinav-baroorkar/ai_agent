@@ -3,7 +3,8 @@
 The brain owns a single `BrowserService`. A bot `acquire()`s it for a turn; a second
 bot is refused while the first holds it (no shared tabs or cookies between bots in
 phase 1). Chrome and the filtering proxy are started lazily and stopped after
-`idle_s` without use, or when the brain stops.
+`idle_s` without use, or when the brain stops. Each stop forgets the browsing history
+(`history.py`).
 """
 
 from __future__ import annotations
@@ -17,6 +18,8 @@ from pathlib import Path
 from typing import Any
 
 from sasha.browser.chrome import Chrome, start_chrome
+from sasha.browser.history import forget_when_free
+from sasha.browser.profile import profile_dir
 from sasha.browser.proxy import FilteringProxy
 
 log = logging.getLogger(__name__)
@@ -95,6 +98,7 @@ class BrowserService:
         self.chrome = self.proxy = None
         if chrome is not None:
             await chrome.stop()
+            await forget_when_free(profile_dir(self.data_dir))  # once Chrome has exited
         if proxy is not None:
             await proxy.stop()
 
@@ -110,4 +114,9 @@ class BrowserService:
         if self.proxy is None:
             return {"running": False}
         s = self.proxy.stats
-        return {"running": True, "allowed": s.allowed, "refused": dict(s.refused)}
+        return {
+            "running": True,
+            "allowed": s.allowed,
+            "refused": dict(s.refused),
+            "background_refused": s.background_refused,
+        }
