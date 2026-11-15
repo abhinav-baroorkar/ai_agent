@@ -36,3 +36,4 @@ class WakeWord(BaseModel):
     word_variants: dict[str, list[str]] = Field(default_factory=dict)
     # How people say it, as Kokoro phonemes: only for bench/wake_synthetic.py.
     test_pronunciations: list[str] = Field(default_factory=list)
+    test_soundalikes: list[str] = Field(default_factory=list)  # bench only

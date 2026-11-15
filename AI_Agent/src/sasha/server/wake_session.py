@@ -83,13 +83,19 @@ async def open_listener(
         recheck_placement=deps.recheck_placement,
         speak=speak,
     )
-    # The prompt states what wake turns can really do: the policy's view of the tools,
-    # without device control unless it is allowed now. Then the wake turn's own line
-    # (a hint; TruthfulReply is the guarantee).
-    control = conv.policy.device_control()
-    names = [n for n in conv.assistant.tools.names if n != CONTROL_TOOL or control]
-    prompt = deps.prompt_for(bot, names, spoken=speak)
-    assistant.system_prompt = f"{prompt}\n{config.prompt_note}"
+
+    def wake_prompt() -> str:
+        """What wake turns can really do now: the policy's view of the tools, without
+        device control unless it is allowed now; then the wake turn's own line (a hint;
+        TruthfulReply is the guarantee). Rebuilt every turn, so turning the opt-in on or
+        off takes effect at once, not at the next connection."""
+        control = conv.policy.device_control()
+        names = [n for n in conv.assistant.tools.names if n != CONTROL_TOOL or control]
+        prompt = deps.prompt_for(deps.bots.get(VOICE_ID), names, spoken=speak)
+        return f"{prompt}\n{config.prompt_note}"
+
+    conv.wake_prompt = wake_prompt
+    assistant.system_prompt = wake_prompt()
     return conv
 
 
@@ -116,6 +122,7 @@ class ListenerConversation(Conversation):
         self.presence = presence
         self.recheck_placement = recheck_placement
         self.paused = True  # fail closed until the listener says it is listening
+        self.wake_prompt: Callable[[], str] | None = None  # set by open_listener
         self.armed_timer: asyncio.TimerHandle | None = None
         self.turn_language = language
         self.truth: TruthfulReply | None = None  # set while a wake turn's reply streams
@@ -193,6 +200,8 @@ class ListenerConversation(Conversation):
             await super()._on_text_frame(raw)
 
     async def _ask(self, text: str, input_mode: str) -> Reply | None:
+        if self.wake_prompt is not None:
+            self.assistant.system_prompt = self.wake_prompt()  # never stale (see open_listener)
         lines = self.config.reply_lines
         line_set = lines.get(self.turn_language) or lines.get("en") or ReplyLines()
         truth = self.truth = (
@@ -276,7 +285,10 @@ class ListenerConversation(Conversation):
         assert self.stt is not None
         queued = time.perf_counter()
         segment_bytes = len(audio)
-        hotwords = self.gate.matcher.phrase  # without it a short phrase comes out as anything
+        # The phrase as a hint, without which a short phrase comes out as anything. Not on
+        # the armed follow-up (the command after the phrase alone): there the hint could
+        # write the phrase into the command (review H1).
+        hotwords = None if self.gate.armed else self.gate.matcher.phrase
         try:
             async with self.voice.stt_lock:  # waits while another socket transcribes
                 started = time.perf_counter()

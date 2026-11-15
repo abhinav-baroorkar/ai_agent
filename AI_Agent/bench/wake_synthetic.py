@@ -21,6 +21,7 @@ import argparse
 import itertools
 import json
 import os
+import re
 import time
 from collections import Counter
 from datetime import datetime
@@ -54,6 +55,30 @@ ORDINARY = [
     "Hmm.",
 ]
 MENTIONS = ["{name} said she would call.", "I told {name} about it."]  # must not wake
+# Set 1 (review FW): "hey" followed by something else; must not wake.
+HEY_OTHER = [
+    "Hey, you know what?",
+    "Hey, can you pass the salt?",
+    "Hey there.",
+    "Hey guys.",
+    "Hey Siri.",
+    "Hey Google.",
+    "Hey Alexa.",
+    "Hey sir.",
+    "Hey Sarah.",
+    "Hey {name}'s mom is here.",  # possessive: must refuse
+]
+# Set 3: TV/radio-like continuous talk with "hey" in it (6-8 s); must not wake.
+LONG_TALK = [
+    "And now the weather. Hey, it's going to be a sunny weekend, so get outside and "
+    "enjoy it while it lasts.",
+    "Hey everybody, welcome back to the show. Tonight we have a great lineup of guests for you.",
+    "So I turned around and said hey, what are you doing here, and he just laughed and "
+    "walked away.",
+    "Coming up after the break: hey, have you ever wondered why the sky turns orange at sunset?",
+]
+# Set 5 (review H1): the command after the phrase alone, decoded without the hint.
+FOLLOW_UPS = ["Turn on the kitchen light.", "What time is it?", "Set a timer for five minutes."]
 LEVELS = [(1.0, None), (0.25, None), (1.0, 20.0), (1.0, 10.0)]  # (gain, SNR dB or None)
 
 
@@ -97,7 +122,12 @@ def segments(x: Any, gain: float, snr: float | None, rng: Any) -> list[bytes]:
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--set", choices=("wake", "ordinary"), default="wake")
+    p.add_argument(
+        "--set",
+        choices=("wake", "ordinary", "hey_other", "soundalike", "long_talk", "follow_up"),
+        default="wake",
+    )
+    p.add_argument("--no-hint", action="store_true", help="A/B: decode without the hint")
     p.add_argument("--quick", action="store_true", help="one speed, clean audio only")
     p.add_argument("--voices", default="")
     a = p.parse_args()
@@ -116,8 +146,17 @@ def main() -> int:
         ]
     else:
         persona = s.assistant.name  # a mention is the bare name, not the wake phrase
-        texts = ORDINARY + [m.format(name=persona) for m in MENTIONS]
-        items = [(f"o{i}", ph(t), False) for i, t in enumerate(texts)]
+        first = name.split()[0]  # "hey" for "hey <name>"
+        texts = {
+            "ordinary": ORDINARY + [m.format(name=persona) for m in MENTIONS],
+            "hey_other": [t.format(name=persona) for t in HEY_OTHER],
+            # sound-alike names after the phrase's first word, from assistant.yaml
+            "soundalike": [f"{first} {n}." for n in s.assistant.wake_word.test_soundalikes]
+            + [f"{first} {n}, turn on the light." for n in s.assistant.wake_word.test_soundalikes],
+            "long_talk": LONG_TALK,
+            "follow_up": FOLLOW_UPS,
+        }[a.set]
+        items = [(f"{a.set[:2]}{i}", ph(t), False) for i, t in enumerate(texts)]
     speeds, levels = ([1.0], LEVELS[:1]) if a.quick else ([0.85, 1.0, 1.2], LEVELS)
     rng, rows = np.random.default_rng(7), []
     for (vname, voice), (form, phon, cmd), speed, (gain, snr) in itertools.product(
@@ -129,9 +168,15 @@ def main() -> int:
             rows.append({**row, "outcome": "gate_dropped"})
             continue
         t0 = time.perf_counter()
-        heard = stt.transcribe(segs[0], 16000, hotwords=name)
-        d = WakeGate(matcher, wake.armed_window_s, wake.min_confidence).decide(
-            heard.text, heard.confidence
+        hint = None if a.no_hint or a.set == "follow_up" else name  # as in production
+        heard = stt.transcribe(segs[0], 16000, hotwords=hint)
+        gate = WakeGate(matcher, wake.armed_window_s, wake.min_confidence)
+        if a.set == "follow_up":
+            gate.decide(name, 0.9)  # armed by the phrase alone, as in a real session
+        d = gate.decide(heard.text, heard.confidence)
+        # bench only, never telemetry: did the decoder write the phrase that wasn't said?
+        inserted = a.set != "wake" and bool(
+            re.search(rf"(?<!\w){re.escape(name)}(?!\w)", heard.text, re.IGNORECASE)
         )
         rows.append(
             {
@@ -139,20 +184,28 @@ def main() -> int:
                 "text": heard.text,
                 "confidence": heard.confidence,
                 "outcome": d.outcome,
+                "phrase_inserted": inserted,
+                "hint": hint is not None,
                 "stt_ms": round((time.perf_counter() - t0) * 1000),
             }
         )
         print(
             f"{vname:9} {form:8} cmd={int(cmd)} sp={speed} g={gain} snr={snr} "
-            f"{heard.confidence or 0:.2f} {d.outcome:22} {heard.text!r}",
+            f"{heard.confidence or 0:.2f} {d.outcome:22} {'INS ' if inserted else ''}"
+            f"{heard.text!r}",
             flush=True,
         )
     counts = Counter(r["outcome"] for r in rows)
     hits = sum(n for o, n in counts.items() if o in HITS)
-    print(f"\n{a.set}: {len(rows)} samples, {hits} woke; {dict(counts)}")
+    inserted_n = sum(bool(r.get("phrase_inserted")) for r in rows)
+    print(
+        f"\n{a.set}: {len(rows)} samples, {hits} woke; {dict(counts)}; "
+        f"phrase written but not said: {inserted_n}; hint={'off' if a.no_hint else 'on'}"
+    )
     out = s.paths.data_dir / "results"
     out.mkdir(parents=True, exist_ok=True)
-    path = out / f"wake_synthetic-{a.set}-{datetime.now():%Y%m%d-%H%M%S}.json"
+    tag = f"{a.set}{'-nohint' if a.no_hint else ''}"
+    path = out / f"wake_synthetic-{tag}-{datetime.now():%Y%m%d-%H%M%S}.json"
     path.write_text(json.dumps(rows, indent=1, ensure_ascii=False), encoding="utf-8")
     print(f"Saved {path}")
     return 0

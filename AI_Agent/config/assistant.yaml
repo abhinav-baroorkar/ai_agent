@@ -17,6 +17,8 @@ wake_word:
   # How people say it, as Kokoro phonemes, for bench/wake_synthetic.py only: a long
   # "aa" (Indian English) and an "sh" start.
   test_pronunciations: ["hˈeɪ sˈɑːʃə", "hˈeɪ ʃˈɑːʃə"]
+  # Names that sound like it, for the bench's false-wake set only.
+  test_soundalikes: [Masha, Sacha, Natasha, Shasha, Pasha]
   model: null          # path to a trained openWakeWord .onnx (later, on-device)
   threshold: 0.5
 voice:
