@@ -28,7 +28,7 @@ from typing import Any
 from sasha.config import WakeConfig
 from sasha.tools import Tool, ToolError, ToolRegistry
 
-READ_ONLY_TOOLS = ("list_devices", "get_state")
+READ_ONLY_TOOLS = ("list_devices", "get_state", "get_current_time")
 CONTROL_TOOL = "call_service"
 _CLEAN = re.compile(r"[^\w .-]+")
 

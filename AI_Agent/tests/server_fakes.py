@@ -39,6 +39,7 @@ class FakeLLM:
         self.model = model
         self.responses = responses if responses is not None else []
         self.seen: list[tuple[list[Message], bool]] = []
+        self.offered: list[list[str]] = []  # tool names offered on each call
         self.hold = False
         self.started = threading.Event()
 
@@ -66,6 +67,7 @@ class FakeLLM:
         should_stop: Callable[[], bool] | None = None,
     ) -> LLMResponse:
         self.seen.append((list(messages), tools is not None))
+        self.offered.append([t["function"]["name"] for t in tools or []])
         self.started.set()
         while self.hold:
             if should_stop and should_stop():

@@ -30,6 +30,7 @@ from sasha.server.warmup import (
 )
 from sasha.state import JsonStore
 from sasha.telemetry import TelemetryWriter
+from sasha.tools.clock import CLOCK_TOOL, clock_tool
 
 log = logging.getLogger(__name__)
 
@@ -56,8 +57,10 @@ class ServerDeps:
             self.wake_limiter = RateLimiter(self.settings.profile.wake.max_calls_per_minute)
 
     def make_assistant(self, bot: Bot) -> tuple[Assistant, list[str]]:
-        """A fresh conversation for `bot`, with only its connectors' tools."""
+        """A fresh conversation for `bot`, with its connectors' tools and the clock."""
         tools, warnings = self.connectors.tools_for(bot.connectors)
+        if CLOCK_TOOL not in tools:
+            tools.register(clock_tool())  # every bot: read-only, so no guessed times
         assistant = Assistant(
             self.settings,
             self.make_llm(bot.model),
