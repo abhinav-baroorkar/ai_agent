@@ -1,0 +1,63 @@
+# Wake commands (what follows the name) and whether they ask for a device change.
+# Gate for device control by voice: every `request` must be recognised (0 missed), so
+# a false "done" can never stream; `stream` items (questions, state reports, chat)
+# must stay unheld. Run as a test: tests/test_wake_request_bench.py.
+request:
+  - lights off
+  - turn off the lights
+  - turn the kitchen light on
+  - switch off the fan
+  - kill the lights
+  - lights out please
+  - cut the music
+  - shut off the tv
+  - "off"  # quoted: bare on/off are booleans in YAML
+  - "on"
+  - up
+  - down
+  - all off
+  - lights on
+  - fan off please
+  - music louder
+  - make the music louder
+  - volume down
+  - turn it up
+  - dim the bedroom lights
+  - brighten the living room
+  - can you turn off the hallway light?
+  - could you switch the fan on?
+  - please set the lights to 50 percent
+  - pause the music
+  - play some music
+  - mute the tv
+  - toggle the desk lamp
+  - lights brighter
+  - everything off
+  # suggestion forms and a change clause after a wh-question (review P1)
+  - how about turning the lights off
+  - why don't you switch it off
+  - why not turn the fan off
+  - what if you dim the lights
+  - how about lights off
+  - where's the fan, turn it on
+  - what's the volume, set it to 20
+  # comparatives anywhere, a device with a number
+  - a bit dimmer please
+  - make it warmer in here
+  - lights at fifty percent
+  - volume to 30
+stream:
+  - how do I turn off the TV?
+  - who turned the lights on?
+  - is the hallway light on?
+  - are the lights off?
+  - what's on tv tonight
+  - which lights are on?
+  - how warm is it in the kitchen?
+  - tell me a joke
+  - what time is it
+  - good morning
+  - what's the weather like tomorrow
+  - when does the sun set today?
+  - who wrote this song?
+  - how many lights are there?
