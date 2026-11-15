@@ -176,6 +176,9 @@ def build_parser() -> argparse.ArgumentParser:
     auto = sub.add_parser("autostart", help="Start brain + listener at login: on|off|show")
     auto.add_argument("action", choices=["on", "off", "show"])
     auto.add_argument("--yes", action="store_true", help="With `on`: really link and enable")
+    menu = sub.add_parser("app-menu", help="The assistant in the applications menu: on|off|show")
+    menu.add_argument("action", choices=["on", "off", "show"])
+    menu.add_argument("--yes", action="store_true", help="With `on`: really write the entry")
     return p
 
 
@@ -207,6 +210,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         from sasha.pipeline.model_cache import project_root
 
         return autostart(args.action, project_root(settings.paths.root), yes=args.yes)
+    if args.command == "app-menu":
+        from sasha.app.menu import app_menu
+        from sasha.pipeline.model_cache import project_root
+
+        return app_menu(args.action, settings, project_root(settings.paths.root), yes=args.yes)
     if args.command in ("serve", "window"):
         from sasha.server.launch import open_window, run_server  # FastAPI only when needed
 

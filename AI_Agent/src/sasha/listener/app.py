@@ -11,6 +11,7 @@ import asyncio
 import logging
 import signal
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from sasha.config import Settings
@@ -21,6 +22,7 @@ from sasha.listener.gate import END_SILENCE_MS, Gate
 from sasha.listener.guards import Guards
 from sasha.listener.listener import Listener
 from sasha.listener.playback import Player
+from sasha.listener.window_open import WindowOpener
 from sasha.server.security import is_loopback
 
 log = logging.getLogger(__name__)
@@ -78,7 +80,7 @@ def build_listener(settings: Settings, options: ListenOptions) -> Listener:
         from sasha.listener.debug_dump import DebugDump
 
         debug_sink = DebugDump(settings.paths.data_dir)
-    return Listener(
+    listener = Listener(
         settings=ListenerSettings(
             ws_url=listener_url(server.host, server.port),
             pause_on_battery=options.pause_on_battery,
@@ -95,6 +97,30 @@ def build_listener(settings: Settings, options: ListenOptions) -> Listener:
         connect=lambda url: websockets.connect(url, max_size=2**22, open_timeout=5),
         debug_sink=debug_sink,
     )
+    listener.window = window_opener(settings, lambda: listener.guards.allowed()[0])
+    return listener
+
+
+def window_opener(settings: Settings, allowed: Callable[[], bool]) -> WindowOpener:
+    """The wake phrase brings up the app shell (as its own user unit), if installed."""
+    from sasha.app import launcher
+    from sasha.app.single import NoRuntimeDir, ask_window, socket_path
+
+    def open_window() -> str:
+        if not launcher.available():
+            return "unavailable"
+        from sasha.server.launch import dead_proxy_port
+
+        port = settings.profile.server.port
+        return launcher.open_shell(settings, port, dead_proxy_port(), wake=True, as_unit=True)
+
+    def is_open() -> bool:
+        try:
+            return ask_window(socket_path(), "ping")
+        except NoRuntimeDir:
+            return False
+
+    return WindowOpener(settings.profile.window, allowed, open_window, is_open)
 
 
 def run_listen(settings: Settings, options: ListenOptions) -> int:

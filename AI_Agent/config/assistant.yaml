@@ -31,6 +31,9 @@ languages:
   supported: [en, mr]
 avatar:
   theme: default
+app:                   # the app shell's words outside its page ({name} is filled in)
+  menu_comment: Local voice assistant
+  listening_notice: "{name} is listening"
 # {name}, {subject}, {object}, {possessive} are filled in from the fields above.
 system_prompt: |
   You are {name}, a helpful voice assistant running fully locally in the user's home.

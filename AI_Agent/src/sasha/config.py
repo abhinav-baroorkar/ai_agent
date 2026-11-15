@@ -15,6 +15,7 @@ import yaml
 from dotenv import dotenv_values, load_dotenv
 from pydantic import BaseModel, Field, SecretStr, field_validator
 
+from sasha.config_app import AppText, WakeWord, WindowConfig
 from sasha.config_prompts import PromptLines
 from sasha.config_wake import ReplyLines as ReplyLines  # re-exported: moved, not renamed
 from sasha.config_wake import WakeConfig as WakeConfig
@@ -34,20 +35,6 @@ class Pronouns(BaseModel):
     subject: str
     object: str
     possessive: str
-
-
-class WakeWord(BaseModel):
-    phrase: str
-    model: str | None = None
-    threshold: float = 0.5
-    # Other spellings speech-to-text may write for the whole phrase (matched as whole words).
-    variants: list[str] = Field(default_factory=list)
-    # Other spellings for one word of the phrase, e.g. {"hey": ["hay", "hi"]}: any mix of
-    # them matches. Keys are words of `phrase` (any case).
-    word_variants: dict[str, list[str]] = Field(default_factory=dict)
-    # Bench only (bench/wake_synthetic.py): how it is said (phonemes), and sound-alikes.
-    test_pronunciations: list[str] = Field(default_factory=list)
-    test_soundalikes: list[str] = Field(default_factory=list)
 
 
 class Voice(BaseModel):
@@ -75,6 +62,7 @@ class AssistantConfig(BaseModel):
     voice: Voice = Field(default_factory=Voice)
     languages: Languages = Field(default_factory=Languages)
     avatar: Avatar = Field(default_factory=Avatar)
+    app: AppText = Field(default_factory=AppText)
     system_prompt: str
 
     def render_system_prompt(self) -> str:
@@ -156,6 +144,7 @@ class Profile(BaseModel):
     tts: TTSConfig = Field(default_factory=TTSConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     wake: WakeConfig = Field(default_factory=WakeConfig)
+    window: WindowConfig = Field(default_factory=WindowConfig)
     prompt_lines: dict[str, PromptLines] = Field(default_factory=lambda: {"en": PromptLines()})
 
 
