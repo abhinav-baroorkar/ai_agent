@@ -45,8 +45,9 @@ class WakeWord(BaseModel):
     # Other spellings for one word of the phrase, e.g. {"hey": ["hay", "hi"]}: any mix of
     # them matches. Keys are words of `phrase` (any case).
     word_variants: dict[str, list[str]] = Field(default_factory=dict)
-    # How people say it, as Kokoro phonemes: only for bench/wake_synthetic.py.
+    # Bench only (bench/wake_synthetic.py): how it is said (phonemes), and sound-alikes.
     test_pronunciations: list[str] = Field(default_factory=list)
+    test_soundalikes: list[str] = Field(default_factory=list)
 
 
 class Voice(BaseModel):
