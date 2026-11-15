@@ -262,9 +262,6 @@ def test_owner_stop_fails_the_turns_next_step() -> None:
     class Service:
         owner_stops = 0
 
-        def begin_turn(self, holder: str) -> None:
-            pass
-
         def end_turn(self, holder: str) -> None:
             pass
 

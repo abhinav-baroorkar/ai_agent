@@ -1,10 +1,11 @@
 """One browser for the brain: started on first use, stopped when idle, one bot at a time.
 
-The brain owns a single `BrowserService`. A bot `acquire()`s it for a turn; a second
-bot is refused while the first holds it (no shared tabs or cookies between bots in
-phase 1). Chrome and the filtering proxy are started lazily and stopped after
-`idle_s` without use, or when the brain stops. Each stop forgets the browsing history
-(`history.py`).
+The brain owns a single `BrowserService`. A conversation's turn holds it from its first
+step (`acquire(turn=True)`) until the turn ends; another conversation is refused
+meanwhile, and gets it afterwards without the previous holder's tabs (cookies are
+shared: one profile in phase 1). Chrome and the filtering proxy are started lazily and
+stopped after `idle_s` without use, or when the brain stops. Each stop forgets the
+browsing history (`history.py`).
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
+from sasha.browser.cdp import CDPError
 from sasha.browser.chrome import Chrome, start_chrome
 from sasha.browser.history import forget_when_free
 from sasha.browser.profile import profile_dir
@@ -25,6 +27,9 @@ from sasha.browser.proxy import FilteringProxy
 log = logging.getLogger(__name__)
 
 IDLE_S = 600.0
+
+
+BUSY = "The browser is in use by another bot; try again shortly"
 
 
 class BrowserBusyError(RuntimeError):
@@ -61,40 +66,66 @@ class BrowserService:
         self.last_stop: str | None = None  # "idle", "owner", "brain_stopping" (live view)
         self.owner_stops = 0  # a turn that saw a different count was stopped by the owner
         self.turn_holder: str | None = None  # the conversation whose turn uses the browser
+        self.last_turn_holder: str | None = None  # whose tabs and cookies Chrome has now
+        self.holder_epoch = 0  # +1 at every hand-over to another holder
         self.listeners: list[Callable[[], None]] = []  # told of every state change
 
     def changed(self) -> None:
         for listener in list(self.listeners):
             listener()
 
-    def begin_turn(self, holder: str) -> None:
-        """A turn started using the browser: it counts as working until `end_turn`."""
-        self.turn_holder = holder
-        self.changed()
-
     def end_turn(self, holder: str) -> None:
+        """The holder's turn ended (its turn-end hook, also on error or cancel) or it hit
+        its step or time limit: another conversation may take the browser now."""
         if self.turn_holder == holder:
             self.turn_holder = None
             self.touch()
             self.changed()
 
     @contextlib.asynccontextmanager
-    async def acquire(self, bot_id: str, owner_stops: int | None = None) -> AsyncIterator[Chrome]:
-        """`owner_stops`: the count the caller's turn began with. If the owner stopped the
-        browser since, refuse here too, so a stop that lands just before this step can't
-        be undone by the step starting a fresh Chrome."""
+    async def acquire(
+        self, bot_id: str, owner_stops: int | None = None, turn: bool = False
+    ) -> AsyncIterator[Chrome]:
+        """One step of `bot_id` (a conversation's holder id). `owner_stops`: the count
+        the caller's turn began with; if the owner stopped the browser since, refuse, so
+        a stop just before this step can't be undone by the step starting Chrome again.
+        `turn`: the step belongs to a turn, which holds the browser until `end_turn`:
+        while another turn holds it, refuse (review W1). The checks and the claim run
+        here, on the loop, with no await in between, so two first steps can't both pass.
+        A new holder gets the browser without the previous holder's tabs."""
         if owner_stops is not None and owner_stops != self.owner_stops:
             raise BrowserStoppedError("The owner stopped the browser")
-        if self.holder is not None and self.holder != bot_id:
-            raise BrowserBusyError("The browser is in use by another bot")
+        busy = self.holder not in (None, bot_id) or (
+            turn and self.turn_holder not in (None, bot_id)
+        )
+        if busy:
+            raise BrowserBusyError(BUSY)
         self.holder = bot_id
+        if turn:
+            self.turn_holder = bot_id
         self.changed()
         try:
-            yield await self._ensure_started()
+            chrome = await self._ensure_started()
+            if turn and self.last_turn_holder != bot_id:
+                if self.last_turn_holder is not None:
+                    await self._hand_over(chrome)
+                self.last_turn_holder = bot_id
+            yield chrome
         finally:
             self.holder = None
             self.touch()
             self.changed()
+
+    async def _hand_over(self, chrome: Chrome) -> None:
+        """Close the previous holder's tabs before a new holder starts, so no conversation
+        sees another's pages; the epoch tells the previous holder's page layer that its
+        tabs are gone. Cookies are kept on purpose: one profile for the brain (a bot
+        challenge the owner passed must persist); separate profiles come with sign-ins."""
+        for target in list(chrome.tab_targets):
+            with contextlib.suppress(CDPError):
+                await chrome.pipe.call("Target.closeTarget", {"targetId": target}, timeout=3)
+        chrome.tab_targets, chrome.current_target = [], None
+        self.holder_epoch += 1
 
     def touch(self) -> None:
         self._last_used = self.clock()

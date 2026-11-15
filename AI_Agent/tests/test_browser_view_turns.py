@@ -112,3 +112,52 @@ def test_holder_map_trim_is_safe_across_threads() -> None:
     for t in threads:
         t.join()
     assert not errors and len(connector.holders) == connector_module.MAX_HOLDERS
+
+
+def test_one_turn_holds_the_browser_and_a_new_holder_gets_no_old_tabs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review W1: B's step is refused while A's turn holds the browser, even between A's
+    steps; after A's turn ends B proceeds, without A's tabs; the view shows A working."""
+    from sasha.browser.service import BUSY, BrowserBusyError
+
+    monkeypatch.setattr(browser_view, "STATE_POLL_S", 5.0)
+    chrome = FakeChrome()
+
+    async def starter(data_dir: Path, port: int) -> Any:
+        return chrome
+
+    service = BrowserService(tmp_path, starter=starter, proxy_factory=FilteringProxy)
+    harness = Harness(load_settings(), tmp_path)
+    connector = BrowserConnector(BrowserBridge(service))
+    harness.deps.connectors = ConnectorRegistry([connector], JsonStore(tmp_path / "c.json"))
+    client = TestClient(create_app(harness.deps, web_dir=None), base_url=BASE_URL, client=LOCAL)
+
+    async def step(holder: str) -> None:
+        async with service.acquire(holder, turn=True):
+            pass
+
+    with client, client.websocket_connect(f"{WS}/ws/browser", headers={"origin": BASE_URL}) as ws:
+        assert ws.receive_json()["running"] is False
+        client.portal.call(step, "conversation-a")  # A's first step
+        for _ in range(3):  # B tries between A's steps
+            with pytest.raises(BrowserBusyError, match="try again shortly"):
+                client.portal.call(step, "conversation-b")
+            client.portal.call(step, "conversation-a")
+        assert service.turn_holder == "conversation-a" and BUSY.startswith("The browser")
+        client.portal.call(service.end_turn, "conversation-a")  # A's turn ends
+        client.portal.call(step, "conversation-b")  # now B proceeds
+        closed = [p["targetId"] for p in chrome.pipe.named("Target.closeTarget")]
+        assert closed == ["t1", "t2"] and chrome.tab_targets == []  # A's tabs are gone
+        assert service.holder_epoch == 1
+        states = []
+        while True:
+            m = ws.receive_json()
+            if m["type"] == "browser_state":
+                states.append(m)
+                if m["holder"] == "conversation-b":
+                    break
+        before_b = [s for s in states if s["running"] and s["holder"] != "conversation-b"]
+        assert before_b and before_b[0]["holder"] == "conversation-a"
+        shown = {(s["holder"], s["agent"]) for s in before_b}  # A working, or idle between
+        assert shown <= {("conversation-a", "working"), (None, "idle")}
