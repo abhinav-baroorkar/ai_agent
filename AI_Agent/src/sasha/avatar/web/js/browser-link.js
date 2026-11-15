@@ -8,6 +8,7 @@ const BUSY_TRIES = 4; // another viewer has the picture: try again after a secon
 const BUSY_WAIT = 1000;
 const RETRY_MIN = 1000;
 const RETRY_MAX = 8000;
+const STABLE_MS = 5000; // a connection must last this long before the retry counters reset
 
 export class BrowserLink extends EventTarget {
   constructor() {
@@ -19,6 +20,7 @@ export class BrowserLink extends EventTarget {
     this.busyTries = 0;
     this.retry = RETRY_MIN;
     this.timer = null;
+    this.stable = null;
   }
 
   on(type, fn) {
@@ -49,6 +51,7 @@ export class BrowserLink extends EventTarget {
   close() {
     this.wanted = false;
     clearTimeout(this.timer);
+    clearTimeout(this.stable);
     const ws = this.ws;
     this.ws = null;
     if (ws) {
@@ -70,14 +73,16 @@ export class BrowserLink extends EventTarget {
     }
     this.ws = ws;
     ws.onopen = () => {
-      this.busyTries = 0;
-      this.retry = RETRY_MIN;
+      // Not reset here: a server that accepts and closes at once would otherwise be
+      // retried every second for ever.
+      this.stable = setTimeout(() => { this.busyTries = 0; this.retry = RETRY_MIN; }, STABLE_MS);
       this.set('open');
       this.post(ws, { type: 'browser_watch', on: this.watching });
     };
     ws.onmessage = (ev) => this.onMessage(ev.data);
     ws.onerror = () => {};
     ws.onclose = (ev) => {
+      clearTimeout(this.stable);
       if (this.ws !== ws) return;
       this.ws = null;
       if (!this.wanted) return;

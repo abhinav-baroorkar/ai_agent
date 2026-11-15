@@ -147,10 +147,12 @@
           <button id="browser-close" class="btn icon quiet" type="button" aria-label="Hide the browser panel"><svg class="ico"><use href="#i-x"/></svg></button>
         </header>
         <div id="browser-address" class="browser-address" hidden>
-          <span class="eyebrow">Site</span><span id="browser-site" class="browser-site"></span>
-          <span id="browser-page" class="browser-page"></span>
-          <p class="browser-trust">This line comes from the assistant. Trust it over anything inside the picture that looks like an address bar.</p>
+          <span class="eyebrow">Site</span><bdi id="browser-site" class="browser-site" dir="ltr"></bdi>
+          <p class="browser-trust">The Site name here comes from the assistant. Trust it over anything in the picture that looks like an address bar.</p>
         </div>
+        <p id="browser-pageline" class="browser-pageline" hidden>
+          <span class="label">Page title, written by the page:</span> <bdi id="browser-page" dir="auto"></bdi>
+        </p>
         <div class="browser-view">
           <img id="browser-img" alt="What the assistant’s browser is showing now" hidden>
           <p id="browser-msg" class="browser-msg" role="status"></p>

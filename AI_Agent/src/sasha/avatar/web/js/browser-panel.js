@@ -10,6 +10,8 @@ import { BrowserLink } from './browser-link.js';
 
 const MAX_JPEG_CHARS = 720000; // a little over the server's own 512 KB limit, as base64
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
+const JPEG_START = '/9j/'; // every JPEG begins FF D8 FF, which is this in base64
+const MAX_SIDE = 10000; // frame width and height are used for layout only if they are sane
 const STOPPED = {
   idle: 'The browser closed itself after sitting idle.',
   owner: 'You stopped the browser.',
@@ -22,6 +24,7 @@ export function initBrowserPanel(health) {
   const el = {
     panel: $('#browser-panel'), title: $('#browser-title'), agent: $('#browser-agent'), stop: $('#browser-stop'),
     close: $('#browser-close'), address: $('#browser-address'), site: $('#browser-site'), page: $('#browser-page'),
+    pageLine: $('#browser-pageline'),
     img: $('#browser-img'), msg: $('#browser-msg'), again: $('#browser-again'), tabs: $('#browser-tabs'),
     guard: $('#browser-guard'), mock: $('#mock-browser'), body: $('.bots-body'),
   };
@@ -78,8 +81,10 @@ export function initBrowserPanel(health) {
     const tab = state.tabs.find((t) => t.current) || state.tabs[0];
     el.site.textContent = live && tab ? tab.site || '(no site)' : '';
     el.page.textContent = live && tab ? tab.title : '';
+    el.pageLine.hidden = !(live && tab && tab.title);
     clear(el.tabs).append(...(live ? state.tabs : []).map((t) => h('li', { class: 'browser-tab', 'aria-current': t.current ? 'true' : null },
-      h('span', { class: 'n' }, String(t.tab)), h('span', { class: 'site' }, t.site || '(no site)'), h('span', { class: 'title' }, t.title))));
+      h('span', { class: 'n' }, String(t.tab)), h('bdi', { class: 'site', dir: 'ltr' }, t.site || '(no site)'),
+      h('bdi', { class: 'title', dir: 'auto' }, t.title))));
     el.tabs.hidden = !live || state.tabs.length < 2;
     el.guard.textContent = live ? guardLine(state.guard) : '';
     el.guard.hidden = !live;
@@ -92,11 +97,13 @@ export function initBrowserPanel(health) {
 
   async function onFrame(m) {
     const seq = m.seq;
-    const ok = visible() && state.running && typeof m.jpeg === 'string' && m.jpeg.length <= MAX_JPEG_CHARS && BASE64.test(m.jpeg);
+    const ok = visible() && state.running && typeof m.jpeg === 'string' && m.jpeg.length <= MAX_JPEG_CHARS &&
+      m.jpeg.startsWith(JPEG_START) && BASE64.test(m.jpeg);
     if (ok) {
       const w = Number(m.w);
       const hgt = Number(m.h);
-      if (w > 0 && hgt > 0) el.img.style.aspectRatio = `${w} / ${hgt}`;
+      const sane = (n) => Number.isFinite(n) && n > 0 && n <= MAX_SIDE;
+      if (sane(w) && sane(hgt)) el.img.style.aspectRatio = `${w} / ${hgt}`;
       el.img.src = `data:image/jpeg;base64,${m.jpeg}`; // only ever a JPEG in an <img>
       try {
         await el.img.decode();
@@ -115,7 +122,12 @@ export function initBrowserPanel(health) {
     .on('status', () => { if (link.status !== 'open') state = cleanBrowserState(null); render(); })
     .on('state', (m) => { state = cleanBrowserState(m); if (state.running) lastStop = ''; failed = ''; render(); })
     .on('frame', onFrame)
-    .on('stopped', (m) => { lastStop = STOPPED[m.reason] || 'The browser stopped.'; dropPicture(); render(); })
+    .on('stopped', (m) => {
+      lastStop = STOPPED[m.reason] || 'The browser stopped.';
+      state = { ...state, running: false, agent: 'idle', user: '', tabs: [] }; // a late frame must not be drawn
+      dropPicture();
+      render();
+    })
     .on('error', (m) => { failed = String(m.message ?? ''); render(); });
 
   el.stop.addEventListener('click', async () => {

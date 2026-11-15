@@ -20,7 +20,11 @@
    sits outside the picture, and is never covered by it. */
 .browser-address { flex: none; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .1rem .7rem; align-items: baseline; padding: .5rem .7rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); }
 .browser-site { font: 600 1rem var(--mono); color: var(--lamp); overflow-wrap: anywhere; }
-.browser-page { grid-column: 2; color: var(--text); font-size: .9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The page's own title is not trusted, so it sits outside that box, dimmer, with its
+   own label, and is isolated so right-to-left characters can't reorder the line. */
+.browser-pageline { flex: none; margin-top: -.25rem; padding: 0 .7rem; font-size: .82rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.browser-pageline .label { color: #6c7a8b; }
+.browser-site, .browser-pageline bdi, .browser-tab bdi { unicode-bidi: isolate; }
 .browser-trust { grid-column: 1 / -1; margin-top: .2rem; font-size: .74rem; color: #6c7a8b; }
 
 .browser-view { flex: 1; min-height: 0; display: grid; place-items: center; overflow: hidden; border-radius: var(--r); background: #06090d; border: 1px solid var(--line); }

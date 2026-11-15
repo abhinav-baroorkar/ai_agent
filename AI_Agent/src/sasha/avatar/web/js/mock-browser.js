@@ -11,6 +11,9 @@ const PAGES = [
   // The title looks like markup on purpose: the panel must show it as plain text.
   { site: 'recipes.example', title: '<img src=x onerror=alert(1)> Ten weeknight dinners', ink: '#7a3b12', bar: 'accounts.example-bank.test/login' },
   { site: 'weather.example', title: 'Forecast for the week', ink: '#0f4c5c', bar: 'weather.example/week' },
+  // A site spelled with a look-alike letter (Cyrillic) and a title with right-to-left text:
+  // the panel must show "(unusual address)" and keep the title from reordering its line.
+  { site: 'w\u0435ather.example', title: '\u202Emoc.elpmaxe-knab \u05E9\u05DC\u05D5\u05DD Sign in', ink: '#5c0f3a', bar: 'weather.example/alerts' },
 ];
 const state = {
   enabled: mode !== 'off', running: false, agent: 'idle', holder: null, holder_bot: null, tabs: [],
@@ -49,7 +52,7 @@ function paint() {
   c.fillText(`🔒 ${page.bar}`, 122, 28);
   c.fillStyle = page.ink;
   c.font = 'bold 34px serif';
-  c.fillText(page.title.replace(/<[^>]*>\s*/, ''), 60, 118);
+  c.fillText(page.title.replace(/<[^>]*>\s*|[^\x20-\x7E]/g, ''), 60, 118);
   const scroll = (frame * 3) % 120;
   c.fillStyle = '#c9c5bb';
   for (let i = 0; i < 9; i++) c.fillRect(60, 160 + i * 44 - scroll * 0.3, 560 + ((i * 97) % 220), 14);
@@ -77,7 +80,9 @@ export function use() {
   state.guard.refused = { private_network: 2, not_https: 1 };
   state.guard.background_refused += 4;
   changed();
-  setTimeout(() => { current = (current + 1) % PAGES.length; state.tabs = tabs(); state.guard.allowed += 5; changed(); }, 6000);
+  const next = () => { current = (current + 1) % PAGES.length; state.tabs = tabs(); state.guard.allowed += 5; changed(); };
+  setTimeout(next, 6000);
+  setTimeout(next, 9000);
   setTimeout(() => { state.agent = 'idle'; state.holder = null; state.holder_bot = null; changed(); }, 11000);
   stopTimer = setTimeout(() => stop('idle'), 40000);
 }
