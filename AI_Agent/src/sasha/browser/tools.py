@@ -91,6 +91,7 @@ class BrowserConversation:
     steps: int = 0
     started: float = 0.0
     chrome_id: int = field(default=0)
+    queries: list[str] = field(default_factory=list)  # this turn's searches
 
     def _turn(self) -> tuple[str, ...]:
         ctx = current_turn.get()
@@ -100,6 +101,7 @@ class BrowserConversation:
             raise ToolError("The browser isn't available for wake-word requests")
         if ctx.turn_id != self.turn_id:
             self.turn_id, self.steps, self.started = ctx.turn_id, 0, time.monotonic()
+            self.queries = []
         self.steps += 1
         if self.steps > STEPS_PER_TURN:
             raise ToolError(f"Browser step limit reached ({STEPS_PER_TURN} per request)")
@@ -138,9 +140,10 @@ class BrowserConversation:
     def search(self, q: str) -> dict[str, Any]:
         owner = self._turn()
         try:
-            check_query(str(q), owner[:-1], owner[-1] if owner else "")
+            check_query(str(q), owner[:-1], owner[-1] if owner else "", self.queries)
         except QueryLeakError as e:
             raise ToolError(str(e)) from None
+        self.queries.append(str(q))  # the turn's searches are checked together (W2)
         if not self.search_template:
             raise ToolError("No search engine is set yet; the owner can choose one in Settings")
         try:

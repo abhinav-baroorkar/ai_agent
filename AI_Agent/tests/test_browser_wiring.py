@@ -23,9 +23,21 @@ from sasha.tools import ToolError, ToolRegistry
 
 
 def test_browser_never_shares_a_bot_with_private_data() -> None:
-    check_combination(["browser"])
-    check_combination(["home_assistant"])
-    for bad in (["browser", "home_assistant"], ["browser", "mcp:notes"], ["gmail", "browser"]):
+    check_combination({"browser": "browser"})
+    check_combination({"home_assistant": "home_assistant", "mcp:notes": "mcp"})
+    check_combination({"browser": "browser", "browser:work": "browser"})
+    for bad in (
+        {"browser": "browser", "home_assistant": "home_assistant"},
+        {"browser": "browser", "mcp:notes": "mcp"},
+        {"gmail": "gmail", "browser": "browser"},
+        # review W1: allowlist on the real kind, so new kinds are refused by default
+        {"browser": "browser", "files": "files"},
+        {"browser": "browser", "contacts": "contacts"},
+        {"browser:work": "browser", "home_assistant": "home_assistant"},
+        {"web": "browser", "lights": "home_assistant"},  # ids that aren't their kinds
+        {"browser": "browser", "mystery": None},  # unknown kind fails closed
+        {"browser:work": None, "home_assistant": "home_assistant"},
+    ):
         with pytest.raises(BrowserCombinationError):
             check_combination(bad)
 
@@ -36,7 +48,13 @@ def test_the_bot_store_refuses_browser_plus_home_assistant(tmp_path: Path) -> No
         main_name="Main",
         main_prompt="p",
         default_model="m",
-        connector_ids=lambda: ["home_assistant", "browser"],
+        connector_ids=lambda: ["home_assistant", "browser", "files", "web"],
+        connector_kinds=lambda: {
+            "home_assistant": "home_assistant",
+            "browser": "browser",
+            "files": "files",
+            "web": "browser",
+        },
         main_connectors=["home_assistant"],
     )
     from sasha.bots import parse_fields
@@ -45,6 +63,9 @@ def test_the_bot_store_refuses_browser_plus_home_assistant(tmp_path: Path) -> No
         store.update("main", parse_fields({"connectors": ["home_assistant", "browser"]}))
     with pytest.raises(BotError, match="browser"):
         store.create(parse_fields({"name": "Web", "connectors": ["browser", "home_assistant"]}))
+    for bad in (["browser", "files"], ["web", "home_assistant"]):
+        with pytest.raises(BotError, match="browser"):
+            store.create(parse_fields({"name": "Web", "connectors": bad}))
     web = store.create(parse_fields({"name": "Web", "connectors": ["browser"]}))
     assert web.connectors == ["browser"]
 
@@ -222,6 +243,52 @@ def test_search_queries_never_carry_personal_identifiers() -> None:
     for q in ("Radiohead tour dates", "weather in Pune", "python 3.10 release", "mango recipes"):
         check_query(q, earlier, current)
     check_query("track AB12CD", ["ship AB12CD"], "where is parcel AB12CD now?")  # asked now
+
+
+def test_leak_check_sees_through_rewritten_identifiers() -> None:
+    """Review W2: each of these passed the first version."""
+    from sasha.browser.leaks import QueryLeakError, check_query
+
+    earlier = ["mail pat.doe@example.com, code mango-42, call 555 123 4567, parcel AB12CD"]
+    current = "Please read the page"
+    for q in (
+        "pat.doe at example dot com",
+        "pat.doe\uff20example.com",  # full-width at sign
+        "pat.doe%40example.com",
+        "pat . doe @ example . com",
+        "five five five one two three four",
+        "mango 42",
+        "mango42",
+        "42-mango",
+        "m-a-n-g-o-4-2",
+        "AB 12 CD",
+        "ab-12-cd tracking",
+    ):
+        with pytest.raises(QueryLeakError):
+            check_query(q, earlier, current)
+    check_query("555 123", earlier, current)  # alone it's fine...
+    with pytest.raises(QueryLeakError):  # ...but not split across the turn's searches
+        check_query("4567", earlier, current, before=["555 123"])
+    with pytest.raises(QueryLeakError):
+        check_query("42 facts", earlier, current, before=["mango"])
+    for q in (
+        "tutorials at python dot org",
+        "restaurants at pune",
+        "mango recipes",
+        "top 10 films of 2024",
+        "one direction tour",
+    ):
+        check_query(q, earlier, current)
+
+
+def test_the_turns_searches_are_checked_together(conv: BrowserConversation) -> None:
+    token = _in_turn(("the code is mango-42", "read the page"))
+    try:
+        conv.search("mango")
+        with pytest.raises(ToolError, match="earlier messages"):
+            conv.search("42")
+    finally:
+        current_turn.reset(token)
 
 
 def test_search_tool_refuses_a_leaky_query(conv: BrowserConversation) -> None:
