@@ -8,17 +8,28 @@ from pydantic import BaseModel, Field
 class TimeCues(BaseModel):
     """Words in the person's own text that let the server trust a field (one language).
 
-    A `period` needs a period word (or a 13-23 hour) in the words; a clock time needs a
-    number or a time word; a delay needs a number or a duration word. Otherwise the
-    server drops the field or asks: it never keeps a field nobody said.
+    A `period` needs a matching am or pm word (or a 13-23 hour) in the words; a clock
+    time needs a number or a time word, and its hour must be one of the numbers said; a
+    delay needs a number or a duration word. Otherwise the server drops the field or
+    asks: it never keeps a field nobody said.
     """
 
-    period_words: list[str] = Field(
-        default_factory=lambda: [
-            "am", "pm", "morning", "evening", "tonight", "afternoon", "night", "noon",
-            "midnight", "midday",
-        ]
+    am_words: list[str] = Field(default_factory=lambda: ["am", "morning", "midnight"])
+    pm_words: list[str] = Field(
+        default_factory=lambda: ["pm", "afternoon", "evening", "tonight", "night", "noon",
+                                 "midday"]
     )  # fmt: skip
+    # Hours said as words, for "the hour must be one that was said" (S5).
+    hour_words: dict[str, int] = Field(
+        default_factory=lambda: {
+            "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+            "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12, "noon": 12,
+            "midday": 12, "midnight": 12,
+        }
+    )  # fmt: skip
+    before_words: list[str] = Field(
+        default_factory=lambda: ["to", "till", "til", "before"]  # "quarter to eight"
+    )
     number_words: list[str] = Field(
         default_factory=lambda: [
             "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",

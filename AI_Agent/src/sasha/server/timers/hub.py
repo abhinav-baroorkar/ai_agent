@@ -158,8 +158,8 @@ class Hub:
 
     def _announce_missed(self, items: list[TimerItem]) -> None:
         """Pending items found on connect: a generic line only, never their text."""
-        say = self.generic(items)
-        for item in items:
+        say = self.generic(items)  # counts a repeating alarm that already moved on
+        for item in [i for i in items if i.state == "missed"]:
             self._all({"type": "timer_ringing", "id": item.id, "kind": item.kind,
                        "created_by": item.created_by, "say": say})  # fmt: skip
         speaker = self._speaker()

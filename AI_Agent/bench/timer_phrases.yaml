@@ -24,12 +24,12 @@ cases:
   # --- alarms ---------------------------------------------------------------------------
   - {say: "Wake me up at 7:30 am.", kind: alarm, want: ["2031-03-27 07:30"]}
   - {say: "Set an alarm for 7:30.", kind: alarm, want: [ask]}  # 07:30 and 19:30 both ahead
-  - {say: "Wake me at seven.", kind: alarm, want: [ask, "2031-03-27 07:00"]}
+  - {say: "Wake me at seven.", kind: alarm, want: [ask]}  # owner: "wake" is no period
   - {say: "Alarm at half past six in the evening.", kind: alarm, want: ["2031-03-27 18:30"]}
   - {say: "Set an alarm for quarter to eight tomorrow morning.", kind: alarm, want: ["2031-03-28 07:45"]}
   - {say: "Alarm for 5 am.", kind: alarm, want: ["2031-03-28 05:00"]}  # passed: tomorrow
   - {say: "Set an alarm for 6:30 pm.", kind: alarm, want: ["2031-03-27 18:30"]}
-  - {say: "Wake me at 7 tomorrow.", kind: alarm, want: [ask, "2031-03-28 07:00"]}
+  - {say: "Wake me at 7 tomorrow.", kind: alarm, want: [ask]}
   - {say: "Set an alarm for 19:00.", kind: alarm, want: ["2031-03-27 19:00"]}
   - {say: "Alarm for 23:15.", kind: alarm, want: ["2031-03-27 23:15"]}
   - {say: "Alarm for Monday at 8 am.", kind: alarm, want: ["2031-03-31 08:00"]}
@@ -59,8 +59,25 @@ cases:
   # R1: at 08:00, "7:30" for an alarm must not silently become 19:30 today.
   - {say: "Set an alarm for 7:30.", now: "2031-03-27 08:00", kind: alarm, want: [ask, "2031-03-28 07:30"]}
   - {say: "Remind me at 7:30 to stretch.", now: "2031-03-27 08:00", kind: reminder, want: [ask, "2031-03-27 19:30"]}
-  - {say: "Wake me at 7 every weekday.", kind: alarm, want: [ask, "2031-03-27 07:00"]}
+  - {say: "Wake me at 7 every weekday.", kind: alarm, want: [ask]}
   - {say: "Snooze it for 10 minutes and set an alarm for 6 am tomorrow.", kind: alarm, want: ["2031-03-28 06:00"]}
   # The truthful-reply hole the review named: a real timer plus a made-up claim. Text
   # only here (no devices); the reply is recorded for reading, the time is scored.
   - {say: "Set a timer for 5 minutes and turn off the lights.", kind: timer, want: ["2031-03-27 06:05:00"]}
+  # --- from the re-review of 4d98ddc: the model's content, cues, the hour said -------------
+  - {say: "Remind me to take 2 pills.", kind: reminder, want: [ask]}  # S2
+  - {say: "Remind me to call the 3 kids tonight.", kind: reminder, want: [ask]}  # S2
+  - {say: "Set a timer for 2 eggs.", kind: timer, want: [ask]}  # S2
+  - {say: "Wake me at 7 in the morning.", kind: alarm, want: ["2031-03-27 07:00"]}  # S3
+  - {say: "Remind me at 7 to say good night.", kind: reminder, want: [ask]}  # S4
+  - {say: "Alarm at 7.", kind: alarm, want: [ask]}  # S5 and R1
+  # --- two turns (S1): the person answers the tool's question -------------------------------
+  # `then` is the second turn on the same conversation; the last outcome is scored.
+  - {say: "Set an alarm for 7:30.", then: "In the evening.", kind: alarm, want: ["2031-03-27 19:30"]}
+  - {say: "Set an alarm for 7:30.", then: "Tomorrow morning, please.", now: "2031-03-27 08:00", kind: alarm, want: ["2031-03-28 07:30"]}
+  - {say: "Set an alarm for 7.", then: "Morning.", now: "2031-03-27 21:00", kind: alarm, want: ["2031-03-28 07:00"]}
+  - {say: "Wake me up tomorrow morning.", then: "At 6:15.", kind: alarm, want: ["2031-03-28 06:15"]}
+  - {say: "Remind me to check the oven.", then: "In 20 minutes.", kind: reminder, want: ["2031-03-27 06:20"]}
+  - {say: "Remind me at 1 to feed the cat.", then: "1 am.", now: "2031-03-27 23:30", kind: reminder, want: ["2031-03-28 01:00"]}
+  - {say: "Remind me tomorrow at 9 to send the invoice.", then: "In the morning.", kind: reminder, want: ["2031-03-28 09:00"]}
+  - {say: "Set a timer.", then: "Ten minutes.", kind: timer, want: ["2031-03-27 06:10:00"]}

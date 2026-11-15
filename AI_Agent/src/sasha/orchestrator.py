@@ -73,6 +73,7 @@ class Assistant:
         self._history: list[Message] = []
         self.last_tool_calls: list[dict[str, Any]] = []
         self.user_text = ""  # this turn's user text (never logged here; see trace)
+        self.user_turn = 0  # counts turns, so a tool can tell "the next turn" apart
 
     @property
     def name(self) -> str:
@@ -94,6 +95,7 @@ class Assistant:
     ) -> Reply:
         hooks = hooks or TurnHooks()
         self.user_text = text  # the person's own words this turn, for tools that check them
+        self.user_turn += 1
         trace = self.telemetry.start(input_mode=input_mode)
         trace.models["llm"] = self.llm.model_version()
         trace.record_text("user", text)

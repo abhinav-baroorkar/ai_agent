@@ -14,7 +14,6 @@ Telemetry gets one line per check with labels and timings, never text.
 from __future__ import annotations
 
 import asyncio
-import functools
 import json
 import logging
 import time
@@ -31,6 +30,7 @@ from sasha.server.speaking import ListenerPresence
 from sasha.server.speech import Speaker
 from sasha.server.timers.hub import Hub
 from sasha.server.timers.ring import StopWindow
+from sasha.server.timers.said import words_of
 from sasha.server.timers.tools import TIMER_TOOLS, add_timer_tools
 from sasha.server.voice import MIC_SAMPLE_RATE, VoiceStages
 from sasha.server.wake import WakeGate
@@ -89,7 +89,7 @@ class ListenerConversation(Conversation):
         )
         tools = assistant.tools
         if timers is not None and any(n in tools for n in TIMER_TOOLS):  # D4: voice-made
-            said = functools.partial(getattr, assistant, "user_text")  # the wake command
+            said = words_of(assistant)  # the wake command
             tools = add_timer_tools(tools, timers.service, "wake", self.confirm.blocking, said)
         assistant.tools = self.policy.wrap(tools)
 

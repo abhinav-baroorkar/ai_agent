@@ -21,7 +21,6 @@ Results: one JSON file in `<Data>/results/` and a Markdown table on stdout.
 from __future__ import annotations
 
 import argparse
-import functools
 import json
 import os
 import tempfile
@@ -36,6 +35,7 @@ import yaml
 from sasha.config import Settings, load_settings
 from sasha.orchestrator import Assistant, RequestFailed
 from sasha.pipeline.llm import OllamaLLM
+from sasha.server.timers.said import words_of
 from sasha.server.timers.service import TimerService
 from sasha.server.timers.tools import TimerAsk, add_timer_tools
 from sasha.state import JsonStore
@@ -90,18 +90,20 @@ def run_case(
         base = ToolRegistry([clock_tool(service.now_local)])
         assistant = Assistant(settings, llm, base, telemetry)
         # As the server does (deps.make_assistant): the tools see the turn's own words.
-        said = functools.partial(getattr, assistant, "user_text")
+        said = words_of(assistant)
         assistant.tools = recording(add_timer_tools(base, service, said=said), calls)
         started = time.perf_counter()
         try:
             reply = assistant.handle_text(str(case["say"])).text
+            if case.get("then"):  # a two-turn case: the person answers the question
+                reply = assistant.handle_text(str(case["then"])).text
         except RequestFailed as exc:
             reply = f"(failed: {type(exc.__cause__).__name__})"
         seconds = time.perf_counter() - started
         items = list(service.items.values())
     got = [datetime.fromtimestamp(i.due, ZONE) for i in items]
     return {
-        "say": case["say"],
+        "say": case["say"] + (f" / {case['then']}" if case.get("then") else ""),
         "now": datetime.fromtimestamp(now, ZONE).strftime("%a %H:%M"),
         "want": case["want"],
         "kind": case["kind"],

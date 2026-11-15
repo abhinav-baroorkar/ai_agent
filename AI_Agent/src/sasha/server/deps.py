@@ -22,6 +22,7 @@ from sasha.pipeline.llm import LLM, OllamaLLM
 from sasha.pipeline.stt import SpeechToText
 from sasha.pipeline.tts import TextToSpeech
 from sasha.server.speaking import ListenerPresence
+from sasha.server.timers.said import words_of
 from sasha.server.timers.service import TimerService
 from sasha.server.timers.tools import add_timer_tools
 from sasha.server.voice import load_voice_stages
@@ -79,7 +80,7 @@ class ServerDeps:
             system_prompt=self.bots.prompt_for(bot),
         )
         if self.timers is not None and not self.has_browser(bot):  # D3: never with a browser
-            said = functools.partial(getattr, assistant, "user_text")  # the turn's own words
+            said = words_of(assistant)  # the turn's own words
             assistant.tools = add_timer_tools(tools, self.timers, said=said)
         return assistant, warnings
 

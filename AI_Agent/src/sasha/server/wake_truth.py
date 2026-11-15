@@ -40,6 +40,8 @@ def wake_control_allowed(config: WakeConfig) -> bool:
 
 
 _SENTENCE_END = re.compile(r"[.!?]+(?:\s+|$)")
+_DASHES = "-" + chr(0x2013) + chr(0x2014)  # hyphen, en dash, em dash
+_CLAUSE = re.compile(rf"[,;:]|\s[{_DASHES}]\s")  # comma, semicolon, colon, a dash
 STATE_NEAR = 3  # a state word within this many words of a device word
 SHORT_COMMAND = 3  # a command this short with any state word is a request ("off.")
 
@@ -213,14 +215,30 @@ class TruthfulReply:
         statements that claim nothing: "Done, the lights are off. Morning or evening?"
         becomes "Nothing was changed. Morning or evening?". Returns None if the model
         asked nothing, "" if its text is honest, else the text to say instead."""
+        lines = self.lines
         sentences = [s for s in re.split(r"(?<=[.!?])\s+", tail.strip()) if s]
-        questions = [s for s in sentences if s.endswith("?")]
-        if not questions:
+        if not any(s.endswith("?") for s in sentences):
             return None
-        statements = [s for s in sentences if not s.endswith("?")]
-        if not any(claims_change(s, self.lines) for s in statements):
+        # S6: inside a question sentence, the clauses before the last one are
+        # statements too ("I've turned the lights off, morning or evening?"); the
+        # question clause itself claims only if it doesn't open as a question ("Should
+        # I set it for the morning?" is a real question).
+        openers = {w.lower() for w in (*lines.question_words, *lines.asking_words)}
+        claims, asks = False, []
+        for sentence in sentences:
+            if not sentence.endswith("?"):
+                claims = claims or claims_change(sentence, lines)
+                continue
+            *before, ask = [c.strip() for c in _CLAUSE.split(sentence)]
+            claims = claims or any(claims_change(c, lines) for c in before)
+            first = _words(ask)[:1]
+            if claims_change(ask, lines) and not (first and first[0] in openers):
+                claims = True
+            else:
+                asks.append(ask[:1].upper() + ask[1:])
+        if not claims:
             return ""
-        return f"{self.lines.nothing_changed} {questions[-1]}"
+        return f"{lines.nothing_changed} {asks[-1] if asks else lines.ask_again}"
 
     def _override(self, fixed: str) -> tuple[str, str]:
         spoken = fixed if not self.released.strip() else f" {fixed}"

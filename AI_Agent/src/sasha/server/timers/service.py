@@ -171,7 +171,7 @@ class TimerService:
             item.due = self.clock() + int(minutes) * 60
             item.state, item.ended_at, item.rang_at = "scheduled", None, None
             self._next_tone.pop(item.id, None)
-            self._changed("snoozed", item, how="snoozed", stopped=was_ringing)
+            self._changed("snoozed", item, how="snoozed", was_ringing=was_ringing)
             return item
 
     def _end(self, item: TimerItem, state: str, how: str) -> None:
@@ -261,9 +261,10 @@ class TimerService:
                 if item.kind == "alarm" and late <= self.config.alarm_late_s:
                     item.late_s = late
                     self._fire(item, now, generic=True)
-                elif not self._settle(item, "missed"):
-                    item.late_s = late
-                    missed.append(item)
+                else:
+                    if not self._settle(item, "missed"):
+                        item.late_s = late
+                    missed.append(item)  # a repeating alarm moved on: still said (nit)
             if missed:
                 self._save()
                 self._broadcast()
@@ -342,7 +343,8 @@ class TimerService:
         if item is not None:
             self._event(event, item, **numbers)
             stops = event in ("dismissed", "snoozed", "cancelled", "timeout")
-            if stops and numbers.get("stopped", True) and self.hub:  # only what was ringing
+            quiet = event == "snoozed" and not numbers.get("was_ringing", True)  # a missed one
+            if stops and not quiet and self.hub:
                 self.hub.stopped(item, numbers.get("how", event))
         self._broadcast()
 

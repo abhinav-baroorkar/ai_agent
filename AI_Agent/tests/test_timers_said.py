@@ -21,7 +21,7 @@ from tests.timer_fakes import ZONE, FakeClock, at, make_service
 
 
 def tool(service: TimerService, name: str, said: str) -> Any:
-    return add_timer_tools(ToolRegistry(), service, said=lambda: said).get(name).handler
+    return add_timer_tools(ToolRegistry(), service, said=lambda: (1, said)).get(name).handler
 
 
 def due_of(service: TimerService, result: dict[str, Any]) -> datetime:
@@ -136,7 +136,7 @@ def test_c_said_delays_are_kept(tmp_path: Path, said: str, args: dict[str, Any])
 
 def test_said_tokens() -> None:
     words = Said("Wake me at 7a.m., then at 19:30", [TimeCues()])
-    assert words.has_period() and words.says_hour(19) and words.says_hour(7)
+    assert words.periods() == {"am", "pm"} and words.says_hour(19) and words.says_hour(7)
     assert not Said("Remind me to check the oven", [TimeCues()]).has_delay()
 
 

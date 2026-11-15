@@ -29,7 +29,7 @@ from sasha.server.timers.resolve import (
     next_repeat,
     whole,
 )
-from sasha.server.timers.said import Said
+from sasha.server.timers.said import SaidCheck, UserWords
 from sasha.server.timers.service import TimerError, TimerService
 from sasha.tools.base import Tool, ToolError, ToolRegistry
 
@@ -86,41 +86,14 @@ class TimerTools:
         service: TimerService,
         source: str = "chat",
         confirm: Callable[[str], bool] | None = None,
-        said: Callable[[], str] | None = None,
+        said: UserWords | None = None,
     ) -> None:
         self.service = service
         self.source = source
         self.confirm = confirm
-        self.said = said  # the turn's own user text (server/timers/said.py)
+        # The turn's own user text, checked against the fields (server/timers/said.py).
+        self.check = SaidCheck(said, service.config.cues.values())
         self.max_text = service.config.max_text
-
-    # --- was it said? (said.py) --------------------------------------------------
-    def _words(self) -> Said | None:
-        """None only for callers with no user text (direct calls in tests)."""
-        if self.said is None:
-            return None
-        return Said(self.said(), self.service.config.cues.values())
-
-    def _check_clock(self, hour: Any, period: Any) -> tuple[Any, Any]:
-        """(b) a clock time needs a number or time word; (a) a period, or a 13-23 or
-        0 hour, needs a cue in the words, else it becomes the 12-hour form, no period."""
-        words = self._words()
-        if words is None or hour in (None, ""):
-            return hour, period
-        if not words.has_clock_time():
-            raise Ask("The person didn't say a time. Ask when.", "not_said")
-        if words.has_period():
-            return hour, period
-        h = whole(hour, "hour", 0, 23)
-        if (h >= 13 or h == 0) and not words.says_hour(h):
-            h = h - 12 if h >= 13 else 12  # "seven" sent as 19: the 12-hour reading
-        return h, ""
-
-    def _check_delay(self) -> None:
-        """(c) a delay needs a number or a duration word in the words."""
-        words = self._words()
-        if words is not None and not words.has_delay():
-            raise Ask("The person didn't say how long. Ask.", "not_said")
 
     # --- helpers -------------------------------------------------------------
     def _guarded(self, fn: Callable[..., dict[str, Any]]) -> Callable[..., dict[str, Any]]:
@@ -128,6 +101,7 @@ class TimerTools:
             try:
                 return fn(**kwargs)
             except Ask as exc:
+                self.check.asked()  # S1: the answer is checked with this turn's words
                 self.service.note_error(exc.reason, self.source)
                 raise TimerAsk(str(exc), exc.reason) from None
             except TimerError as exc:
@@ -138,7 +112,9 @@ class TimerTools:
 
     def _add(self, item: TimerItem) -> TimerItem:
         item.created_by = self.source
-        return self.service.add(item)
+        added = self.service.add(item)
+        self.check.done()
+        return added
 
     def _when(self, resolved: Resolved) -> dict[str, Any]:
         out: dict[str, Any] = {"at": spoken_time(resolved.when)}
@@ -189,12 +165,13 @@ class TimerTools:
     def set_timer(
         self, hours: Any = 0, minutes: Any = 0, seconds: Any = 0, label: Any = ""
     ) -> dict[str, Any]:
-        self._check_delay()
+        label = self.check.label(clean_text(label, self.max_text))  # not "ten minutes"
+        self.check.delay(label)  # S2: "a timer for 2 eggs" says no length
         total = duration_s(hours, minutes, seconds)
         if not MIN_TIMER_S <= total <= self.service.config.max_timer_s:
             raise Ask("A timer is 5 seconds to 24 hours. Ask for another length.", "bad_value")
         due = self.service.clock() + total
-        item = self._add(TimerItem("", "timer", due, label=clean_text(label, self.max_text)))
+        item = self._add(TimerItem("", "timer", due, label=label))
         ends = datetime.fromtimestamp(due, self.service.zone)
         return {"ok": True, "id": item.id, "kind": "timer", "length": _in_words(total),
                 "ends_at": spoken_time(ends)}  # fmt: skip
@@ -217,7 +194,8 @@ class TimerTools:
         if repeat != "none" and day:
             raise Ask("A repeating alarm takes no day. Ask if it should repeat.", "bad_day")
         now = self.service.now_local()
-        hour, period = self._check_clock(hour, period)
+        label = self.check.label(clean_text(label, self.max_text))
+        hour, period = self.check.clock(hour, period, label)
         resolved = clock_time(now, hour, minute, period, day, alarm=True)  # R1
         when = resolved.when
         h = resolved.hour if resolved.hour is not None else when.hour  # as asked (DST nit)
@@ -225,8 +203,8 @@ class TimerTools:
         if repeat != "none":
             when = next_repeat(now, h, m, repeat)
             resolved = Resolved(when, resolved.moved_to_tomorrow and when.date() > now.date())
-        item = TimerItem("", "alarm", when.timestamp(), label=clean_text(label, self.max_text),
-                         repeat=repeat, hour=h, minute=m)  # fmt: skip
+        item = TimerItem("", "alarm", when.timestamp(), label=label, repeat=repeat, hour=h,
+                         minute=m)  # fmt: skip
         item = self._add(item)
         return {
             "ok": True,
@@ -254,11 +232,11 @@ class TimerTools:
             raise Ask("Give either in_hours/in_minutes or a clock time, not both.", "bad_value")
         now = self.service.now_local()
         if relative:  # T8: real seconds from now, like set_timer (not wall-clock time)
-            self._check_delay()
+            self.check.delay(words)  # S2: the reminder's own words aren't the delay
             due = self.service.clock() + duration_s(in_hours, in_minutes, 0)
             resolved = Resolved(datetime.fromtimestamp(due, self.service.zone))
         else:
-            hour, period = self._check_clock(hour, period)
+            hour, period = self.check.clock(hour, period, words)  # S2, S4: nor its time
             resolved = clock_time(now, hour, minute, period, day)
         item = self._add(TimerItem("", "reminder", resolved.when.timestamp(), text=words))
         return {"ok": True, "id": item.id, "kind": "reminder", **self._when(resolved)}
@@ -345,7 +323,7 @@ def add_timer_tools(
     service: TimerService,
     source: str = "chat",
     confirm: Callable[[str], bool] | None = None,
-    said: Callable[[], str] | None = None,
+    said: UserWords | None = None,
 ) -> ToolRegistry:
     """`registry` with this source's timer tools (any earlier timer tools replaced).
     `said` gives the turn's user text; every real caller passes it."""
