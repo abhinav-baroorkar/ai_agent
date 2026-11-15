@@ -6,7 +6,7 @@ import { Conversation } from './socket.js';
 import { SpeechPlayer } from './audio-out.js';
 import { Mic, micErrorText } from './audio-in.js';
 import { startMockMic } from './mock-mic.js';
-import { initReadouts, initHistory, watchMicPermission, MIC_BLOCKED_HELP } from './home-extras.js';
+import { initReadouts, initHistory, watchMicPermission, spokenTail, MIC_BLOCKED_HELP } from './home-extras.js';
 import { initTimers } from './timers.js';
 import { Endpointer, loudness, TUNING } from './endpoint.js';
 
@@ -82,8 +82,9 @@ export async function initHome(health, onOnline) {
 
   function showSaid(text) {
     replyText = text;
-    setText(el.said, text);
-    el.said.classList.toggle('long', el.said.scrollHeight > el.said.clientHeight + 2);
+    // three lines' worth of characters at the block's present width
+    const perLine = el.said.clientWidth / (parseFloat(getComputedStyle(el.said).fontSize) * 0.5);
+    setText(el.said, spokenTail(text, Math.max(80, Math.floor(perLine * 3 * 0.82))));
     history.said(text);
   }
 
