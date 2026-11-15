@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import pytest
@@ -41,6 +41,16 @@ class SlowTTS(FakeTTS):
 @pytest.fixture
 def name(settings: Settings) -> str:
     return settings.assistant.wake_word.phrase
+
+
+def eventually(check: Callable[[], bool], timeout: float = 2.0) -> None:
+    """The server handles a frame on its own thread and some frames get no reply, so a
+    check made straight after `send_json` (or after the socket closes) can run first.
+    Poll briefly; the assertion itself is unchanged."""
+    end = time.monotonic() + timeout
+    while not check() and time.monotonic() < end:
+        time.sleep(0.01)
+    assert check()
 
 
 def test_name_and_command_runs_a_turn(settings: Settings, tmp_path: Path, name: str) -> None:
@@ -133,6 +143,7 @@ def test_miss_is_dropped_structurally(
     assert first == [{"type": "wake", "heard": False, "command": False}] * 2
     assert calls == [] and h.llm("big-model").seen == [] and stt.calls == 2
     assert SENTINEL not in caplog.text
+    eventually(lambda: any(r["kind"] == "wake_gate" for r in telemetry_lines(h)))
     lines = list(telemetry_lines(h))
     assert SENTINEL not in str(lines) and SENTINEL not in text_of(first)
     outcomes = [r["outcome"] for r in lines if r["kind"] == "wake_check"]
@@ -194,14 +205,14 @@ def test_paused_listener_gets_no_wake_checks(settings: Settings, tmp_path: Path,
         segment(ws)  # no listener_state yet: fail closed, treated as paused
         assert ws.receive_json() == {"type": "error", "message": "Listener is paused"}
         ws.send_json({"type": "listener_state", "paused": False})
-        assert h.deps.presence.active is True
+        eventually(lambda: h.deps.presence.active is True)
         ws.send_json({"type": "listener_state", "paused": True})
         segment(ws)
         assert ws.receive_json()["message"] == "Listener is paused"
         assert h.deps.presence.active is False
         ws.send_json({"type": "listener_state", "paused": False})
-        assert h.deps.presence.keep_alive() == -1
-    assert h.deps.presence.active is False  # disconnect clears it
+        eventually(lambda: h.deps.presence.keep_alive() == -1)
+    eventually(lambda: h.deps.presence.active is False)  # disconnect clears it
     assert stt.calls == 0
 
 

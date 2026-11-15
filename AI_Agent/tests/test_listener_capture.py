@@ -74,8 +74,11 @@ def _alive(pid: int) -> bool:
         os.kill(pid, 0)
     except ProcessLookupError:
         return False
-    with open(f"/proc/{pid}/stat") as f:  # a zombie is dead for our purpose
-        return f.read().split()[2] != "Z"
+    try:
+        with open(f"/proc/{pid}/stat") as f:  # a zombie is dead for our purpose
+            return f.read().split()[2] != "Z"
+    except OSError:  # reaped between the two checks
+        return False
 
 
 def test_kill_9_of_the_listener_leaves_no_capture_child() -> None:

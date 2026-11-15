@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from typing import TYPE_CHECKING, Any
 
 from sasha.listener.indicator.base import EarconKind
@@ -21,6 +22,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 AFTER_SPEECH_S = 0.3  # half-duplex: the mic stays closed this long after playback
+PRIME_S = 1.0  # how soon after the "armed" tone a reopen still counts as "right away"
 
 
 async def handle_message(lst: Listener, message: str | bytes) -> None:
@@ -101,5 +103,5 @@ async def _earcon(lst: Listener, kind: EarconKind) -> None:
     finally:
         lst.playing = False
         if kind == "armed":
-            lst.prime_gate = True  # the command may follow at once
+            lst.prime_until = time.monotonic() + PRIME_S  # the command may follow at once
         lst._changed()
