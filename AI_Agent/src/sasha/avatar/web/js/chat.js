@@ -57,7 +57,7 @@ export class ChatView {
       })
       .on('state', (m) => this.setBusy(m.state !== 'idle'))
       .on('tool', (m) => this.reply().chips.append(chip(m)))
-      .on('reply_delta', (m) => { const r = this.reply(); r.text += String(m.text ?? ''); this.paint(r); })
+      .on('reply_delta', (m) => { const r = this.reply(); r.text += String(m.text ?? ''); this.paintSoon(r); })
       .on('reply', (m) => this.finish(m))
       .on('error', (m) => { this.add(h('div', { class: 'msg error', role: 'alert' }, String(m.message ?? 'Something went wrong.'))); this.pending = null; });
     this.setOnline(false);
@@ -85,7 +85,10 @@ export class ChatView {
     if (!busy && this.pending) {
       // Stopped or dropped before a final reply: keep what arrived.
       if (!this.pending.text && !this.pending.chips.childElementCount) this.pending.el.remove();
-      else this.pending.dots.replaceWith(h('span', { class: 'timing' }, 'Stopped'));
+      else {
+        this.pending.dots.replaceWith(h('span', { class: 'timing' }, 'Stopped'));
+        this.paint(this.pending); // whatever arrived, drawn in full
+      }
       this.pending = null;
     }
     this.busy = busy;
@@ -118,13 +121,24 @@ export class ChatView {
     const dots = h('span', { class: 'typing', 'aria-label': 'Thinking' }, h('i'), h('i'), h('i'));
     const col = h('div', { class: 'col' }, h('span', { class: 'from' }, this.bot.name), chips, body, dots);
     const el = h('div', { class: 'msg bot' }, h('span', { class: 'avatar', 'aria-hidden': 'true' }, initial(this.bot.name)), col);
-    this.pending = { el, col, body, chips, dots, text: '' };
+    this.pending = { el, col, body, chips, dots, text: '', frame: 0 };
     this.add(el);
     return this.pending;
   }
 
+  // While a reply streams, draw it at most once per animation frame, with the latest text.
+  paintSoon(r) {
+    if (r.frame) return;
+    r.frame = requestAnimationFrame(() => {
+      r.frame = 0;
+      this.paint(r);
+    });
+  }
+
   // The bot's text gets its simple formatting (md.js builds nodes; nothing is parsed as HTML).
   paint(r) {
+    cancelAnimationFrame(r.frame);
+    r.frame = 0;
     r.body.replaceChildren(renderMarkdown(r.text));
     this.log.scrollTop = this.log.scrollHeight;
   }

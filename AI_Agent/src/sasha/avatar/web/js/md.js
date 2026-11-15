@@ -49,7 +49,18 @@ function inline(parent, text, depth = 0) {
   if (last < text.length) parent.append(text.slice(last));
 }
 
-const HEADING = /^ {0,3}(#{1,6})\s+(.+?)\s*#*\s*$/;
+// Every pattern here must take time proportional to the line's length: the chat
+// re-renders as a reply streams, so a slow pattern on one odd line would freeze the page.
+const HEADING = /^ {0,3}(#{1,6})[ \t]+(.*)$/;
+
+// "## Title ##": the closing hashes and spaces are decoration. Done by hand from the
+// end of the line: a pattern anchored at the end would rescan a long run of spaces
+// from every position in it.
+function withoutClosingHashes(text) {
+  let end = text.length;
+  while (end > 0 && (text[end - 1] === ' ' || text[end - 1] === '\t' || text[end - 1] === '#')) end -= 1;
+  return text.slice(0, end);
+}
 const BULLET = /^\s{0,6}[-*+]\s+(.*)$/;
 const NUMBER = /^\s{0,6}(\d{1,4})[.)]\s+(.*)$/;
 const FENCE = /^ {0,3}```/;
@@ -90,7 +101,7 @@ export function renderMarkdown(text) {
       endPara();
       endList();
       const h = el(heading[1].length <= 2 ? 'h3' : 'h4');
-      inline(h, heading[2]);
+      inline(h, withoutClosingHashes(heading[2]));
       out.append(h);
     } else if (bullet || number) {
       endPara();
