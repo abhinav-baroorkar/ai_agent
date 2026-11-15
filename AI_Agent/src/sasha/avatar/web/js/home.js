@@ -6,9 +6,9 @@ import { Conversation } from './socket.js';
 import { SpeechPlayer } from './audio-out.js';
 import { Mic, micErrorText } from './audio-in.js';
 import { startMockMic } from './mock-mic.js';
-import { initReadouts, initHistory, watchMicPermission, MIC_BLOCKED_HELP } from './home-extras.js';
+import { initReadouts, initHistory, watchMicPermission, spokenTail, MIC_BLOCKED_HELP } from './home-extras.js';
 import { initTimers } from './timers.js';
-import { Endpointer, loudness } from './endpoint.js';
+import { Endpointer, loudness, TUNING } from './endpoint.js';
 
 const LABEL = { idle: 'Ready', listening: 'Listening', thinking: 'Thinking', speaking: 'Speaking' };
 const params = new URLSearchParams(location.search);
@@ -36,6 +36,7 @@ export async function initHome(health, onOnline) {
   let ender = null; // listens for the end of speech while recording
   let level = 0; // the microphone level of the last frame, 0..1
   let stopMock = null;
+  let backstops = []; // wall-clock timers that close the microphone even if no frames arrive
   let blocked = MOCK && params.get('mic') === 'blocked'; // ?mock=1&mic=blocked shows the blocked state
   let replyText = '';
   let refused = '';
@@ -81,8 +82,9 @@ export async function initHome(health, onOnline) {
 
   function showSaid(text) {
     replyText = text;
-    setText(el.said, text);
-    el.said.classList.toggle('long', el.said.scrollHeight > el.said.clientHeight + 2);
+    // three lines' worth of characters at the block's present width
+    const perLine = el.said.clientWidth / (parseFloat(getComputedStyle(el.said).fontSize) * 0.5);
+    setText(el.said, spokenTail(text, Math.max(80, Math.floor(perLine * 3 * 0.82))));
     history.said(text);
   }
 
@@ -185,29 +187,44 @@ export async function initHome(health, onOnline) {
       if (endWaiting) stopMic();
     });
     if (!realMic) stopMock = startMockMic(onFrame);
+    // The limits above are counted in audio frames. If frames stop arriving while the
+    // microphone is still open (a stalled audio device, a suspended context), these
+    // clocks close it anyway.
+    backstops = [
+      setTimeout(() => { if (mine === attempt && recording) (started ? stopMic() : nothingHeard()); }, TUNING.maxMs + 1000),
+      setTimeout(() => { if (mine === attempt && recording && ender.phase === 'waiting') nothingHeard(); }, TUNING.noSpeechMs + 1000),
+    ];
     render();
+  }
+
+  // Nothing was said: close the microphone, discard the recording, and say so.
+  function nothingHeard() {
+    stopMic(false);
+    conv.waiting = null;
+    conv.cancel();
+    setText(el.heard, '');
+    notice('I didn’t hear anything. Press Talk to try again, or type.');
   }
 
   // Every microphone frame: update the level shown, and let the end-of-speech
   // listener decide whether the turn is over.
   function heardFrame(frame, send) {
-    const rms = loudness(frame);
-    level = Math.min(1, rms * 7);
-    const before = ender.phase;
-    const verdict = ender.feed(rms);
-    el.mic.style.setProperty('--mic-level', level.toFixed(2));
-    el.mic.style.setProperty('--mic-closing', ender.closing.toFixed(2));
-    if (verdict === 'end' || verdict === 'limit') return send(); // he stopped speaking: send it
-    if (verdict === 'nothing') { // nothing was said: close the microphone and discard
-      stopMic(false);
-      conv.waiting = null;
-      conv.cancel();
-      setText(el.heard, '');
-      notice('I didn’t hear anything. Press Talk to try again, or type.');
-      return undefined;
+    try {
+      const rms = loudness(frame);
+      level = Math.min(1, rms * 7);
+      const before = ender.phase;
+      const verdict = ender.feed(rms);
+      el.mic.style.setProperty('--mic-level', level.toFixed(2));
+      el.mic.style.setProperty('--mic-closing', ender.closing.toFixed(2));
+      if (verdict === 'end' || verdict === 'limit') send(); // he stopped speaking: send it
+      else if (verdict === 'nothing') nothingHeard();
+      else if (ender.phase !== before) render();
+    } catch (err) {
+      // Fail closed: if the end-of-speech check itself breaks, the microphone must not
+      // stay open and streaming. Send what there is and close it.
+      console.warn('Talk: the end-of-speech check failed', err && err.name);
+      stopMic();
     }
-    if (ender.phase !== before) render();
-    return undefined;
   }
 
   function stopMic(tellServer = true) {
@@ -218,6 +235,8 @@ export async function initHome(health, onOnline) {
     mic.stop();
     if (stopMock) stopMock();
     stopMock = null;
+    backstops.forEach(clearTimeout);
+    backstops = [];
     level = 0;
     if (!wasRecording) return render(); // it never got as far as telling the server
     if (tellServer) conv.stopAudio();

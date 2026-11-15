@@ -48,14 +48,23 @@ export function openBotForm({ bot, models, connectors, preferModel }) {
 
   // A bot that browses can have no other connector (the server enforces it too):
   // ticking Browser clears and locks the rest, so the form can't offer a refused mix.
-  function exclusive() {
+  function exclusive(ev) {
     const boxes = [...f.conns.querySelectorAll('input')];
     const browsing = boxes.some((b) => b.dataset.kind === 'browser' && b.checked);
+    const cleared = [];
     for (const b of boxes) {
       if (b.dataset.kind === 'browser') continue;
+      if (browsing && b.checked) cleared.push(b.parentElement.firstChild.nextSibling.textContent);
       if (browsing) b.checked = false;
       b.disabled = browsing;
     }
+    // Say why, at the moment it happens: a silently locked list reads as a bug.
+    const note = $('#bot-conn-note');
+    note.hidden = !browsing;
+    if (!browsing) return;
+    const lost = cleared.length && ev ? `${cleared.join(' and ')} ${cleared.length > 1 ? 'were' : 'was'} unticked. ` : '';
+    note.textContent = `${lost}A bot that browses can’t have any other connector: a web page could otherwise ` +
+      'tell it to act on your home or your accounts. Browsing for the main assistant is coming, through a separate helper.';
   }
 
   return new Promise((resolve) => {
