@@ -170,6 +170,8 @@ the Phase 0 real-light gate stays open and must pass before the v0.1 release.
 15. MCP connectors with approvals, bot templates, and multi-step tasks with a plan.
 16. An activity log, "forget the last 5 minutes", and a visible everything-is-local status.
 
+Four items on this list handle very private data. Each gets a short design note and a review before any code, like the wake word and the browser: questions about the owner's files, "what's on my screen", dictation and meeting or voice-note transcription together with the clipboard helper, and speaker profiles. Each note says which folders or screens, what is stored and for how long, the visible sign, and how to turn it off.
+
 The phase gates above stay. Deferred device items are marked "device work, later".
 
 ## Research

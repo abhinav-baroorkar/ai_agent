@@ -202,6 +202,12 @@ In order, unless the owner changes it:
 15. MCP connectors with approvals, bot templates, and multi-step tasks with a plan.
 16. An activity log, "forget the last 5 minutes", and a visible everything-is-local status.
 
+Four items on this list handle very private data. Each gets a short design note and a review before
+any code, like the wake word and the browser: questions about the owner's files, "what's on my
+screen", dictation and meeting or voice-note transcription together with the clipboard helper, and
+speaker profiles. Each note says which folders or screens, what is stored and for how long, the
+visible sign, and how to turn it off.
+
 ## Pending doc follow-ups
 
 - None right now.
@@ -212,10 +218,9 @@ Ideas from an earlier project of the owner's: read-only, no copying (owner's dec
 
 ## Waiting on the owner
 
-- Docker install (sudo) for Home Assistant, then the HA account and `HA_TOKEN` in `.env`.
+- Docker install (sudo) for Home Assistant, then the HA account and `HA_TOKEN` in `.env`
+  (postponed by the owner; device work comes later).
 - What "Grok-bot-like" should mean beyond "several bots with their own chats".
-- Whether Claude's memory folder for this project is allowed (see the folder rule).
-  Memory notes are paused until the owner says so.
 - Which smart-display and TV devices to support.
 - Whether to keep eyes as a switch on the face (the default is without eyes).
 - **GPL text-to-phoneme packages for the English voice.** The voice is Kokoro-82M via
