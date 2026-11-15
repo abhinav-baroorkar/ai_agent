@@ -30,6 +30,7 @@ voice-gpu = [
     "nvidia-cublas-cu12>=12.4; sys_platform == 'linux' and platform_machine == 'x86_64'",
     "nvidia-cudnn-cu12>=9.1,<10; sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]
+listener = ["jeepney>=0.8"]
 
 [project.scripts]
 sasha = "sasha.cli:main"
@@ -72,6 +73,11 @@ module = [
     "faster_whisper", "faster_whisper.*", "kokoro_onnx", "onnxruntime",
     "huggingface_hub", "huggingface_hub.*", "numpy", "numpy.*",
 ]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# Optional `listener` extra: absent in CI, and jeepney ships no type information.
+module = ["jeepney", "jeepney.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
