@@ -37,8 +37,9 @@ One role per session. Add or drop roles as the work needs.
   git worktree add Dependencies/worktrees/<branch-name> -b <branch> origin/main
   ```
 - Python env per worktree: from the worktree root, `source AI_Agent/scripts/env.sh`
-  (bash only, not zsh), then `cd AI_Agent && uv sync`. In a worktree the script keeps the worktree's
-  own `.venv` and sends caches to the main checkout's `Dependencies/`. Never set
+  (bash only, not zsh), then `cd AI_Agent && uv sync`. In a worktree the script keeps the
+  worktree's own `.venv` and sends caches to the main checkout's `Dependencies/`. It refuses
+  to run outside a bash checkout of the repo, and it clears temp entries older than 7 days. Never set
   `UV_PROJECT_ENVIRONMENT` yourself. A branch made before the script was fixed
   needs `git merge origin/main` first.
 - A worktree has no `.env`: no Home Assistant token, and `sasha doctor` skips Home
@@ -100,7 +101,8 @@ One role per session. Add or drop roles as the work needs.
 - That includes caches and downloads. Before any install or model download, run
   `source AI_Agent/scripts/env.sh` from your worktree (bash only). It points
   `HF_HOME`, `UV_CACHE_DIR` and `XDG_CACHE_HOME` at the main checkout's
-  `Dependencies/` and leaves the worktree's own `.venv` alone.
+  `Dependencies/` and leaves the worktree's own `.venv` alone. It refuses to run outside a
+  bash checkout of the repo, and it clears temp entries older than 7 days.
 - Any program the project starts keeps its files inside the project too. A browser
   window uses `--user-data-dir` under `Data/`.
 - Don't pull or delete Ollama models; use the ones already installed.

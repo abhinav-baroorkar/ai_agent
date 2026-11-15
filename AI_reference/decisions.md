@@ -308,3 +308,53 @@ connections outside this computer and nothing written outside the project folder
 
 - **Correction:** the heading "Voice wiring and server follow-ups" above says `main` at
   `b53a118`, which was true when it merged. `main` is `5aa4ee5` after `chore/env-tmpdir`.
+
+## 2026-11-14 — Window review rules and follow-ups (merged, `main` at `f2bfae5`)
+
+- **Microphone lifecycle:** the mic is never open without a visible sign. Leaving Home,
+  hiding the window or closing the page closes it. A start in progress can be cancelled.
+  Repeated Talk presses open one microphone. Why: the owner must always be able to see
+  when the assistant can hear.
+- **The page has a Content-Security-Policy:** same-origin only, WebSockets to loopback
+  only. Why: even if something injected script into the page, it has nowhere to send data.
+- **A guard test fails on HTML-injection sinks or outside URLs in the web folder.** Why:
+  server and tool text is untrusted; the rule "insert as plain text" is enforced, not
+  just agreed.
+- **The tab cap comes from the server's socket limit** (`health.limits.max_sockets`). Why:
+  the UI and server can't disagree about how many conversations are allowed.
+- **One voice brain on the GPU at a time for the team.** Why: two would not both fit in
+  8 GB, and load order matters (see "Voice wiring").
+- **`fix/server-followups-2`:** a dead proxy only on closed privileged ports; a malformed
+  Home Assistant address becomes a warning, not a crash; `/api/models` lists only
+  chat-capable models, with a `tools` flag, bounded to about 3 s; the window waits up to
+  90 s on a cold start and prints progress. Contract v0.1.1.
+- **`fix/warmup-timeouts`:** a short connect timeout for the model warm-up; voice turns
+  record the STT and TTS model versions in telemetry. Why: fail fast, and keep runs
+  reproducible.
+- **`chore/env-tmpdir-notes`:** `env.sh` refuses to run outside a bash checkout of the repo
+  and removes temp entries older than 7 days. Why: the temp folder is inside the project and
+  must not grow without limit.
+
+- **Correction to the Content-Security-Policy entry above.** Why: injected script can't fetch
+  or open WebSockets to anything off this computer. It doesn't stop navigation, and it can
+  still use the local API, which is why text is always inserted as plain text and the guard
+  test enforces it.
+- **Correction to the `fix/server-followups-2` entry above:** the 3 s bound applies to the
+  capability checks behind `/api/models`, not to the whole endpoint.
+- **Correction:** "`main` at `f2bfae5`" in the heading above was true when it merged; `main`
+  is `d45935b` after `fix/stt-runtime-fallback` (`3f76eee`).
+
+## 2026-11-14 — Always-on wake word (design stage, no code yet)
+
+- **The owner asked for an always-on wake word on this device:** a listener that starts at
+  login, hears the wake phrase, answers, and shows a small icon on screen. The server author
+  writes a design note first, and the reviewer checks the design before any code.
+- **No listening without a visible sign and a one-click pause.** Why: the same rule as the
+  window's microphone; the owner must always be able to see and stop it.
+- **Audio that doesn't begin with the wake phrase is dropped and never stored or logged.**
+  Why: privacy; the assistant must not keep what it was not addressed with.
+- **First version detects the phrase with the existing speech-to-text.** A trained wake-word
+  model can replace it later. Why: nothing new to install or train to get a working loop.
+- **The start-at-login file lives outside the project folder,** so the owner approves it or
+  runs the install command personally. Why: the stay-inside-the-folder rule.
+
