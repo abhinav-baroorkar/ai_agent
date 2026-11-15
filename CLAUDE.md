@@ -59,8 +59,9 @@ Hardware profiles: `AI_Agent/config/profiles/laptop.yaml` (the default), `pc.yam
   2. A separate local Claude code-review session reviews the branch diff and
      reports back. Nothing is posted on GitHub.
   3. Apply the fixes, run all checks and a privacy scan (names, emails, IPs,
-     tokens, serials), show the owner the file list and `git status`, then merge
-     into `main` and push once the owner says go.
+     tokens, serials). The manager session then merges into `main` and pushes
+     once the reviewer approves, and reports what was merged. (Owner's decision,
+     2026-11-14; before that the owner gave the go for each merge.)
 - Secrets live in `.env` at the repo root (copy `.env.example`). Never commit `.env`.
 - Model weights are downloaded by script (`AI_Agent/scripts/download_models.py`),
   never committed.
@@ -89,5 +90,7 @@ Hardware profiles: `AI_Agent/config/profiles/laptop.yaml` (the default), `pc.yam
 
 ## Current phase
 
-Phase 0 (text-only: config, telemetry, Ollama LLM stage, Home Assistant tool,
-CLI loop). **Stop and check with the owner before adding voice.**
+Phase 1 (brain server, window with the orb, English voice, wake word listener).
+The owner started Phase 1 early on 2026-11-14. The Phase 0 gate (turn on a real
+light through Home Assistant) is still open and postponed by the owner; it must
+pass before the v0.1 release. Status and next steps: `AI_reference/manager-handoff.md`.
