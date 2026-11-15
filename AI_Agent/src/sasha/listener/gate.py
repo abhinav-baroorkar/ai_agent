@@ -6,7 +6,8 @@ VAD called non-speech).
 A segment may only start after >= 300 ms of non-speech; it starts with a 1 s pre-roll
 and ends after `end_silence_ms` (600 ms by default; the main knob for how fast a
 command is taken) of non-speech. It is sent only if the speech in it spans
-0.4-8 s; anything longer is dropped as soon as it passes 8 s.
+0.4-8 s (0.2 s while a spoken yes/no is expected); anything longer is dropped as
+soon as it passes 8 s.
 
 Everything lives in RAM (bytes, a ring of chunks) and is dropped as soon as a segment
 is returned or gated out. Nothing is written anywhere.
@@ -30,6 +31,7 @@ SILENCE_BEFORE_MS = 300
 PRE_ROLL_MS = 1000
 END_SILENCE_MS = 600
 MIN_SPEECH_MS = 400
+ANSWER_MIN_SPEECH_MS = 200  # a crisp "yes" or "no" is often 0.25-0.4 s (confirm window)
 MAX_SPEECH_MS = 8000
 _FLOOR_CHUNKS = int(FLOOR_WINDOW_S * 1000 / CHUNK_MS)
 _PRE_ROLL_CHUNKS = PRE_ROLL_MS // CHUNK_MS
@@ -82,6 +84,7 @@ class Gate:
         self._np = np
         self.vad = vad
         self.end_silence_ms = end_silence_ms
+        self.min_speech_ms = MIN_SPEECH_MS  # lowered by the listener for a spoken yes/no
         self.stats = GateStats()
         self._floor: deque[float] = deque(maxlen=_FLOOR_CHUNKS)
         self._floor_value = FLOOR_MIN_DB
@@ -157,7 +160,7 @@ class Gate:
         if seg.too_long:
             self.stats.too_long += 1
             return None
-        if seg.speech_ms < MIN_SPEECH_MS:
+        if seg.speech_ms < self.min_speech_ms:
             self.stats.too_short += 1
             return None
         self.stats.segments += 1

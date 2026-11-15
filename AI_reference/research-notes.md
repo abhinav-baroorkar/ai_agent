@@ -54,3 +54,18 @@ script. Not yet measured with a real microphone in the window.
 socket: first text 164 ms, first audio 1.4 s, 50 tokens/s, LLM fully on the GPU. Typed input,
 so it does not include speech-to-text. Not measured with a real microphone.
 
+## 2026-11-14 (night): first wake word numbers (synthetic, not real audio)
+
+Real speech model on CPU, 135 synthetic utterances (five voices, three speeds), through the real
+matcher. The variants list is empty until measured with the owner's voice.
+
+| Case | Accepted | Notes |
+| --- | --- | --- |
+| Name plus command | 45 of 45 | |
+| Mid-sentence, possessive and near-name forms | 0 of 75 | |
+| Name alone | 8 of 15 | A half-second isolated word is the weak case; every misspelling had confidence at or under 0.50; deeper voices were worst |
+
+Speech-to-text on CPU: median 1935 ms per segment. That is not the production path (the brain
+uses the GPU, about 127 ms). Nothing has run on real audio, and the measurement plan in
+`decisions.md` (false accepts over 8 h, accept rate at 1, 3 and 5 m) has not started.
+
