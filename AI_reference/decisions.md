@@ -466,3 +466,22 @@ Summary of the design that passed review (two rounds). Opt-in until the measurem
   reviewed. The question "is the narrow exception acceptable, or must the rule be absolute?" is
   asked again before any Gmail code is merged (Phase 4).
 
+## 2026-11-14 — Build order (owner, night)
+
+- **First week: software only.** Device and robot work comes after that. Why: device work needs
+  hands-on testing, scheduled after the first week.
+- **No "fun" features.** Games, trivia, stories and a music visualiser are out.
+- **Order of work:** Marathi–English first, then timers, alarms and reminders, memory, a morning
+  brief, media control, local file questions, scheduled routines, "what's on my screen", computer
+  helpers, web search through the assistant's own browser, calculation tools, speaker ID, lists,
+  proactive reminders, MCP connectors with approvals plus bot templates and multi-step tasks, and
+  the activity log with "forget the last 5 minutes" and a visible local status. The full list is in
+  `plan.md`. The browser stays in flight next to Marathi. The morning brief's mail part waits for
+  the parked send-guard question. Phase gates stay.
+- **Rule: no real-microphone run without the owner present.** Why: the microphone is opened only
+  with the owner at the machine; it is the most sensitive part of the project. The wake word has
+  not run on a real microphone; real-microphone checks are scheduled with the owner.
+- **Marathi–English research is facts-first** (models, licences, gated models, sizes, CPU
+  feasibility); design follows. The owner will probably need to accept terms on some model pages
+  and put a Hugging Face token into the secrets file personally.
+

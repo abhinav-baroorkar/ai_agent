@@ -86,6 +86,8 @@ One role per session. Add or drop roles as the work needs.
   lands in its transcript; tool output, logs, telemetry, commits and reports never contain
   one. If a permission rule or safety hook blocks a read or a tool, stop and tell Primary;
   don't work around it. Only the owner widens or withdraws this.
+- No real-microphone run without the owner present (set 2026-11-14, night). Why: the
+  microphone is opened only with the owner at the machine.
 - New dependency: check its licence fits Apache-2.0 and say so in the report.
 - Ask Primary before: `sudo`, system packages, deleting files outside your
   worktree, anything that costs money, any network call to a service other than
