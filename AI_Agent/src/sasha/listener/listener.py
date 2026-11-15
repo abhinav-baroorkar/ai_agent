@@ -22,6 +22,7 @@ import asyncio
 import contextlib
 import logging
 import threading
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -63,7 +64,9 @@ class Listener:
         self.debug_sink = debug_sink
         self.confirm = ConfirmWindow(self._changed)
         self.stop_window = StopWindow(self._changed)
-        self.prime_gate = False  # after the "armed" earcon: the next command may start at once
+        # After the "armed" tone the next command may start at once, but only if the mic
+        # reopens right away: a reopen minutes later (after a pause) is a fresh start.
+        self.prime_until = 0.0
         self.paused = False
         self.online = False
         self.server_paused = False
@@ -88,7 +91,9 @@ class Listener:
             (self._shown and not self._lost.is_set(), "indicator not shown"),
             (not self.paused, "paused"),
             (self.online, "brain offline"),
-            (not self.busy or self.answer_window_open, "brain is answering"),
+            # Only a confirm window may open the mic during a turn; the brain sends
+            # `stop_window` only when it isn't busy, so that one never overrides busy.
+            (not self.busy or self.confirm.is_open, "brain is answering"),
             (not self.server_paused, "brain is speaking"),
             (not self.playing, "playing a reply"),
         ]
@@ -190,6 +195,7 @@ class Listener:
             proc = self.capture_factory()
             if proc is None:
                 log.error("No capture program (arecord or pw-record): microphone stays closed")
+                self._show(mic_open=False)  # take down the mic-open sign _changed() put up
                 return
             self._show(mic_open=True)  # the sign goes up before the microphone opens
             self._capture = proc
@@ -198,9 +204,9 @@ class Listener:
                 if not self.mic_allowed()[0]:  # changed while starting
                     break
                 self._show()  # the child runs now: make sure a mic-open state is shown
-                if self.prime_gate:  # the mic was closed only for our own "armed" tone
-                    self.prime_gate = False
+                if time.monotonic() <= self.prime_until:  # closed only for our "armed" tone
                     self.gate.prime()
+                self.prime_until = 0.0
                 async for chunk in proc.chunks():
                     backoff.reset()
                     if self._lost.is_set() or not self.mic_allowed()[0]:
