@@ -6,6 +6,7 @@ import { Conversation } from './socket.js';
 import { SpeechPlayer } from './audio-out.js';
 import { Mic, micErrorText } from './audio-in.js';
 import { initReadouts, initHistory, watchMicPermission, MIC_BLOCKED_HELP } from './home-extras.js';
+import { initTimers } from './timers.js';
 
 const LABEL = { idle: 'Ready', listening: 'Listening', thinking: 'Thinking', speaking: 'Speaking' };
 const params = new URLSearchParams(location.search);
@@ -237,6 +238,7 @@ export async function initHome(health, onOnline) {
 
   // Space toggles the mic and Escape stops, unless the owner is typing.
   document.addEventListener('keydown', (ev) => {
+    if (!(ev.target instanceof Element)) return;
     if ($('#home').hidden || ev.target.closest('dialog') || history.isOpen) return;
     if (ev.key === 'Escape' && !el.cancel.hidden) return el.cancel.click();
     if (ev.target.closest('input, textarea, select, button, a')) return;
@@ -246,6 +248,7 @@ export async function initHome(health, onOnline) {
     }
   });
 
+  initTimers({ conv, onRinging: (on) => face.setRinging(on) });
   if (blocked) notice(MIC_BLOCKED_HELP);
   render();
   // Mock mode plays one spoken turn by itself so all four states can be seen.
