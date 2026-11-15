@@ -116,8 +116,14 @@ class FakeTabs:
 class FakeService:
     owner_stops = 0
 
+    def begin_turn(self, holder: str) -> None:
+        pass
+
+    def end_turn(self, holder: str) -> None:
+        pass
+
     @contextlib.asynccontextmanager
-    async def acquire(self, holder: str) -> AsyncIterator[object]:
+    async def acquire(self, holder: str, owner_stops: int | None = None) -> AsyncIterator[object]:
         yield object()
 
     async def stop(self) -> None:

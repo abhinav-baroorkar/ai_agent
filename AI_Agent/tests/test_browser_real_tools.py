@@ -117,10 +117,10 @@ def test_tools_on_real_chrome(tmp_path: Path) -> None:
 
 
 def test_live_view_frames_of_a_test_page_arrive(tmp_path: Path) -> None:
-    """Contract v0.4 on real Chrome: the current tab's screencast and snapshot are JPEGs."""
+    """Contract v0.4 on real Chrome: the current tab's screencast frames are JPEGs."""
     from sasha.browser.backstop import LogOnlyBackstop
     from sasha.browser.pages import BrowserTabs
-    from sasha.browser.screencast import Screencast, is_jpeg, snapshot
+    from sasha.browser.screencast import Screencast, is_jpeg
 
     async def main() -> None:
         service = BrowserService(tmp_path, proxy_factory=lambda: FilteringProxy(_no_dns))
@@ -129,6 +129,9 @@ def test_live_view_frames_of_a_test_page_arrive(tmp_path: Path) -> None:
             async with service.acquire("c1") as chrome:
                 tabs = BrowserTabs(chrome, LogOnlyBackstop(), serve_pages(PAGES))
                 await tabs.navigate("https://test.invalid/home")
+                assert service.proxy is not None
+                # no preconnects to the test host (they'd look like refusals of the page)
+                assert "local_name" not in service.proxy.stats.refused
                 assert chrome.current_target is not None and chrome.tab_targets == [
                     chrome.current_target
                 ]
@@ -144,12 +147,11 @@ def test_live_view_frames_of_a_test_page_arrive(tmp_path: Path) -> None:
                     await asyncio.sleep(0.05)
                 await cast.window_ack(frames[0]["seq"] if frames else -1)
                 await cast.stop()
-                jpeg = await snapshot(chrome.pipe, chrome.current_target)
         finally:
             await service.stop()
         assert frames, "no screencast frame arrived"
         first = frames[0]
         assert first["type"] == "browser_frame" and first["tab"] == 1 and first["w"] > 0
-        assert is_jpeg(first["jpeg"]) and jpeg[:3] == b"\xff\xd8\xff"
+        assert is_jpeg(first["jpeg"])
 
     asyncio.run(main())

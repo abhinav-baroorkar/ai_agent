@@ -46,22 +46,6 @@ async def attach(pipe: CDPPipe, target_id: str) -> str:
     return str(attached["sessionId"])
 
 
-async def snapshot(pipe: CDPPipe, target_id: str) -> bytes:
-    """One JPEG of the tab, through a session of its own (for GET /api/browser/frame)."""
-    session = await attach(pipe, target_id)
-    try:
-        shot = await pipe.call(
-            "Page.captureScreenshot", {"format": "jpeg", "quality": QUALITY}, session_id=session
-        )
-    finally:
-        with contextlib.suppress(CDPError):
-            await pipe.call("Target.detachFromTarget", {"sessionId": session})
-    data = str(shot.get("data", ""))
-    if not is_jpeg(data):
-        raise CDPError("not a JPEG")
-    return base64.b64decode(data)
-
-
 class Screencast:
     def __init__(self, pipe: CDPPipe, target_id: str, tab: int, emit: Emit) -> None:
         self.pipe, self.target_id, self.tab, self.emit = pipe, target_id, tab, emit
@@ -70,21 +54,42 @@ class Screencast:
         self.in_flight: int | None = None  # our frame the window hasn't acknowledged
         self.chrome_acks: list[int] = []  # Chrome frames to acknowledge after the window
         self.last_sent = 0.0
-        self.sent = self.dropped = 0
+        self.sent = self.dropped = self.restarts = 0
         self._tasks: set[asyncio.Task[None]] = set()
 
     async def start(self) -> None:
         self.session = await attach(self.pipe, self.target_id)
         self.pipe.on("Page.screencastFrame", self._on_frame)
+        # Page events are needed: a navigation that moves the page to another renderer
+        # (about:blank -> a site) ends Chrome's screencast, so it is started again then.
+        self.pipe.on("Page.frameNavigated", self._on_navigated)
         await self.pipe.call("Page.enable", session_id=self.session)
+        await self._start_cast()
+
+    async def _start_cast(self) -> None:
+        if self.session is None:
+            return
+        self.in_flight, self.chrome_acks = None, []  # Chrome starts counting again
         await self.pipe.call(
             "Page.startScreencast",
             {"format": "jpeg", "quality": QUALITY, "maxWidth": MAX_WIDTH, "maxHeight": MAX_WIDTH},
             session_id=self.session,
         )
 
+    def _on_navigated(self, params: dict[str, Any]) -> None:
+        frame = params.get("frame") or {}
+        if self.session is None or params.get("_session") != self.session or frame.get("parentId"):
+            return
+        self.restarts += 1
+        self._spawn(self._restart())
+
+    async def _restart(self) -> None:
+        with contextlib.suppress(CDPError):
+            await self._start_cast()
+
     async def stop(self) -> None:
         self.pipe.off("Page.screencastFrame", self._on_frame)
+        self.pipe.off("Page.frameNavigated", self._on_navigated)
         for task in self._tasks:
             task.cancel()
         if self.session is not None:
@@ -135,10 +140,11 @@ class Screencast:
     async def window_ack(self, seq: int) -> None:
         if seq != self.in_flight:
             return
-        self.in_flight = None
         wait = self.last_sent + MIN_INTERVAL_S - time.monotonic()
-        if wait > 0:
+        if wait > 0:  # still "in flight" until then, so frames meanwhile are dropped
             await asyncio.sleep(wait)
+        if self.in_flight == seq:
+            self.in_flight = None
         await self._ack_chrome()
 
     async def _ack_chrome(self) -> None:

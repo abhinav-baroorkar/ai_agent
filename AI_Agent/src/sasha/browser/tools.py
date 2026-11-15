@@ -30,8 +30,8 @@ from sasha.browser.backstop import LogOnlyBackstop
 from sasha.browser.leaks import QueryLeakError, check_query
 from sasha.browser.origin import SearchRefusedError, check_open_url, search_url
 from sasha.browser.pages import BrowserTabs, PageError, TabHook
-from sasha.browser.service import BrowserBusyError, BrowserService
-from sasha.conversation import current_turn
+from sasha.browser.service import BrowserBusyError, BrowserService, BrowserStoppedError
+from sasha.conversation import current_turn, on_turn_end
 from sasha.tools import Tool, ToolError
 
 STEPS_PER_TURN = 12
@@ -58,6 +58,13 @@ class BrowserBridge:
     def attach(self, loop: asyncio.AbstractEventLoop) -> None:
         """Called on the brain's loop at startup."""
         self.loop, self._loop_thread = loop, threading.get_ident()
+
+    def call_soon(self, fn: Callable[..., None], *args: Any) -> None:
+        """Run `fn` on the brain's loop (the service lives there); at once if no loop."""
+        if self.loop is None or self.loop.is_closed() or threading.get_ident() == self._loop_thread:
+            fn(*args)
+        else:
+            self.loop.call_soon_threadsafe(fn, *args)
 
     async def stop(self) -> None:
         await self.service.stop()
@@ -104,6 +111,10 @@ class BrowserConversation:
             self.turn_id, self.steps, self.started = ctx.turn_id, 0, time.monotonic()
             self.queries = []
             self.owner_stops = self.bridge.service.owner_stops
+            # "working" in the live view from this first step until the turn ends
+            service, holder = self.bridge.service, self.holder
+            self.bridge.call_soon(service.begin_turn, holder)
+            on_turn_end(ctx.turn_id, lambda: self.bridge.call_soon(service.end_turn, holder))
         if self.bridge.service.owner_stops != self.owner_stops:
             raise ToolError("The owner stopped the browser")
         self.steps += 1
@@ -115,7 +126,8 @@ class BrowserConversation:
 
     def _op(self, use: Callable[[BrowserTabs], Awaitable[dict[str, Any]]]) -> dict[str, Any]:
         async def run() -> dict[str, Any]:
-            async with self.bridge.service.acquire(self.holder) as chrome:
+            service = self.bridge.service
+            async with service.acquire(self.holder, owner_stops=self.owner_stops) as chrome:
                 if self.tabs is None or id(chrome) != self.chrome_id:  # (re)started browser
                     self.tabs = BrowserTabs(chrome, self.bridge.backstop, self.bridge.on_tab)
                     self.chrome_id = id(chrome)
@@ -125,7 +137,7 @@ class BrowserConversation:
 
         try:
             result = self.bridge.run(run)
-        except (PageError, BrowserBusyError) as e:
+        except (PageError, BrowserBusyError, BrowserStoppedError) as e:
             raise ToolError(str(e)) from None
         return {**result, "note": NOTE} if "page" in result else result
 

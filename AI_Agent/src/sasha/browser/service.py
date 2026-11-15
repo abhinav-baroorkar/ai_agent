@@ -31,6 +31,10 @@ class BrowserBusyError(RuntimeError):
     """Another bot is using the browser right now."""
 
 
+class BrowserStoppedError(RuntimeError):
+    """The owner stopped the browser during this turn."""
+
+
 Starter = Callable[[Path, int], Awaitable[Chrome]]
 
 
@@ -56,17 +60,41 @@ class BrowserService:
         self._idle_task: asyncio.Task[None] | None = None
         self.last_stop: str | None = None  # "idle", "owner", "brain_stopping" (live view)
         self.owner_stops = 0  # a turn that saw a different count was stopped by the owner
+        self.turn_holder: str | None = None  # the conversation whose turn uses the browser
+        self.listeners: list[Callable[[], None]] = []  # told of every state change
+
+    def changed(self) -> None:
+        for listener in list(self.listeners):
+            listener()
+
+    def begin_turn(self, holder: str) -> None:
+        """A turn started using the browser: it counts as working until `end_turn`."""
+        self.turn_holder = holder
+        self.changed()
+
+    def end_turn(self, holder: str) -> None:
+        if self.turn_holder == holder:
+            self.turn_holder = None
+            self.touch()
+            self.changed()
 
     @contextlib.asynccontextmanager
-    async def acquire(self, bot_id: str) -> AsyncIterator[Chrome]:
+    async def acquire(self, bot_id: str, owner_stops: int | None = None) -> AsyncIterator[Chrome]:
+        """`owner_stops`: the count the caller's turn began with. If the owner stopped the
+        browser since, refuse here too, so a stop that lands just before this step can't
+        be undone by the step starting a fresh Chrome."""
+        if owner_stops is not None and owner_stops != self.owner_stops:
+            raise BrowserStoppedError("The owner stopped the browser")
         if self.holder is not None and self.holder != bot_id:
             raise BrowserBusyError("The browser is in use by another bot")
         self.holder = bot_id
+        self.changed()
         try:
             yield await self._ensure_started()
         finally:
             self.holder = None
             self.touch()
+            self.changed()
 
     def touch(self) -> None:
         self._last_used = self.clock()
@@ -90,7 +118,8 @@ class BrowserService:
     async def _idle_watch(self) -> None:
         while self.chrome is not None:
             await asyncio.sleep(min(30.0, max(self.idle_s / 4, 0.01)))
-            if self.holder is None and self.clock() - self._last_used >= self.idle_s:
+            busy = self.holder is not None or self.turn_holder is not None
+            if not busy and self.clock() - self._last_used >= self.idle_s:
                 log.info("Browser idle: stopping it")
                 self.last_stop = "idle"
                 await self._shutdown()
@@ -99,6 +128,7 @@ class BrowserService:
     async def _shutdown(self) -> None:
         chrome, proxy = self.chrome, self.proxy
         self.chrome = self.proxy = None
+        self.changed()
         if chrome is not None:
             await chrome.stop()
             await forget_when_free(profile_dir(self.data_dir))  # once Chrome has exited

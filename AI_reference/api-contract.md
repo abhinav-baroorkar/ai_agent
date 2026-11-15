@@ -151,8 +151,7 @@ request with `Sec-Fetch-Site` other than `same-origin` or `none` gets 403):
 
 | Method + path | Returns / does |
 | --- | --- |
-| `GET /api/browser` | `BrowserState` (below) |
-| `GET /api/browser/frame` | one JPEG (`image/jpeg`, `Cache-Control: no-store`) of the current tab; 404 `{error}` when the browser isn't running |
+| `GET /api/browser` | `BrowserState` (below). There is no picture route: frames go only over `/ws/browser` |
 | `POST /api/browser/stop` | stop the browser now (Chrome and its proxy); `{ok:true}`, also when it wasn't running. No body needed; a body that is sent must be JSON |
 
 `BrowserState` = `{enabled:bool, running:bool, agent:"idle"|"working", holder:string|null,
@@ -160,8 +159,9 @@ holder_bot:{id, name}|null, tabs:[{tab:int, site:string, title:string, current:b
 guard:{allowed:int, refused:{<category>:int}, background_refused:int}}`.
 - `enabled`: the browser connector's switch in Settings, nothing more. Whether a given
   bot may browse is up to the UI to work out from that bot's `connectors` list.
-- `agent`: `working` while a conversation is using the browser for a turn; `holder` is
-  an opaque id of that conversation, or null. `holder_bot` is the bot of that
+- `agent`: `working` from the first browser step of a turn until that whole turn ends
+  (not per tool call); `holder` is an opaque id of that conversation, or null. A
+  `browser_state` is pushed the moment `agent` or `holder` changes. `holder_bot` is the bot of that
   conversation: its id and its own name from the bot store (text the owner set, never
   page text), or null when nobody holds the browser or the bot is gone.
 - `tabs`: numbered as the model sees them. `site` is the hostname only, never a full
@@ -169,6 +169,10 @@ guard:{allowed:int, refused:{<category>:int}, background_refused:int}}`.
   format characters from both and caps `title` at 80 characters and `site` at 255.
   Show both with `textContent`, never as markup.
 - `guard`: counts from the filtering proxy since the browser started (0 when stopped).
+  `allowed`: connections let through. `refused`: refusals of hosts that one of the
+  agent's pages asked for (the page or a link on it tried an address the guard doesn't
+  allow), by category. `background_refused`: everything else refused, which is Chrome's
+  own background traffic (update, account and similar calls), not anything the page did.
 
 WebSocket `/ws/browser` (one viewer):
 - Same Host and Origin checks as `/ws`, and an `Origin` header is required (the
@@ -211,9 +215,13 @@ WebSocket `/ws/browser` (one viewer):
   `audio_start.wake`; `listener_state`, `listener_stats`; `wake`, `armed_expired`,
   `confirm`, `confirm_result`, `pause_capture`, `resume_capture`; built-in `voice` bot and
   `Bot.wake_device_control`; health `wake.available` and `limits.reserved_sockets`.
-- v0.4 (2026-11-15): browser live view: `GET /api/browser`, `GET /api/browser/frame`,
+- v0.4 (2026-11-15): browser live view: `GET /api/browser`,
   `POST /api/browser/stop`; `/ws/browser` with `browser_state`, `browser_frame`,
   `browser_stopped`, `browser_watch`, `browser_ack`, `browser_stop`; health
   `limits.browser_sockets`; `BrowserState.holder_bot`.
+- v0.4.1 (2026-11-15): `GET /api/browser/frame` removed (review L1): frames reach
+  the window only over `/ws/browser`. `agent` is `working` for the whole turn and pushed
+  at once; `guard.refused` counts only the pages' own refusals, the rest is
+  `background_refused`.
 - Planned for v0.5 (not built yet): `POST /api/connectors` and
   `DELETE /api/connectors/{id}` to add and remove MCP connectors from Settings.
