@@ -2,6 +2,9 @@
 // Follows Dependencies/team/api-contract.md (v0) message for message.
 import * as data from './mock-data.js';
 import * as timers from './mock-timers.js';
+import * as browser from './mock-browser.js';
+
+export { MockBrowserSocket } from './mock-browser.js';
 
 const params = new URLSearchParams(location.search);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -56,6 +59,10 @@ export async function mockFetch(method, path, body) {
     }
   }
   if (kind === 'timers') return timers.timersFetch(method, id, action, body, fail);
+  if (kind === 'browser') {
+    const answer = browser.browserFetch(method, id);
+    if (answer) return answer;
+  }
   throw fail(404, 'Not found.');
 }
 
@@ -127,6 +134,9 @@ export class MockSocket {
     if (typeof raw !== 'string') return; // mic frames: the mock ignores the sound
     const msg = JSON.parse(raw);
     timers.onFrame(msg);
+    // a message to a bot that may browse puts the mock browser to work
+    const bot = data.bots.find((b) => b.id === this.botId);
+    if (msg.type === 'text' && bot && bot.connectors.includes('browser')) browser.use();
     if (msg.type === 'text') this.answer(pick(msg.text, this), false);
     if (msg.type === 'audio_start') this.listen();
     if (msg.type === 'audio_stop') this.heardDone();

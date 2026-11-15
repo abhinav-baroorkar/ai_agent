@@ -67,6 +67,7 @@ export function initTimers({ conv, onRinging }) {
     stop: (t) => (conv.post({ type: 'timer_dismiss', id: t.id }) ? null : act('POST', t, 'dismiss')),
     snooze: (t, minutes) => (conv.post({ type: 'timer_snooze', id: t.id, minutes }) ? null : act('POST', t, 'snooze', { minutes })),
     dismiss: (t) => act('POST', t, 'dismiss'),
+    resnooze: (t, minutes) => act('POST', t, 'snooze', { minutes }), // a missed item, by HTTP
     say: (t) => act('POST', t, 'say'),
     remove(t) { // two clicks: the first arms it for a few seconds, the second deletes
       if (armed !== t.id) {

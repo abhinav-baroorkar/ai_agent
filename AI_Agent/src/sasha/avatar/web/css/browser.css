@@ -1,0 +1,43 @@
+/* The browser panel beside a bot's chat. The chat keeps at least 340 px; the
+   panel takes the rest, so the picture grows with the window. */
+.bots-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr); }
+.bots-body.with-browser { grid-template-columns: minmax(360px, 42%) minmax(0, 1fr); }
+.bots-body .chats { min-width: 0; }
+/* beside the panel the chat is narrow: let its header wrap instead of pushing out */
+.bots-body .chat { min-width: 0; overflow: hidden; }
+.bots-body.with-browser .chat-head { flex-wrap: wrap; row-gap: .4rem; padding-inline: .9rem; }
+.bots-body.with-browser .chat-head > div { min-width: 0; flex: 1 1 8rem; }
+.bots-body.with-browser .chat-head .grow { display: none; }
+.bots-body.with-browser .chat-head .meta { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+.chat-head .btn[aria-pressed="true"] { background: var(--surface-2); border-color: var(--line); color: var(--text); }
+
+.browser { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: .6rem; padding: .7rem .9rem .8rem; background: var(--bg-2); border-left: 1px solid var(--line); }
+.browser-head { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+.browser-head h2 { font-size: 1rem; }
+.browser-own { font-size: .76rem; color: var(--muted); max-width: 26rem; }
+
+/* The one line about the page that can be trusted: it comes from the assistant,
+   sits outside the picture, and is never covered by it. */
+.browser-address { flex: none; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .1rem .7rem; align-items: baseline; padding: .5rem .7rem; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); }
+.browser-site { font: 600 1rem var(--mono); color: var(--lamp); overflow-wrap: anywhere; }
+.browser-page { grid-column: 2; color: var(--text); font-size: .9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.browser-trust { grid-column: 1 / -1; margin-top: .2rem; font-size: .74rem; color: #6c7a8b; }
+
+.browser-view { flex: 1; min-height: 0; display: grid; place-items: center; overflow: hidden; border-radius: var(--r); background: #06090d; border: 1px solid var(--line); }
+.browser-view img { display: block; max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; grid-area: 1 / 1; }
+.browser-msg { grid-area: 1 / 1; max-width: 26rem; padding: 1.2rem; text-align: center; color: var(--muted); line-height: 1.6; }
+.browser-view .btn { grid-area: 1 / 1; align-self: end; margin-bottom: 1.2rem; }
+
+.browser-tabs { flex: none; display: flex; gap: .35rem; overflow-x: auto; }
+.browser-tab { display: flex; align-items: baseline; gap: .45em; max-width: 16rem; padding: .2rem .6rem; border: 1px solid var(--line); border-radius: 8px; font-size: .8rem; color: var(--muted); white-space: nowrap; }
+.browser-tab[aria-current="true"] { color: var(--text); border-color: color-mix(in srgb, var(--lamp) 55%, var(--line)); background: var(--surface); }
+.browser-tab .n { font-family: var(--mono); color: #6c7a8b; }
+.browser-tab .site { font-family: var(--mono); }
+.browser-tab .title { overflow: hidden; text-overflow: ellipsis; }
+.browser-guard { flex: none; font-size: .78rem; color: #6c7a8b; }
+#mock-browser { flex: none; align-self: start; width: auto; font-size: .8rem; padding: .2em .5em; }
+
+@media (max-width: 900px) {
+  .bots-body.with-browser { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 45%) minmax(0, 1fr); }
+  .bots-body.with-browser .browser { order: -1; border-left: 0; border-bottom: 1px solid var(--line); }
+}

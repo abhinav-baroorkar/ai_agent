@@ -9,7 +9,7 @@ export const health = {
   profile: 'laptop (mock)',
   default_bot: 'main',
   voice: { stt: params.get('voice') !== '0', tts: params.get('voice') !== '0', tts_languages: ['en'] },
-  limits: { max_sockets: 4 },
+  limits: { max_sockets: 4, reserved_sockets: 1, browser_sockets: 1 },
 };
 
 export const models = [
@@ -20,6 +20,7 @@ export const models = [
 
 export const bots = [
   { id: 'main', name: health.assistant.name, model: 'example-chat:12b', system_prompt: 'The main house assistant.', connectors: ['home_assistant'], builtin: true },
+  { id: 'b-web', name: 'Web researcher', model: 'example-chat:12b', system_prompt: 'Look things up and say where you found them.', connectors: ['browser'], builtin: false },
   { id: 'b-recipes', name: 'Recipe helper', model: 'example-large:20b', system_prompt: 'Suggest simple dinners from a list of ingredients. Keep steps short.', connectors: [], builtin: false },
   { id: 'b-mail', name: 'Mail drafter', model: 'example-chat:12b', system_prompt: 'Draft polite, short replies. Never invent facts. Drafts only.', connectors: ['gmail'], builtin: false },
 ];
@@ -27,6 +28,7 @@ export const bots = [
 // Same fields the real server returns. Addresses and tokens are secrets, so they never appear in settings.
 export const connectors = [
   { id: 'home_assistant', kind: 'home_assistant', name: 'Home Assistant', enabled: true, status: 'ok', detail: 'Connected. 14 devices are exposed to the assistant.', tools: ['list_devices', 'get_state', 'call_service'], settings: { timeout_s: 10, exposed_entities: [] }, secret_env: ['HA_URL', 'HA_TOKEN'] },
+  { id: 'browser', kind: 'browser', name: 'Browser', enabled: true, status: 'ok', detail: 'Uses its own private Chrome profile, read-only for now', tools: ['search', 'open_url', 'read_page', 'click', 'scroll', 'back'], settings: { search_template: '' }, secret_env: [] },
   { id: 'gmail', kind: 'gmail', name: 'Gmail', enabled: true, status: 'needs_setup', detail: 'No sign-in found yet.', tools: ['search_mail', 'read_mail', 'create_draft'], settings: {}, secret_env: ['GMAIL_CLIENT_SECRET_FILE'] },
   { id: 'calendar', kind: 'calendar', name: 'Calendar', enabled: false, status: 'off', detail: 'Read-only. Switched off.', tools: ['list_events'], settings: {}, secret_env: [] },
   { id: 'mcp-notes', kind: 'mcp', name: 'Notes folder', enabled: true, status: 'error', detail: 'The server did not start: command "notes-mcp" was not found.', tools: [], settings: { command: 'notes-mcp --dir ./notes' }, secret_env: [] },

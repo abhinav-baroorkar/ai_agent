@@ -31,6 +31,7 @@ function seed() {
     item('t-call', 'reminder', 'scheduled', now + 135 * MIN, { text: 'Call the dentist about the check-up', created_by: 'wake' }),
     item('t-wake', 'alarm', 'scheduled', tomorrow.getTime(), { label: 'Wake up', repeat: 'weekdays' }),
     item('t-plants', 'reminder', 'pending', now - 22 * MIN, { text: 'Water the plants on the balcony', late_s: 1320 }),
+    item('t-oven', 'alarm', 'missed', now - 5 * 60 * MIN, { label: 'Oven check' }),
     item('t-bins', 'reminder', 'missed', now - 26 * 60 * MIN, { text: 'Put the bins out', late_s: 0 }),
     item('t-eggs', 'timer', 'done', now - 3 * 60 * MIN, { label: 'Eggs' }),
   ];
