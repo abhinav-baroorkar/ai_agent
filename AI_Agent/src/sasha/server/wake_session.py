@@ -24,21 +24,19 @@ from typing import Any
 
 from starlette.websockets import WebSocket
 
-from sasha.bots import VOICE_ID
 from sasha.config import ReplyLines, WakeConfig
 from sasha.orchestrator import Assistant, Reply
 from sasha.pipeline.stt import Transcript
-from sasha.server.deps import ServerDeps
 from sasha.server.speaking import ListenerPresence
 from sasha.server.speech import Speaker
 from sasha.server.timers.hub import Hub
 from sasha.server.timers.ring import StopWindow
 from sasha.server.timers.tools import TIMER_TOOLS, add_timer_tools
 from sasha.server.voice import MIC_SAMPLE_RATE, VoiceStages
-from sasha.server.wake import WakeGate, WakeMatcher
+from sasha.server.wake import WakeGate
 from sasha.server.wake_confirm import ConfirmFlow, PlaybackClock
 from sasha.server.wake_policy import RateLimiter, WakeToolPolicy
-from sasha.server.wake_truth import TruthfulReply, wake_control_allowed
+from sasha.server.wake_truth import TruthfulReply
 from sasha.server.ws import Conversation, Frame
 from sasha.telemetry import TelemetryWriter
 
@@ -52,43 +50,9 @@ def _reloaded(reply: Reply) -> bool:
     return any(float(s.get("meta", {}).get("load_ms") or 0) > RELOAD_MS for s in stages)
 
 
-async def open_listener(
-    ws: WebSocket, deps: ServerDeps, voice: VoiceStages, speak: bool, timers: Hub | None = None
-) -> ListenerConversation:
-    """The listener's conversation: the `voice` bot, wrapped in the wake-turn policy."""
-    settings = deps.settings
-    bot = deps.bots.get(VOICE_ID)
-    assistant, warnings = await asyncio.to_thread(deps.make_assistant, bot)
-    for warning in warnings:
-        log.warning("Bot %s: %s", bot.id, warning)
-    wake_word, config = settings.assistant.wake_word, settings.profile.wake
-    # The wake turn's own prompt line: a hint; TruthfulReply is the guarantee.
-    assistant.system_prompt = f"{assistant.system_prompt.rstrip()}\n{config.prompt_note}"
-    matcher = WakeMatcher(
-        wake_word.phrase, wake_word.variants, config.fillers, config.continuations
-    )
-    assert deps.wake_limiter is not None
-    return ListenerConversation(
-        ws,
-        assistant,
-        voice,
-        language=settings.assistant.languages.default,
-        config=config,
-        gate=WakeGate(matcher, config.armed_window_s, config.min_confidence),
-        limiter=deps.wake_limiter,
-        # Checked on every call: the opt-in, and truthful replies still on (the gate).
-        device_control=lambda: (
-            deps.bots.get(VOICE_ID).wake_device_control and wake_control_allowed(config)
-        ),
-        telemetry=deps.telemetry,
-        presence=deps.presence,
-        recheck_placement=deps.recheck_placement,
-        speak=speak,
-        timers=timers,
-    )
-
-
 class ListenerConversation(Conversation):
+    """Opened by server/wake_open.py (`open_listener`)."""
+
     def __init__(
         self,
         ws: WebSocket,
@@ -125,8 +89,8 @@ class ListenerConversation(Conversation):
         )
         tools = assistant.tools
         if timers is not None and any(n in tools for n in TIMER_TOOLS):  # D4: voice-made
-            here = functools.partial(timers.rings_on, target=self)  # T10: no confirm then
-            tools = add_timer_tools(tools, timers.service, "wake", self.confirm.blocking, here)
+            said = functools.partial(getattr, assistant, "user_text")  # the wake command
+            tools = add_timer_tools(tools, timers.service, "wake", self.confirm.blocking, said)
         assistant.tools = self.policy.wrap(tools)
 
     def emit(self, frame: Frame) -> None:

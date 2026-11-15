@@ -1,0 +1,55 @@
+"""Opening the listener socket's conversation (`/ws?wake=1`): the `voice` bot wrapped in
+the wake-turn policy. The conversation itself is server/wake_session.py."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+
+from starlette.websockets import WebSocket
+
+from sasha.bots import VOICE_ID
+from sasha.server.deps import ServerDeps
+from sasha.server.timers.hub import Hub
+from sasha.server.voice import VoiceStages
+from sasha.server.wake import WakeGate, WakeMatcher
+from sasha.server.wake_session import ListenerConversation
+from sasha.server.wake_truth import wake_control_allowed
+
+log = logging.getLogger(__name__)
+
+
+async def open_listener(
+    ws: WebSocket, deps: ServerDeps, voice: VoiceStages, speak: bool, timers: Hub | None = None
+) -> ListenerConversation:
+    """The listener's conversation: the `voice` bot, wrapped in the wake-turn policy."""
+    settings = deps.settings
+    bot = deps.bots.get(VOICE_ID)
+    assistant, warnings = await asyncio.to_thread(deps.make_assistant, bot)
+    for warning in warnings:
+        log.warning("Bot %s: %s", bot.id, warning)
+    wake_word, config = settings.assistant.wake_word, settings.profile.wake
+    # The wake turn's own prompt line: a hint; TruthfulReply is the guarantee.
+    assistant.system_prompt = f"{assistant.system_prompt.rstrip()}\n{config.prompt_note}"
+    matcher = WakeMatcher(
+        wake_word.phrase, wake_word.variants, config.fillers, config.continuations
+    )
+    assert deps.wake_limiter is not None
+    return ListenerConversation(
+        ws,
+        assistant,
+        voice,
+        language=settings.assistant.languages.default,
+        config=config,
+        gate=WakeGate(matcher, config.armed_window_s, config.min_confidence),
+        limiter=deps.wake_limiter,
+        # Checked on every call: the opt-in, and truthful replies still on (the gate).
+        device_control=lambda: (
+            deps.bots.get(VOICE_ID).wake_device_control and wake_control_allowed(config)
+        ),
+        telemetry=deps.telemetry,
+        presence=deps.presence,
+        recheck_placement=deps.recheck_placement,
+        speak=speak,
+        timers=timers,
+    )

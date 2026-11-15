@@ -15,9 +15,8 @@ from sasha.config import ReplyLines
 from sasha.server.timers.model import TimerItem
 from sasha.server.timers.ring import RingPlayer
 from sasha.server.timers.service import TimerError
-from sasha.server.timers.tools import TimerAsk, TimerRefused, add_timer_tools
+from sasha.server.timers.tools import TimerAsk, TimerRefused
 from sasha.server.wake_truth import TruthfulReply
-from sasha.tools import ToolRegistry
 from tests.test_timers import handler, local
 from tests.timer_fakes import WEST, ZONE, FakeClock, FakeTarget, at, make_service
 
@@ -191,16 +190,18 @@ def test_t9_asked_back(model: str, said: str) -> None:
     assert truth.finish(model)[1] == said
 
 
-# --- T10: "<name>, stop" for the item ringing here needs no yes -------------------------
+# --- T10: "<name>, stop" stops what is ringing, anywhere, with no yes --------------------
 
 
-def test_t10_stopping_what_rings_here_needs_no_confirm(tmp_path: Path) -> None:
+def test_t10_stopping_whatever_rings_needs_no_confirm(tmp_path: Path) -> None:
     service, hub, clock = make_service(tmp_path)
-    hub.add(FakeTarget())
-    ringing = service.items[handler(service, "set_timer")(seconds=5)["id"]]
-    later = service.items[handler(service, "set_timer")(minutes=30, label="tea")["id"]]
+    hub.add(FakeTarget("home"))  # it rings on the Home window, not the listener
+    tool = handler(service, "set_timer")
+    one, two = (service.items[tool(seconds=5)["id"]] for _ in range(2))
+    later = service.items[tool(minutes=30, label="tea")["id"]]
     clock.advance(5)
     service.tick()
+    assert one.state == two.state == "ringing"
     asked: list[str] = []
 
     def no(action: str) -> bool:
@@ -208,13 +209,13 @@ def test_t10_stopping_what_rings_here_needs_no_confirm(tmp_path: Path) -> None:
         return False
 
     cancel = handler(service, "cancel_timer", "wake", no)
-    wake_tools = add_timer_tools(ToolRegistry(), service, "wake", no, lambda item_id: True)
-    here = wake_tools.get("cancel_timer").handler
-    here()  # the one ringing on this device: no question
-    assert ringing.state == "done" and asked == []
+    cancel()  # "<name>, stop": both chat-made rings stop, no question
+    assert one.state == two.state == "done" and asked == []
     with pytest.raises(TimerRefused):
         cancel(which="tea")  # a scheduled chat-made one still asks
-    assert asked == ["cancel the timer"] and later.active
+    with pytest.raises(TimerRefused):
+        cancel(which="all")  # and "all" with nothing ringing
+    assert asked == ["cancel the timer", "cancel the timer"] and later.active
 
 
 # --- R1 and nits ---------------------------------------------------------------------------------

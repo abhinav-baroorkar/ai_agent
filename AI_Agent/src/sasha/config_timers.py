@@ -5,6 +5,39 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
+class TimeCues(BaseModel):
+    """Words in the person's own text that let the server trust a field (one language).
+
+    A `period` needs a period word (or a 13-23 hour) in the words; a clock time needs a
+    number or a time word; a delay needs a number or a duration word. Otherwise the
+    server drops the field or asks: it never keeps a field nobody said.
+    """
+
+    period_words: list[str] = Field(
+        default_factory=lambda: [
+            "am", "pm", "morning", "evening", "tonight", "afternoon", "night", "noon",
+            "midnight", "midday",
+        ]
+    )  # fmt: skip
+    number_words: list[str] = Field(
+        default_factory=lambda: [
+            "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+            "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
+            "seventeen", "eighteen", "nineteen", "twenty", "thirty", "forty", "fifty",
+            "sixty", "ninety", "hundred", "half", "quarter", "couple", "dozen",
+        ]
+    )  # fmt: skip
+    time_words: list[str] = Field(
+        default_factory=lambda: ["noon", "midnight", "midday", "o'clock", "oclock"]
+    )
+    duration_words: list[str] = Field(
+        default_factory=lambda: [
+            "hour", "hours", "minute", "minutes", "min", "mins", "second", "seconds",
+            "sec", "secs",
+        ]
+    )  # fmt: skip
+
+
 class TimersConfig(BaseModel):
     """Timers, alarms and reminders (server/timers/; Dependencies/team/timers-design.md)."""
 
@@ -30,6 +63,8 @@ class TimersConfig(BaseModel):
     wake_window_s: float = 600
     wake_max_active: int = 10
     stop_words: list[str] = Field(default_factory=lambda: ["stop", "dismiss", "snooze"])
+    # Per language; a cue from any configured language counts (English now).
+    cues: dict[str, TimeCues] = Field(default_factory=lambda: {"en": TimeCues()})
     # Spoken lines (per language later, like wake.reply_lines).
     timer_done: str = "Timer done."
     timer_done_label: str = "Timer done: {label}."

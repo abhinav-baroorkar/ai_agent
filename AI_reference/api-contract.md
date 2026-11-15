@@ -199,9 +199,9 @@ Listener only, while an item rings on the listener:
 
 Wake turns: the timer tools work without `wake_device_control`, within limits (5
 created per 10 min, 10 voice-made items active). A wake turn can't cancel or snooze an
-item made in a chat without the spoken `confirm`, except the one item ringing on the
-listener now ("<name>, stop" needs no yes). Bots with a `browser` connector get no
-timer tools.
+item made in a chat without the spoken `confirm`, except what is ringing now, on any
+socket: "<name>, stop" stops (or snoozes) every ringing item with no yes. Bots with a
+`browser` connector get no timer tools.
 
 ## Changes
 - v0.1 (2026-11-14): `speak` query parameter; one conversation per socket stated;

@@ -25,7 +25,7 @@ from sasha.server.speaking import SpeakingTracker
 from sasha.server.timers.hub import Hub
 from sasha.server.timers.routes import add_timer_routes
 from sasha.server.voice import VoiceStages
-from sasha.server.wake_session import open_listener
+from sasha.server.wake_open import open_listener
 from sasha.server.ws import Conversation
 
 log = logging.getLogger(__name__)

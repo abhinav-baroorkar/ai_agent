@@ -71,8 +71,6 @@ class ServerDeps:
         if CLOCK_TOOL not in tools:  # every bot: read-only, so no guessed times
             # The timers' clock and zone, so "now" and a resolved alarm time agree.
             tools.register(clock_tool(self.timers.now_local) if self.timers else clock_tool())
-        if self.timers is not None and not self.has_browser(bot):
-            tools = add_timer_tools(tools, self.timers)  # D3: never with a browser
         assistant = Assistant(
             self.settings,
             self.make_llm(bot.model),
@@ -80,6 +78,9 @@ class ServerDeps:
             self.telemetry,
             system_prompt=self.bots.prompt_for(bot),
         )
+        if self.timers is not None and not self.has_browser(bot):  # D3: never with a browser
+            said = functools.partial(getattr, assistant, "user_text")  # the turn's own words
+            assistant.tools = add_timer_tools(tools, self.timers, said=said)
         return assistant, warnings
 
     def has_browser(self, bot: Bot) -> bool:

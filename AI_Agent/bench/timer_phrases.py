@@ -21,6 +21,7 @@ Results: one JSON file in `<Data>/results/` and a Markdown table on stdout.
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import os
 import tempfile
@@ -85,9 +86,12 @@ def run_case(
         service = TimerService(
             settings.profile.timers, JsonStore(Path(tmp) / "timers.json"), None, lambda: now, ZONE
         )
-        tools = add_timer_tools(ToolRegistry([clock_tool(service.now_local)]), service)
         telemetry = TelemetryWriter(Path(tmp), "bench", settings.profile.name, enabled=False)
-        assistant = Assistant(settings, llm, recording(tools, calls), telemetry)
+        base = ToolRegistry([clock_tool(service.now_local)])
+        assistant = Assistant(settings, llm, base, telemetry)
+        # As the server does (deps.make_assistant): the tools see the turn's own words.
+        said = functools.partial(getattr, assistant, "user_text")
+        assistant.tools = recording(add_timer_tools(base, service, said=said), calls)
         started = time.perf_counter()
         try:
             reply = assistant.handle_text(str(case["say"])).text

@@ -72,6 +72,7 @@ class Assistant:
         self.system_prompt = system_prompt or settings.assistant.render_system_prompt()
         self._history: list[Message] = []
         self.last_tool_calls: list[dict[str, Any]] = []
+        self.user_text = ""  # this turn's user text (never logged here; see trace)
 
     @property
     def name(self) -> str:
@@ -92,6 +93,7 @@ class Assistant:
         self, text: str, hooks: TurnHooks | None = None, input_mode: str = "text"
     ) -> Reply:
         hooks = hooks or TurnHooks()
+        self.user_text = text  # the person's own words this turn, for tools that check them
         trace = self.telemetry.start(input_mode=input_mode)
         trace.models["llm"] = self.llm.model_version()
         trace.record_text("user", text)
