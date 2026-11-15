@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections import Counter
+from collections import Counter, deque
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
@@ -60,6 +60,9 @@ class FilteringProxy:
         self.refuse_hosts = refuse_hosts
         self.max_connections = max_connections
         self.stats = ProxyStats()
+        # (host, category) of recent refusals, in memory only (never logged): the live
+        # view counts one as the page's only if a page asked for that host.
+        self.refusals: deque[tuple[str, str]] = deque(maxlen=1024)
         self._server: asyncio.base_events.Server | None = None
         self._active = 0
 
@@ -163,6 +166,7 @@ class FilteringProxy:
             return None
         verdict, addresses = await resolve(host, port, self.resolver)
         if not verdict.allowed:
+            self.refusals.append((host.lower().rstrip("."), verdict.category))
             await self._reply(writer, 403, verdict.category)
             return None
         for ip in addresses:

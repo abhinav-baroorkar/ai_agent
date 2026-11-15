@@ -75,6 +75,10 @@ export function timerRow(t, { serverNow, armed, actions }) {
     acts.append(button(t, 'dismiss', 'Dismiss', () => actions.dismiss(t)));
   } else {
     if (readable && t.state === 'missed') acts.append(button(t, 'say', 'Read it aloud', () => actions.say(t)));
+    // a missed timer or reminder can be put off again; a missed alarm can't
+    if (t.state === 'missed' && t.kind !== 'alarm') {
+      acts.append(button(t, 'snooze10', 'Snooze 10 min', () => actions.resnooze(t, 10)));
+    }
     const word = t.state === 'scheduled' ? 'Delete' : 'Remove';
     const sure = armed === t.id;
     side.append(button(t, 'remove', sure ? 'Really?' : word, () => actions.remove(t), sure ? 'danger' : 'quiet'));

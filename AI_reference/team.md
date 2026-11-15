@@ -88,6 +88,9 @@ One role per session. Add or drop roles as the work needs.
   don't work around it. Only the owner widens or withdraws this.
 - No real-microphone run without the owner present (set 2026-11-14, night). Why: the
   microphone is opened only with the owner at the machine.
+- An intermittent test failure is investigated as a possible product bug before anyone calls it
+  flaky (2026-11-14: a "flaky" listener test was a real ordering bug in the microphone sign).
+  Primary's pre-push check shows the names of failing tests and stops on any failure.
 - New dependency: check its licence fits Apache-2.0 and say so in the report.
 - Ask Primary before: `sudo`, system packages, deleting files outside your
   worktree, anything that costs money, any network call to a service other than

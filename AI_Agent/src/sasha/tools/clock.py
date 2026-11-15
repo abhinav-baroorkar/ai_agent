@@ -30,8 +30,12 @@ def clock_tool(now: Callable[[], datetime] = _local_now) -> Tool:
 
     return Tool(
         CLOCK_TOOL,
-        "The current local date, time, weekday and time zone. Call it whenever the "
-        "time or date matters; never guess them.",
+        # Narrow on purpose: in the owner's first test the model called it unasked and
+        # opened a recitation with the time and date.
+        "The current local date, time, weekday and time zone. Call it only when the "
+        "person asks for the current time or date, or when working out a time they "
+        "asked for needs it (such as 'tomorrow'); then never guess them. Don't call it "
+        "for anything else, and don't mention the time or date unless they asked.",
         {"type": "object", "properties": {}},
         get_current_time,
     )

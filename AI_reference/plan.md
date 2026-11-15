@@ -1,6 +1,6 @@
 # Project plan
 
-Living plan. Last updated 2026-11-14 (scope: one brain, many devices).
+Living plan. Last updated 2026-11-15 (browser phase 1 merged; timers in final review).
 
 ## Goal
 
@@ -146,12 +146,12 @@ the Phase 0 real-light gate stays open and must pass before the v0.1 release.
   with real devices, cameras, pet devices, room-to-room announcements, satellites on other devices
   and the robot body. Why: device work needs hands-on testing, scheduled after the first week.
 - **No "fun" features** (games, trivia, stories, a music visualiser).
-- The assistant's own browser stays the feature in flight next to timers, alarms and reminders.
+- The assistant's own browser: phase 1 (read-only tools) and its live view in the Bots screen are merged. Next browser phase: **take-over** (a visible window, the brain disconnected while the owner drives, hand-back by restart), which the owner uses to solve the search engine's bot challenge; it is being designed and gets a design review before code. After that: acting with approvals, sign-in by take-over (low-value sites only), media.
 - Postponed, conditional: Marathi–English support (Phase 2). The owner's condition: the base assistant must keep working properly. Marathi support is optional and may only be added if it doesn't slow the English path (latency and GPU placement measured before and after); otherwise it stays out.
 - Everything else on the recommended list is built as current tasks end, in this order unless the
   owner changes it:
 
-1. Timers, alarms and reminders.
+1. Timers, alarms and reminders (in final review: the Home card is merged, the server part is in its last round).
 2. Memory ("remember that...").
 3. A morning brief. It needs calendar and mail, so the parked send-guard question is asked
    before the mail part.

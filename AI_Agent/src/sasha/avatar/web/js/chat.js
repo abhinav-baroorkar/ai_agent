@@ -2,6 +2,7 @@
 import { h, icon, setText } from './dom.js';
 import { Conversation } from './socket.js';
 import { initial } from './clean.js';
+import { renderMarkdown } from './md.js';
 
 function chip(tool) {
   return h('span', { class: `chip ${tool.ok ? 'ok' : 'bad'}`, title: tool.ok ? 'Tool ran' : 'Tool failed' },
@@ -9,7 +10,7 @@ function chip(tool) {
 }
 
 export class ChatView {
-  constructor(bot, { onBusy, onEdit }) {
+  constructor(bot, { onBusy, onEdit, onBrowser }) {
     this.bot = bot;
     this.onBusy = onBusy;
     this.busy = false;
@@ -28,16 +29,21 @@ export class ChatView {
     this.stopBtn = h('button', { class: 'btn danger', type: 'button', hidden: true,
       onclick: () => this.conv.cancel() }, icon('stop'), 'Stop');
     this.refused = false;
+    // shows or hides the live view of the assistant's browser beside this chat
+    this.browserBtn = h('button', { class: 'btn small quiet', type: 'button', 'aria-pressed': 'false',
+      onclick: () => onBrowser(this.bot) }, 'Browser');
 
     this.el = h('section', { class: 'chat', role: 'tabpanel' },
       h('header', { class: 'chat-head' }, this.avatar,
-        h('div', {}, this.title, h('div', {}, this.meta)),
+        h('div', { class: 'who' }, this.title, this.meta),
         h('span', { class: 'grow' }), this.offline,
+        this.browserBtn,
         h('button', { class: 'btn small quiet', type: 'button', onclick: () => this.restart() }, 'Clear chat'),
         h('button', { class: 'btn small', type: 'button', onclick: () => onEdit(this.bot) }, 'Edit bot')),
       this.log,
       h('form', { class: 'composer', onsubmit: (ev) => { ev.preventDefault(); this.submit(); } },
-        this.input, this.stopBtn, this.sendBtn));
+        h('div', { class: 'field' }, this.input, this.stopBtn, this.sendBtn),
+        h('p', { class: 'hint' }, 'Enter sends. Shift+Enter starts a new line.')));
 
     this.update(bot);
     this.showEmpty();
@@ -51,7 +57,7 @@ export class ChatView {
       })
       .on('state', (m) => this.setBusy(m.state !== 'idle'))
       .on('tool', (m) => this.reply().chips.append(chip(m)))
-      .on('reply_delta', (m) => { const r = this.reply(); r.text += String(m.text ?? ''); this.paint(r); })
+      .on('reply_delta', (m) => { const r = this.reply(); r.text += String(m.text ?? ''); this.paintSoon(r); })
       .on('reply', (m) => this.finish(m))
       .on('error', (m) => { this.add(h('div', { class: 'msg error', role: 'alert' }, String(m.message ?? 'Something went wrong.'))); this.pending = null; });
     this.setOnline(false);
@@ -64,6 +70,7 @@ export class ChatView {
     const n = bot.connectors.length;
     this.meta.textContent = `${bot.model} · ${n === 0 ? 'no connectors' : n === 1 ? '1 connector' : `${n} connectors`}`;
     this.input.placeholder = `Message ${bot.name}`;
+    if (this.log && this.log.querySelector('.log-empty')) this.showEmpty();
   }
 
   setOnline(on) {
@@ -78,7 +85,10 @@ export class ChatView {
     if (!busy && this.pending) {
       // Stopped or dropped before a final reply: keep what arrived.
       if (!this.pending.text && !this.pending.chips.childElementCount) this.pending.el.remove();
-      else this.pending.dots.replaceWith(h('span', { class: 'timing' }, 'Stopped'));
+      else {
+        this.pending.dots.replaceWith(h('span', { class: 'timing' }, 'Stopped'));
+        this.paint(this.pending); // whatever arrived, drawn in full
+      }
       this.pending = null;
     }
     this.busy = busy;
@@ -87,7 +97,12 @@ export class ChatView {
   }
 
   showEmpty() {
-    this.log.replaceChildren(h('p', { class: 'log-empty' }, 'Nothing here yet. Say what you need.'));
+    const about = this.bot.system_prompt.trim();
+    this.log.replaceChildren(h('div', { class: 'log-empty' },
+      h('span', { class: 'avatar big', 'aria-hidden': 'true' }, initial(this.bot.name)),
+      h('strong', {}, this.bot.name),
+      h('p', {}, about ? (about.length > 160 ? `${about.slice(0, 157)}…` : about) : 'No instructions yet. Edit the bot to give it some.'),
+      h('p', { class: 'hint' }, `Runs on ${this.bot.model}, on this computer.`)));
   }
 
   add(node) {
@@ -104,14 +119,27 @@ export class ChatView {
     const body = h('div', { class: 'body' });
     const chips = h('div', { class: 'chips' });
     const dots = h('span', { class: 'typing', 'aria-label': 'Thinking' }, h('i'), h('i'), h('i'));
-    const el = h('div', { class: 'msg bot' }, h('span', { class: 'from' }, this.bot.name), chips, body, dots);
-    this.pending = { el, body, chips, dots, text: '' };
+    const col = h('div', { class: 'col' }, h('span', { class: 'from' }, this.bot.name), chips, body, dots);
+    const el = h('div', { class: 'msg bot' }, h('span', { class: 'avatar', 'aria-hidden': 'true' }, initial(this.bot.name)), col);
+    this.pending = { el, col, body, chips, dots, text: '', frame: 0 };
     this.add(el);
     return this.pending;
   }
 
+  // While a reply streams, draw it at most once per animation frame, with the latest text.
+  paintSoon(r) {
+    if (r.frame) return;
+    r.frame = requestAnimationFrame(() => {
+      r.frame = 0;
+      this.paint(r);
+    });
+  }
+
+  // The bot's text gets its simple formatting (md.js builds nodes; nothing is parsed as HTML).
   paint(r) {
-    setText(r.body, r.text);
+    cancelAnimationFrame(r.frame);
+    r.frame = 0;
+    r.body.replaceChildren(renderMarkdown(r.text));
     this.log.scrollTop = this.log.scrollHeight;
   }
 
@@ -122,7 +150,7 @@ export class ChatView {
     r.dots.remove();
     if (m.timing && m.timing.total_ms != null) {
       const speed = m.timing.tokens_per_s ? ` · ${Math.round(m.timing.tokens_per_s)} tokens/s` : '';
-      r.el.append(h('span', { class: 'timing' }, `${(m.timing.total_ms / 1000).toFixed(1)} s${speed}`));
+      r.col.append(h('span', { class: 'timing' }, `${(m.timing.total_ms / 1000).toFixed(1)} s${speed}`));
     }
     this.paint(r);
     this.pending = null;

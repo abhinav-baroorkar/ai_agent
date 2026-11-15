@@ -13,6 +13,7 @@ from sasha.server.deps import ServerDeps
 from sasha.server.timers.hub import Hub
 from sasha.server.voice import VoiceStages
 from sasha.server.wake import WakeGate, WakeMatcher
+from sasha.server.wake_policy import CONTROL_TOOL
 from sasha.server.wake_session import ListenerConversation
 from sasha.server.wake_truth import wake_control_allowed
 
@@ -29,13 +30,11 @@ async def open_listener(
     for warning in warnings:
         log.warning("Bot %s: %s", bot.id, warning)
     wake_word, config = settings.assistant.wake_word, settings.profile.wake
-    # The wake turn's own prompt line: a hint; TruthfulReply is the guarantee.
-    assistant.system_prompt = f"{assistant.system_prompt.rstrip()}\n{config.prompt_note}"
     matcher = WakeMatcher(
         wake_word.phrase, wake_word.variants, config.fillers, config.continuations
     )
     assert deps.wake_limiter is not None
-    return ListenerConversation(
+    conv = ListenerConversation(
         ws,
         assistant,
         voice,
@@ -53,3 +52,11 @@ async def open_listener(
         speak=speak,
         timers=timers,
     )
+    # The prompt states what wake turns can really do: the policy's view of the tools
+    # (the wake timer tools included), without device control unless it is allowed now.
+    # Then the wake turn's own line (a hint; TruthfulReply is the guarantee).
+    control = conv.policy.device_control()
+    names = [n for n in conv.assistant.tools.names if n != CONTROL_TOOL or control]
+    prompt = deps.prompt_for(bot, names, spoken=speak)
+    assistant.system_prompt = f"{prompt}\n{config.prompt_note}"
+    return conv

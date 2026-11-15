@@ -5,11 +5,11 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from sasha.config import Settings
-from sasha.conversation import current_turn, new_turn
+from sasha.conversation import current_turn, finish_turn, new_turn
 from sasha.pipeline.llm import LLM, LLMCancelled, LLMResponse, Message, StreamingLLM
 from sasha.telemetry import RequestTrace, TelemetryWriter
 from sasha.tools import ToolRegistry
@@ -85,6 +85,29 @@ class Assistant:
         self._history.clear()
         self._last_turn_end = None
 
+    # --- stopped turns ---------------------------------------------------------------
+    # A stopped turn (the Stop button, or the owner talking over the reply) stays in the
+    # history: the request, what was said of the reply (capped), and a short note only
+    # the model sees. So "continue" or "go on" picks it up. Telemetry only records that
+    # it was cancelled, never the text.
+    def _keep_stopped(self, text: str, partial: str) -> None:
+        cfg = self.settings.profile.llm
+        kept = partial.strip()[: cfg.interrupted_keep_chars]
+        reply = f"{kept} {cfg.interrupted_note}".strip()
+        self._history += [
+            {"role": "user", "content": text},
+            {"role": "assistant", "content": reply},
+        ]
+
+    def mark_interrupted(self) -> None:
+        """The last reply was finished but its speech was cut: the model should know
+        the person may not have heard all of it."""
+        note = self.settings.profile.llm.interrupted_note
+        if self._history and self._history[-1]["role"] == "assistant":
+            last = self._history[-1]
+            if not str(last["content"]).endswith(note):
+                last["content"] = f"{str(last['content']).rstrip()} {note}"
+
     def _messages(self, text: str) -> list[Message]:
         recent = self._history[-2 * self.history_turns :]
         return [
@@ -97,6 +120,15 @@ class Assistant:
         self, text: str, hooks: TurnHooks | None = None, input_mode: str = "text"
     ) -> Reply:
         hooks = hooks or TurnHooks()
+        streamed: list[str] = []  # what reached the person so far, for a stopped turn
+        if hooks.on_delta is not None:
+            shown = hooks.on_delta
+
+            def on_delta(piece: str) -> None:
+                streamed.append(piece)
+                shown(piece)
+
+            hooks = replace(hooks, on_delta=on_delta)
         trace = self.telemetry.start(input_mode=input_mode)
         trace.models["llm"] = self.llm.model_version()
         trace.record_text("user", text)
@@ -112,11 +144,14 @@ class Assistant:
             reply = self._run(text, trace, calls_made, hooks)
         except BaseException as exc:  # includes Ctrl-C: still write the telemetry line
             trace.finish(success=False, error=f"{type(exc).__name__}: {exc}")
+            if isinstance(exc, LLMCancelled):  # stopped: keep it, so "continue" works
+                self._keep_stopped(text, "".join(streamed))
             if isinstance(exc, Exception):
                 raise RequestFailed(calls_made) from exc
             raise  # Ctrl-C, SystemExit: unchanged, so `except Exception` can't swallow them
         finally:
             current_turn.reset(token)
+            finish_turn(turn.turn_id)  # e.g. the browser shows "idle" again
         trace.record_text("assistant", reply.text)
         reply.telemetry = trace.finish(success=True)
         self._history += [

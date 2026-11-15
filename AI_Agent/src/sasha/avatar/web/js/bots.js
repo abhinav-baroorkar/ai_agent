@@ -4,9 +4,13 @@ import { $, h, icon, clear } from './dom.js';
 import { ChatView } from './chat.js';
 import { openBotForm } from './bot-form.js';
 import { cleanBot, cleanConnector, cleanModel, initial } from './clean.js';
+import { initBrowserPanel } from './browser-panel.js';
 
 export function initBots(health) {
-  const el = { items: $('#bot-items'), tabs: $('#tabs'), chats: $('#chats'), empty: $('#bots-empty'), add: $('#new-bot') };
+  const el = {
+    items: $('#bot-items'), tabs: $('#tabs'), chats: $('#chats'), empty: $('#bots-empty'), add: $('#new-bot'),
+    body: $('.bots-body'),
+  };
   let bots = [];
   const open = new Map(); // bot id -> ChatView
   let active = null;
@@ -14,6 +18,10 @@ export function initBots(health) {
   // The server caps conversations (health.limits.max_sockets); Home keeps one of them.
   const MAX_OPEN = health.max_chats;
   let note = '';
+  const panel = initBrowserPanel(health);
+  const browserIds = new Set(['browser']); // ids of connectors of kind "browser"
+  const panelOpen = new Map(); // bot id -> whether its chat shows the browser panel
+  const canBrowse = (bot) => bot.connectors.some((id) => browserIds.has(id));
 
   async function load() {
     try {
@@ -26,6 +34,11 @@ export function initBots(health) {
       const bot = bots.find((b) => b.id === id);
       if (bot) chat.update(bot); else closeChat(id);
     }
+    // which connectors are browsers (normally just the one called "browser")
+    api('GET', '/api/connectors').then((r) => {
+      const ids = (r.connectors || []).map(cleanConnector).filter((c) => c.kind === 'browser').map((c) => c.id);
+      if (ids.length) { browserIds.clear(); ids.forEach((id) => browserIds.add(id)); showPanel(); }
+    }).catch(() => {});
     render();
     listeners.forEach((fn) => fn(bots));
   }
@@ -46,7 +59,8 @@ export function initBots(health) {
     if (note) el.tabs.append(h('p', { class: 'tab-note', role: 'status' }, note));
     for (const chat of open.values()) chat.el.hidden = chat.bot.id !== active;
     el.empty.hidden = open.size > 0;
-    el.chats.hidden = open.size === 0;
+    el.body.hidden = open.size === 0;
+    showPanel();
   }
 
   function show(id) {
@@ -59,7 +73,8 @@ export function initBots(health) {
       return;
     }
     if (!open.has(id)) {
-      const chat = new ChatView(bot, { onBusy: render, onEdit: edit });
+      const chat = new ChatView(bot, { onBusy: render, onEdit: edit, onBrowser: toggleBrowser });
+      if (!panelOpen.has(id)) panelOpen.set(id, canBrowse(bot)); // open by default for a bot that browses
       open.set(id, chat);
       el.chats.append(chat.el);
     }
@@ -68,12 +83,26 @@ export function initBots(health) {
     open.get(id).input.focus();
   }
 
+  // The panel follows the chat in front: one browser, one viewer, whichever chat is shown.
+  function showPanel() {
+    const bot = bots.find((b) => b.id === active);
+    const isOpen = !!bot && open.has(bot.id) && panelOpen.get(bot.id) === true;
+    for (const chat of open.values()) chat.browserBtn.setAttribute('aria-pressed', String(panelOpen.get(chat.bot.id) === true));
+    panel.show(bot || null, !!bot && canBrowse(bot), isOpen, () => bot && toggleBrowser(bot));
+  }
+
+  function toggleBrowser(bot) {
+    panelOpen.set(bot.id, !panelOpen.get(bot.id));
+    showPanel();
+  }
+
   function closeChat(id) {
     const chat = open.get(id);
     if (!chat) return;
     note = '';
     chat.close();
     open.delete(id);
+    panelOpen.delete(id);
     if (active === id) active = open.size ? [...open.keys()].pop() : null;
     render();
   }

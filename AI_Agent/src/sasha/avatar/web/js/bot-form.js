@@ -38,9 +38,33 @@ export function openBotForm({ bot, models, connectors, preferModel }) {
   if (!connectors.length) f.conns.append(h('p', { class: 'check' }, h('small', {}, 'No connectors yet. Add them in Settings.')));
   for (const c of connectors) {
     const note = c.status === 'ok' ? `${c.tools.length} tools` : c.status === 'off' ? 'switched off' : c.status === 'needs_setup' ? 'needs setup' : 'has an error';
+    const alone = c.kind === 'browser' ? ', must be the only connector' : '';
     f.conns.append(h('label', { class: 'check' },
-      h('input', { type: 'checkbox', value: c.id, checked: bot ? bot.connectors.includes(c.id) : false }),
-      c.name, h('small', {}, note)));
+      h('input', { type: 'checkbox', value: c.id, checked: bot ? bot.connectors.includes(c.id) : false,
+        dataset: { kind: c.kind }, onchange: exclusive }),
+      c.name, h('small', {}, note + alone)));
+  }
+  exclusive();
+
+  // A bot that browses can have no other connector (the server enforces it too):
+  // ticking Browser clears and locks the rest, so the form can't offer a refused mix.
+  function exclusive(ev) {
+    const boxes = [...f.conns.querySelectorAll('input')];
+    const browsing = boxes.some((b) => b.dataset.kind === 'browser' && b.checked);
+    const cleared = [];
+    for (const b of boxes) {
+      if (b.dataset.kind === 'browser') continue;
+      if (browsing && b.checked) cleared.push(b.parentElement.firstChild.nextSibling.textContent);
+      if (browsing) b.checked = false;
+      b.disabled = browsing;
+    }
+    // Say why, at the moment it happens: a silently locked list reads as a bug.
+    const note = $('#bot-conn-note');
+    note.hidden = !browsing;
+    if (!browsing) return;
+    const lost = cleared.length && ev ? `${cleared.join(' and ')} ${cleared.length > 1 ? 'were' : 'was'} unticked. ` : '';
+    note.textContent = `${lost}A bot that browses can’t have any other connector: a web page could otherwise ` +
+      'tell it to act on your home or your accounts. Browsing for the main assistant is coming, through a separate helper.';
   }
 
   return new Promise((resolve) => {

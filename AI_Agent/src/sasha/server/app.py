@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import contextlib
 import logging
-from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +18,7 @@ from sasha.bots import BOT_ID_RE, MAIN_ID, VOICE_ID, BotError, BotNotFound, pars
 from sasha.browser.hooks import attach_browser
 from sasha.connectors import ConnectorError
 from sasha.pipeline.llm import OllamaError
+from sasha.server.browser_view import BROWSER_SOCKETS, add_browser_routes
 from sasha.server.deps import ServerDeps
 from sasha.server.security import LocalOnlyMiddleware, allowed_hosts, allowed_origins
 from sasha.server.speaking import SpeakingTracker
@@ -68,20 +67,12 @@ def create_app(deps: ServerDeps, web_dir: Path | None = WEB_DIR) -> FastAPI:
     settings = deps.settings
     server = settings.profile.server
     hub = Hub(settings.profile.timers) if deps.timers is not None else None
-
-    @contextlib.asynccontextmanager
-    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        if deps.timers is not None:
-            deps.timers.start()  # the scheduler thread (tests drive `tick()` instead)
-        try:
-            yield
-        finally:
-            if deps.timers is not None:
-                deps.timers.stop()
-
-    app = FastAPI(
-        title="brain", version=__version__, docs_url=None, redoc_url=None, lifespan=lifespan
-    )
+    app = FastAPI(title="brain", version=__version__, docs_url=None, redoc_url=None)
+    if deps.timers is not None:
+        # The scheduler thread, on the same start/stop hooks as the browser (a custom
+        # `lifespan=` would silently skip those); tests drive `tick()` instead.
+        app.router.on_startup.append(deps.timers.start)
+        app.router.on_shutdown.append(deps.timers.stop)
     wake = settings.profile.wake
     speaking = SpeakingTracker(wake.speaking_tail_s, wake.cooldown_s)
     voice = VoiceStages(stt=deps.stt, tts=deps.tts, speaking=speaking)  # shared by sockets
@@ -139,7 +130,11 @@ def create_app(deps: ServerDeps, web_dir: Path | None = WEB_DIR) -> FastAPI:
                 "tts_languages": voice.languages,
             },
             "wake": {"available": voice.stt is not None},
-            "limits": {"max_sockets": server.max_sockets, "reserved_sockets": RESERVED_SOCKETS},
+            "limits": {
+                "max_sockets": server.max_sockets,
+                "reserved_sockets": RESERVED_SOCKETS,
+                "browser_sockets": BROWSER_SOCKETS,  # the live view's own slot (v0.4)
+            },
         }
 
     @app.get("/api/models")
@@ -198,6 +193,7 @@ def create_app(deps: ServerDeps, web_dir: Path | None = WEB_DIR) -> FastAPI:
     if deps.timers is not None and hub is not None:
         hub.service, deps.timers.hub = deps.timers, hub
         add_timer_routes(app, deps.timers, hub, _json_body)
+    app.state.browser_view = add_browser_routes(app, deps)  # v0.4, before the static mount
 
     # --- conversation ----------------------------------------------------------
     async def refuse(websocket: WebSocket, reason: str, code: int = 1008) -> None:
@@ -252,7 +248,7 @@ def create_app(deps: ServerDeps, web_dir: Path | None = WEB_DIR) -> FastAPI:
         if chosen is None:
             await refuse(websocket, f"Unknown bot '{bot[:64]}'")
             return
-        assistant, warnings = await run_in_threadpool(deps.make_assistant, chosen)
+        assistant, warnings = await run_in_threadpool(deps.make_assistant, chosen, speak == "1")
         for warning in warnings:
             log.warning("Bot %s: %s", chosen.id, warning)
         language = settings.assistant.languages.default

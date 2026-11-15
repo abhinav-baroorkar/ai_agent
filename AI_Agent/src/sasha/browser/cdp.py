@@ -53,6 +53,10 @@ class CDPPipe:
         """Call `listener(params_with_session)` for every event named `method`."""
         self._listeners.setdefault(method, []).append(listener)
 
+    def off(self, method: str, listener: Listener) -> None:
+        with contextlib.suppress(KeyError, ValueError):
+            self._listeners[method].remove(listener)
+
     async def call(
         self,
         method: str,

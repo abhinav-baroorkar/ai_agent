@@ -15,6 +15,7 @@ import yaml
 from dotenv import dotenv_values, load_dotenv
 from pydantic import BaseModel, Field, SecretStr, field_validator
 
+from sasha.config_prompts import PromptLines
 from sasha.config_timers import TimersConfig
 
 # src/sasha/config.py -> sasha -> src -> AI_Agent -> repo root
@@ -210,6 +211,9 @@ class LLMConfig(BaseModel):
     keep_alive: str | None = None
     timeout_s: float = 120.0
     max_tool_rounds: int = 4
+    # Kept in the history (the model sees it, nobody else) when a reply was stopped.
+    interrupted_note: str = "[The owner stopped this reply here; it was not finished.]"
+    interrupted_keep_chars: int = 2000  # at most this much of a stopped reply is kept
 
 
 class TelemetryConfig(BaseModel):
@@ -263,6 +267,7 @@ class Profile(BaseModel):
     server: ServerConfig = Field(default_factory=ServerConfig)
     wake: WakeConfig = Field(default_factory=WakeConfig)
     timers: TimersConfig = Field(default_factory=TimersConfig)
+    prompt_lines: dict[str, PromptLines] = Field(default_factory=lambda: {"en": PromptLines()})
 
 
 class HomeAssistantConfig(BaseModel):

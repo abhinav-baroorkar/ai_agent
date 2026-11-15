@@ -147,3 +147,21 @@ def test_orchestrator_sets_previous_reply_asked_and_since(
     assert second.previous_reply_asked and second.since_previous_s == 30
     assert not third.previous_reply_asked  # "Done." asked nothing
     assert "Morning or evening?" not in repr(second)  # only the fact, never the text
+
+
+def test_a_talked_over_question_is_asked_again(settings: Settings, tmp_path: Path) -> None:
+    """The interrupted note ends the reply, so it no longer ends in "?": the answer is
+    read alone and asks again. The safe failure, by design."""
+    seen: list[TurnContext | None] = []
+    probe = Tool("probe", "p", {"type": "object", "properties": {}},
+                 lambda: seen.append(current_turn.get()) or {})  # fmt: skip
+    llm = FakeLLM("m")
+    llm.responses = [resp("Morning or evening?"), resp("", [ToolCall("probe", {})]), resp("ok")]
+    assistant = Assistant(
+        settings, llm, ToolRegistry([probe]), TelemetryWriter(tmp_path, "a", "p", enabled=False)
+    )
+    assistant.handle_text("Set an alarm for 7.")
+    assistant.mark_interrupted()  # its speech was stopped
+    assistant.handle_text("Morning.")
+    (turn,) = seen
+    assert turn is not None and not turn.previous_reply_asked

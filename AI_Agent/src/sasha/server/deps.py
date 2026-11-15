@@ -18,11 +18,12 @@ from sasha.connectors import (
     HomeAssistantConnector,
     build_connectors,
 )
-from sasha.conversation import current_turn
+from sasha.conversation import building_for_bot, current_turn
 from sasha.orchestrator import Assistant
 from sasha.pipeline.llm import LLM, OllamaLLM
 from sasha.pipeline.stt import SpeechToText
 from sasha.pipeline.tts import TextToSpeech
+from sasha.prompting import build_prompt, prompt_lines
 from sasha.server.speaking import ListenerPresence
 from sasha.server.timers.service import TimerService
 from sasha.server.timers.tools import add_timer_tools
@@ -66,23 +67,34 @@ class ServerDeps:
         if self.wake_limiter is None:
             self.wake_limiter = RateLimiter(self.settings.profile.wake.max_calls_per_minute)
 
-    def make_assistant(self, bot: Bot) -> tuple[Assistant, list[str]]:
-        """A fresh conversation for `bot`, with its connectors' tools and the clock."""
-        tools, warnings = self.connectors.tools_for(bot.connectors)
+    def make_assistant(self, bot: Bot, spoken: bool = False) -> tuple[Assistant, list[str]]:
+        """A fresh conversation for `bot`, with its connectors' tools, the clock and the
+        timer tools. Its prompt says what those tools can really do; `spoken` adds the
+        spoken style."""
+        token = building_for_bot.set(bot.id)  # the browser notes whose conversation it is
+        try:
+            tools, warnings = self.connectors.tools_for(bot.connectors)
+        finally:
+            building_for_bot.reset(token)
         if CLOCK_TOOL not in tools:  # every bot: read-only, so no guessed times
             # The timers' clock and zone, so "now" and a resolved alarm time agree.
             tools.register(clock_tool(self.timers.now_local) if self.timers else clock_tool())
+        if self.timers is not None and not self.has_browser(bot):  # D3: never with a browser
+            # Before the prompt, so the generated abilities list the timer tools too.
+            tools = add_timer_tools(tools, self.timers, said=current_turn.get)
         assistant = Assistant(
             self.settings,
             self.make_llm(bot.model),
             tools,
             self.telemetry,
-            system_prompt=self.bots.prompt_for(bot),
+            system_prompt=self.prompt_for(bot, tools.names, spoken),
         )
-        if self.timers is not None and not self.has_browser(bot):  # D3: never with a browser
-            said = current_turn.get  # the owner's own messages (sasha.conversation)
-            assistant.tools = add_timer_tools(tools, self.timers, said=said)
         return assistant, warnings
+
+    def prompt_for(self, bot: Bot, tool_names: list[str], spoken: bool = False) -> str:
+        """The bot's own prompt plus the facts about these tools (prompting.py)."""
+        lines = prompt_lines(self.settings)
+        return build_prompt(self.bots.prompt_for(bot), tool_names, lines, spoken)
 
     def has_browser(self, bot: Bot) -> bool:
         """D3: a bot with any `browser` connector gets no timer tools (web pages could

@@ -5,8 +5,10 @@ import { createFace } from './face.js';
 import { Conversation } from './socket.js';
 import { SpeechPlayer } from './audio-out.js';
 import { Mic, micErrorText } from './audio-in.js';
-import { initReadouts, initHistory, watchMicPermission, MIC_BLOCKED_HELP } from './home-extras.js';
+import { startMockMic } from './mock-mic.js';
+import { initReadouts, initHistory, watchMicPermission, spokenTail, MIC_BLOCKED_HELP } from './home-extras.js';
 import { initTimers } from './timers.js';
+import { Endpointer, loudness, TUNING } from './endpoint.js';
 
 const LABEL = { idle: 'Ready', listening: 'Listening', thinking: 'Thinking', speaking: 'Speaking' };
 const params = new URLSearchParams(location.search);
@@ -30,6 +32,11 @@ export async function initHome(health, onOnline) {
   let starting = false; // Talk was pressed and the browser has not handed over the microphone yet
   let attempt = 0; // bumped by every stop and every leave; a start that sees it change gives up
   const onHome = () => ['', '#home'].includes(location.hash);
+  const realMic = !MOCK || params.get('mic') === 'real'; // mock mode normally uses a pretend microphone
+  let ender = null; // listens for the end of speech while recording
+  let level = 0; // the microphone level of the last frame, 0..1
+  let stopMock = null;
+  let backstops = []; // wall-clock timers that close the microphone even if no frames arrive
   let blocked = MOCK && params.get('mic') === 'blocked'; // ?mock=1&mic=blocked shows the blocked state
   let replyText = '';
   let refused = '';
@@ -41,25 +48,28 @@ export async function initHome(health, onOnline) {
 
   face.setLevelSource(() => {
     if (player.active) return player.level();
+    if (recording) return level;
     if (MOCK && serverState === 'listening') return 0.4 + 0.35 * Math.sin(performance.now() / 140);
-    if (recording) return mic.level();
     return 0;
   });
 
   // The face keeps "speaking" until the sound has finished, even if the server
   // already said idle (speech frames arrive faster than they play).
   function render() {
+    const phase = recording && ender ? ender.phase : ''; // waiting, speech, pause or finishing
     const state = player.active ? 'speaking' : serverState;
     const shown = recording && state === 'idle' ? 'listening' : state;
     face.setState(shown);
     el.mini.dataset.state = shown;
     el.status.dataset.tone = conv.online ? shown : 'offline';
-    el.status.textContent = conv.online ? LABEL[shown] : 'Offline';
+    el.status.textContent = !conv.online ? 'Offline' : phase === 'finishing' ? 'Finishing…' : LABEL[shown];
     el.cancel.hidden = !(shown === 'thinking' || shown === 'speaking');
     el.micOn.hidden = !(recording || starting); // the rule: the microphone is never open, or opening, without this sign
     el.mic.setAttribute('aria-pressed', String(recording));
     el.mic.dataset.blocked = String(blocked);
-    el.micLabel.textContent = blocked ? 'Mic blocked' : starting ? 'Starting…' : recording ? 'Done talking' : 'Talk';
+    el.mic.dataset.phase = phase;
+    const hearing = phase === 'finishing' ? 'Finishing…' : 'Listening…';
+    el.micLabel.textContent = blocked ? 'Mic blocked' : starting ? 'Starting…' : recording ? `${hearing} (click to send now)` : 'Talk';
     el.micIcon.setAttribute('href', recording ? '#i-stop' : '#i-mic');
     el.mic.disabled = !conv.online || starting;
     readouts.link(conv.online);
@@ -72,8 +82,9 @@ export async function initHome(health, onOnline) {
 
   function showSaid(text) {
     replyText = text;
-    setText(el.said, text);
-    el.said.classList.toggle('long', el.said.scrollHeight > el.said.clientHeight + 2);
+    // three lines' worth of characters at the block's present width
+    const perLine = el.said.clientWidth / (parseFloat(getComputedStyle(el.said).fontSize) * 0.5);
+    setText(el.said, spokenTail(text, Math.max(80, Math.floor(perLine * 3 * 0.82))));
     history.said(text);
   }
 
@@ -129,14 +140,20 @@ export async function initHome(health, onOnline) {
     // held here (at most about two seconds of them) so the first words aren't lost.
     const held = [];
     let started = false;
+    let endWaiting = false; // speech ended before audio_start could go out
+    ender = new Endpointer();
     const onFrame = (frame) => {
-      if (started) return conv.sendAudio(frame);
-      held.push(frame);
-      if (held.length > HELD_FRAMES) held.shift();
+      if (mine !== attempt) return;
+      if (started) conv.sendAudio(frame);
+      else {
+        held.push(frame);
+        if (held.length > HELD_FRAMES) held.shift();
+      }
+      heardFrame(frame, () => (started ? stopMic() : (endWaiting = true)));
     };
     try {
       if (blocked) throw Object.assign(new Error('blocked'), { name: 'NotAllowedError' });
-      if (!MOCK) await mic.start(onFrame);
+      if (realMic) await mic.start(onFrame);
     } catch (err) {
       if (mine !== attempt) return; // already stopped while starting; nothing to report
       starting = false;
@@ -167,8 +184,47 @@ export async function initHome(health, onOnline) {
       conv.startAudio();
       held.splice(0).forEach((frame) => conv.sendAudio(frame));
       started = true;
+      if (endWaiting) stopMic();
     });
+    if (!realMic) stopMock = startMockMic(onFrame);
+    // The limits above are counted in audio frames. If frames stop arriving while the
+    // microphone is still open (a stalled audio device, a suspended context), these
+    // clocks close it anyway.
+    backstops = [
+      setTimeout(() => { if (mine === attempt && recording) (started ? stopMic() : nothingHeard()); }, TUNING.maxMs + 1000),
+      setTimeout(() => { if (mine === attempt && recording && ender.phase === 'waiting') nothingHeard(); }, TUNING.noSpeechMs + 1000),
+    ];
     render();
+  }
+
+  // Nothing was said: close the microphone, discard the recording, and say so.
+  function nothingHeard() {
+    stopMic(false);
+    conv.waiting = null;
+    conv.cancel();
+    setText(el.heard, '');
+    notice('I didn’t hear anything. Press Talk to try again, or type.');
+  }
+
+  // Every microphone frame: update the level shown, and let the end-of-speech
+  // listener decide whether the turn is over.
+  function heardFrame(frame, send) {
+    try {
+      const rms = loudness(frame);
+      level = Math.min(1, rms * 7);
+      const before = ender.phase;
+      const verdict = ender.feed(rms);
+      el.mic.style.setProperty('--mic-level', level.toFixed(2));
+      el.mic.style.setProperty('--mic-closing', ender.closing.toFixed(2));
+      if (verdict === 'end' || verdict === 'limit') send(); // he stopped speaking: send it
+      else if (verdict === 'nothing') nothingHeard();
+      else if (ender.phase !== before) render();
+    } catch (err) {
+      // Fail closed: if the end-of-speech check itself breaks, the microphone must not
+      // stay open and streaming. Send what there is and close it.
+      console.warn('Talk: the end-of-speech check failed', err && err.name);
+      stopMic();
+    }
   }
 
   function stopMic(tellServer = true) {
@@ -177,6 +233,11 @@ export async function initHome(health, onOnline) {
     const wasRecording = recording;
     recording = starting = false;
     mic.stop();
+    if (stopMock) stopMock();
+    stopMock = null;
+    backstops.forEach(clearTimeout);
+    backstops = [];
+    level = 0;
     if (!wasRecording) return render(); // it never got as far as telling the server
     if (tellServer) conv.stopAudio();
     render();
@@ -240,6 +301,11 @@ export async function initHome(health, onOnline) {
   document.addEventListener('keydown', (ev) => {
     if (!(ev.target instanceof Element)) return;
     if ($('#home').hidden || ev.target.closest('dialog') || history.isOpen) return;
+    if (ev.key === 'Escape' && (recording || starting)) { // throw the recording away
+      stopMic(false);
+      conv.waiting = null;
+      return conv.cancel();
+    }
     if (ev.key === 'Escape' && !el.cancel.hidden) return el.cancel.click();
     if (ev.target.closest('input, textarea, select, button, a')) return;
     if (ev.code === 'Space' && canListen && conv.online) {
@@ -252,6 +318,6 @@ export async function initHome(health, onOnline) {
   if (blocked) notice(MIC_BLOCKED_HELP);
   render();
   // Mock mode plays one spoken turn by itself so all four states can be seen.
-  if (MOCK && canListen && !blocked) setTimeout(() => !recording && conv.ws && conv.ws.demo && conv.ws.demo(), 1400);
+  if (MOCK && canListen && !blocked && params.get('demo') !== '0') setTimeout(() => !recording && conv.ws && conv.ws.demo && conv.ws.demo(), 1400);
   return { conv };
 }

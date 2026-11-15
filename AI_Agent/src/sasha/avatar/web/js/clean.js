@@ -40,6 +40,28 @@ export function cleanHealth(hl) {
   };
 }
 
+// A site name is shown only if it is a plain ASCII hostname (which includes punycode,
+// "xn--..."): letters that merely look like another site's can't get through.
+const HOSTNAME = /^(?=.{1,253}$)[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/;
+export const safeSite = (site) => (site === '' ? '' : HOSTNAME.test(site) ? site : '(unusual address)');
+
+// What the assistant's browser is doing. Sites and titles come from web pages.
+export function cleanBrowserState(b) {
+  const s = b && typeof b === 'object' ? b : {};
+  const g = s.guard && typeof s.guard === 'object' ? s.guard : {};
+  const count = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Math.floor(Number(v)) : 0);
+  const who = s.holder_bot && typeof s.holder_bot === 'object' ? str(s.holder_bot.name).slice(0, 60) : '';
+  const refused = {};
+  if (g.refused && typeof g.refused === 'object') for (const [k, v] of Object.entries(g.refused)) refused[str(k)] = count(v);
+  return {
+    enabled: s.enabled === true, running: s.running === true, agent: s.agent === 'working' ? 'working' : 'idle', user: who, // the bot using it, if the server says
+    tabs: (Array.isArray(s.tabs) ? s.tabs : []).filter((t) => t && typeof t === 'object').slice(0, 20).map((t) => ({
+      tab: count(t.tab), site: safeSite(str(t.site).slice(0, 255)), title: str(t.title).slice(0, 80), current: t.current === true,
+    })),
+    guard: { allowed: count(g.allowed), refused, background_refused: count(g.background_refused) },
+  };
+}
+
 const KINDS = ['timer', 'alarm', 'reminder'];
 const TIMER_STATES = ['scheduled', 'ringing', 'pending', 'missed', 'done'];
 

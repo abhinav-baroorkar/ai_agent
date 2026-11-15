@@ -29,6 +29,13 @@ export async function api(method, path, body) {
   }
 }
 
+// The live view of the assistant's browser has its own socket and its own slot.
+export function openBrowserSocket() {
+  if (mock) return new mock.MockBrowserSocket();
+  const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+  return new WebSocket(`${scheme}://${location.host}/ws/browser`);
+}
+
 // speak: ask the server to also send speech for this conversation (Home only).
 export function openSocket(botId, speak = false) {
   if (mock) return new mock.MockSocket(botId, speak);

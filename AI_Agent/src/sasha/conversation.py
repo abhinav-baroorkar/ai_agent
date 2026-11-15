@@ -11,9 +11,13 @@ from __future__ import annotations
 
 import contextvars
 import itertools
+import logging
+import threading
+from collections.abc import Callable
 from dataclasses import dataclass
 
 _turn_ids = itertools.count(1)
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -42,3 +46,31 @@ def new_turn(
     return TurnContext(
         user_messages, input_mode, next(_turn_ids), previous_reply_asked, since_previous_s
     )
+
+
+# Which bot a conversation's tools are being built for (set by `make_assistant`), so a
+# connector can tell whose conversation it serves (the browser live view's holder_bot).
+building_for_bot: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "building_for_bot", default=None
+)
+
+
+# Things to do when a turn ends (the browser's "working" state lasts the whole turn).
+_end_hooks: dict[int, list[Callable[[], None]]] = {}
+_hooks_lock = threading.Lock()
+
+
+def on_turn_end(turn_id: int, hook: Callable[[], None]) -> None:
+    with _hooks_lock:
+        _end_hooks.setdefault(turn_id, []).append(hook)
+
+
+def finish_turn(turn_id: int) -> None:
+    """Run and forget the turn's end hooks (called by `Assistant.handle_text`)."""
+    with _hooks_lock:
+        hooks = _end_hooks.pop(turn_id, [])
+    for hook in hooks:
+        try:
+            hook()
+        except Exception as exc:  # a hook must never break the turn
+            log.warning("Turn end hook failed: %s", type(exc).__name__)

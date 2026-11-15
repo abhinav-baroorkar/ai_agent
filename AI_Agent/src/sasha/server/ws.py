@@ -26,10 +26,10 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 from sasha.orchestrator import Assistant, Reply, RequestFailed, TurnHooks
 from sasha.pipeline.llm import LLMCancelled, OllamaError
 from sasha.server.speech import Speaker
+from sasha.server.spoken import SpokenStream
 from sasha.server.timers.hub import Hub
 from sasha.server.timers.ring import RingPlayer
-from sasha.server.timers.service import TimerError
-from sasha.server.timers.tools import TIMER_TOOLS
+from sasha.server.timers.socket import TimerSocket
 from sasha.server.timers.truth import TimerTruth
 from sasha.server.voice import MIC_SAMPLE_RATE, VoiceStages, max_recording_bytes
 
@@ -54,7 +54,7 @@ def _failure_message(failed: RequestFailed) -> str:
     return f"Something went wrong ({type(cause).__name__})"
 
 
-class Conversation:
+class Conversation(TimerSocket):  # the timer side: server/timers/socket.py
     def __init__(
         self,
         ws: WebSocket,
@@ -71,6 +71,7 @@ class Conversation:
         self.speak = speak
         self.language = language  # for typed turns; voice turns use the transcript's
         self.speaker: Speaker | None = None
+        self.spoken: SpokenStream | None = None  # this turn's speakable text (speak=1)
         self.outbox: asyncio.Queue[Frame | None] = asyncio.Queue()
         self.stop = threading.Event()
         self.turn: asyncio.Task[None] | None = None
@@ -83,48 +84,6 @@ class Conversation:
         self.ringer = RingPlayer(self, timers) if timers is not None else None
         self.timer_claims = True  # check replies for claimed timer changes (truth.py)
         self.timer_truth: TimerTruth | None = None  # set while a turn's reply streams
-
-    # --- timers (the hub calls these from any thread) ------------------------------
-    def push_threadsafe(self, frame: dict[str, Any]) -> None:
-        self.emit_threadsafe(frame)
-
-    def ring_threadsafe(self, item_id: str, say: str, tone: bool, check: bool = True) -> None:
-        if self.ringer is not None:
-            self.ringer.ring_threadsafe(item_id, say, tone, check)
-
-    def stop_ring_threadsafe(self, item_id: str) -> None:
-        with contextlib.suppress(RuntimeError):  # the loop is gone: nothing to stop
-            self.loop.call_soon_threadsafe(self.ring_stopped, item_id)
-
-    def ring_stopped(self, item_id: str) -> None:
-        """The item ended: its ring speech stops (the listener also closes its window)."""
-        if self.ringer is not None:
-            self.ringer.stop(item_id)
-
-    def ring_started(self, item_id: str) -> None:
-        """A ring's speech is about to start on this socket (the listener overrides)."""
-
-    async def ring_played(self, item_id: str) -> None:
-        """A ring's speech was sent (the listener opens its stop window)."""
-
-    async def _on_timer_frame(self, kind: str, msg: dict[str, Any]) -> None:
-        if self.timers is None:
-            self.error("Timers are not available")
-            return
-        service, item_id = self.timers.service, msg.get("id")
-        minutes = msg.get("minutes", service.config.snooze_minutes)
-        if not isinstance(item_id, str) or (
-            kind == "timer_snooze" and (isinstance(minutes, bool) or not isinstance(minutes, int))
-        ):
-            self.error("Bad timer message")
-            return
-        try:
-            if kind == "timer_dismiss":
-                await asyncio.to_thread(service.dismiss, item_id)
-            else:
-                await asyncio.to_thread(service.snooze, item_id, minutes)
-        except TimerError as exc:
-            self.error(str(exc))
 
     # --- sending -------------------------------------------------------------
     def emit(self, frame: Frame) -> None:
@@ -250,6 +209,19 @@ class Conversation:
         return Speaker(tts, language, self.voice.split, self.voice.tts_lock, self.emit, self.stop)
 
     def _on_delta(self, piece: str) -> None:  # on the event loop
+        if self.spoken is not None:  # speak=1: shown and spoken as speakable text
+            piece = self.spoken.feed(piece)
+            if not piece:
+                return
+        self._emit_delta(piece)
+
+    def flush_spoken(self) -> None:
+        """Release what the speakable-text stream still holds (before a confirm question,
+        the turn's earlier sentence must be spoken first)."""
+        if self.spoken is not None and (rest := self.spoken.finish()):
+            self._emit_delta(rest)
+
+    def _emit_delta(self, piece: str) -> None:
         self.emit({"type": "reply_delta", "text": piece})
         if self.speaker is not None:
             self.speaker.feed(piece)
@@ -265,16 +237,24 @@ class Conversation:
         # wake confirmation may swap it mid-turn (server/wake_confirm.py), so the end of
         # the turn always uses the current one.
         self.speaker = self._make_speaker(language)
+        # speak=1 (Home, the listener): markdown becomes speakable text, also in the
+        # subtitles; bot chat tabs (speak=0) keep the model's text (server/spoken.py).
+        self.spoken = SpokenStream() if self.speak else None
         spoken = False
         try:
             self.state("thinking")
             reply = await self._ask(text, input_mode)
             if reply is not None:
+                shown = reply.text
+                if self.spoken is not None:
+                    if rest := self.spoken.finish():
+                        self._emit_delta(rest)
+                    shown = self.spoken.text
                 calls = [{"name": c["name"], "ok": c["ok"]} for c in reply.tool_calls]
                 self.emit(
                     {
                         "type": "reply",
-                        "text": reply.text,
+                        "text": shown,
                         "tool_calls": calls,
                         "timing": _timing(reply),
                     }
@@ -282,6 +262,10 @@ class Conversation:
             if self.speaker is not None:
                 speaker = self.speaker
                 await (speaker.finish() if reply is not None else speaker.abort())
+            if reply is not None and self.stop.is_set():
+                # Stopped (or talked over) while it was still being spoken: the reply is
+                # in the history, but the model should know it wasn't all heard.
+                self.assistant.mark_interrupted()
             spoken = True
         except Exception as exc:  # never let one turn kill the connection
             log.error("Turn failed: %s", type(exc).__name__)
@@ -313,14 +297,6 @@ class Conversation:
             if tail:
                 self._on_delta(tail)
         return reply
-
-    def _timer_truth(self, command: str) -> TimerTruth | None:
-        """Typed and window turns of a bot with timer tools (wake turns have their own
-        truthful reply, so the listener turns this off)."""
-        names = self.assistant.tools.names
-        if not self.timer_claims or self.timers is None or not set(TIMER_TOOLS) & set(names):
-            return None
-        return TimerTruth(self.timers.config, command, spoken=self.speak)
 
     # --- voice -------------------------------------------------------------------
     def _on_audio_start(self, sample_rate: Any) -> None:
