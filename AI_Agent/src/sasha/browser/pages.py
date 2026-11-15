@@ -57,9 +57,21 @@ class BrowserTabs:
         self.on_tab = on_tab
         self.engine_host = engine_host  # result links on this site are unwrapped
         self.tabs: list[Tab] = []
-        self.current = -1
+        self._current = -1
         chrome.pipe.on("Page.loadEventFired", self._loaded)
         chrome.pipe.on("Network.requestWillBeSent", self._request)
+
+    @property
+    def current(self) -> int:
+        return self._current
+
+    @current.setter
+    def current(self, index: int) -> None:
+        """Also tells the live view which tabs exist and which one to show."""
+        self._current = index
+        self.chrome.tab_targets = [t.target_id for t in self.tabs]
+        ok = 0 <= index < len(self.tabs)
+        self.chrome.current_target = self.tabs[index].target_id if ok else None
 
     @property
     def pipe(self) -> CDPPipe:

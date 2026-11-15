@@ -28,7 +28,11 @@ def test_health_reports_persona_from_config_and_no_voice(h: Harness, client: Tes
     assert body["profile"] == h.settings.profile.name
     assert body["default_bot"] == "main"
     assert body["voice"] == {"stt": False, "tts": False, "tts_languages": []}
-    assert body["limits"] == {"max_sockets": 4, "reserved_sockets": 1}  # defaults
+    assert body["limits"] == {
+        "max_sockets": 4,
+        "reserved_sockets": 1,
+        "browser_sockets": 1,
+    }  # defaults
     assert body["wake"] == {"available": False}  # no speech-to-text stage here
 
 

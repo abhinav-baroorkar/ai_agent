@@ -114,6 +114,8 @@ class FakeTabs:
 
 
 class FakeService:
+    owner_stops = 0
+
     @contextlib.asynccontextmanager
     async def acquire(self, holder: str) -> AsyncIterator[object]:
         yield object()

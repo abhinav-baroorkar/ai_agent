@@ -103,7 +103,7 @@ def test_socket_cap_refuses_with_1013(settings: Settings, tmp_path: Path) -> Non
     )
     client = Harness(capped, tmp_path).client()
     limits = client.get("/api/health").json()["limits"]  # what the UI reads
-    assert limits == {"max_sockets": 2, "reserved_sockets": 1}
+    assert limits == {"max_sockets": 2, "reserved_sockets": 1, "browser_sockets": 1}
     with client.websocket_connect(f"{WS}/ws") as a, client.websocket_connect(f"{WS}/ws") as b:
         opened(a)
         opened(b)

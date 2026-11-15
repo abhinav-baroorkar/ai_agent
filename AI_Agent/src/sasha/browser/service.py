@@ -54,6 +54,8 @@ class BrowserService:
         self._last_used = clock()
         self._start_lock = asyncio.Lock()
         self._idle_task: asyncio.Task[None] | None = None
+        self.last_stop: str | None = None  # "idle", "owner", "brain_stopping" (live view)
+        self.owner_stops = 0  # a turn that saw a different count was stopped by the owner
 
     @contextlib.asynccontextmanager
     async def acquire(self, bot_id: str) -> AsyncIterator[Chrome]:
@@ -90,6 +92,7 @@ class BrowserService:
             await asyncio.sleep(min(30.0, max(self.idle_s / 4, 0.01)))
             if self.holder is None and self.clock() - self._last_used >= self.idle_s:
                 log.info("Browser idle: stopping it")
+                self.last_stop = "idle"
                 await self._shutdown()
                 return
 
@@ -102,7 +105,11 @@ class BrowserService:
         if proxy is not None:
             await proxy.stop()
 
-    async def stop(self) -> None:
+    async def stop(self, reason: str = "brain_stopping") -> None:
+        if reason == "owner":
+            self.owner_stops += 1
+        if self.chrome is not None:
+            self.last_stop = reason
         if self._idle_task is not None:
             self._idle_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):

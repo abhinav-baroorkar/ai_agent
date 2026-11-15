@@ -19,7 +19,7 @@ import contextlib
 import logging
 import os
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from sasha.browser.cdp import CDPError, CDPPipe
@@ -147,6 +147,9 @@ class Chrome:
     pipe: CDPPipe
     profile: Path
     version: str
+    # the agent's tabs in the model's numbering, and the current one (for the live view)
+    tab_targets: list[str] = field(default_factory=list)
+    current_target: str | None = None
 
     async def stop(self) -> None:
         with contextlib.suppress(Exception):
