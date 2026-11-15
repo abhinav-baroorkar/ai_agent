@@ -308,3 +308,30 @@ connections outside this computer and nothing written outside the project folder
 
 - **Correction:** the heading "Voice wiring and server follow-ups" above says `main` at
   `b53a118`, which was true when it merged. `main` is `5aa4ee5` after `chore/env-tmpdir`.
+
+## 2026-11-14 — Window review rules and follow-ups (merged, `main` at `f2bfae5`)
+
+- **Microphone lifecycle:** the mic is never open without a visible sign. Leaving Home,
+  hiding the window or closing the page closes it. A start in progress can be cancelled.
+  Repeated Talk presses open one microphone. Why: the owner must always be able to see
+  when the assistant can hear.
+- **The page has a Content-Security-Policy:** same-origin only, WebSockets to loopback
+  only. Why: even if something injected script into the page, it has nowhere to send data.
+- **A guard test fails on HTML-injection sinks or outside URLs in the web folder.** Why:
+  server and tool text is untrusted; the rule "insert as plain text" is enforced, not
+  just agreed.
+- **The tab cap comes from the server's socket limit** (`health.limits.max_sockets`). Why:
+  the UI and server can't disagree about how many conversations are allowed.
+- **One voice brain on the GPU at a time for the team.** Why: two would not both fit in
+  8 GB, and load order matters (see "Voice wiring").
+- **`fix/server-followups-2`:** a dead proxy only on closed privileged ports; a malformed
+  Home Assistant address becomes a warning, not a crash; `/api/models` lists only
+  chat-capable models, with a `tools` flag, bounded to about 3 s; the window waits up to
+  90 s on a cold start and prints progress. Contract v0.1.1.
+- **`fix/warmup-timeouts`:** a short connect timeout for the model warm-up; voice turns
+  record the STT and TTS model versions in telemetry. Why: fail fast, and keep runs
+  reproducible.
+- **`chore/env-tmpdir-notes`:** `env.sh` refuses to run outside a bash checkout of the repo
+  and removes temp entries older than 7 days. Why: the temp folder is inside the project and
+  must not grow without limit.
+

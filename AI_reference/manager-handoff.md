@@ -47,16 +47,17 @@ only for now; satellites on other devices come later.
 
 ## State of `main`
 
-- `main` is `5aa4ee5` (2026-11-14). 250 tests passed with the voice extras installed at
-  `b53a118`.
-  Merged today: Phase 0 skeleton (PR #1), the brain server, the docs batches,
-  `fix/server-followups` (`99ae0ac`: the window blocks WebRTC UDP, checks its dead-proxy
-  port, works on the IPv6 loopback; Home Assistant errors shown to the model never contain
-  its address) `feat/voice-stages` (`b53a118`) and `chore/env-tmpdir` (`5aa4ee5`: temp files inside the
-  project).
-- A full spoken turn works end to end on the laptop with synthetic speech streamed by a
-  script. Not yet checked with a real microphone in the window. Numbers in
-  `research-notes.md`.
+- `main` is `f2bfae5` (2026-11-14, evening). 269 tests pass with the voice extras.
+- **Goal reached on `main`:** `sasha window` was started on the laptop. The server came up
+  with voice on (`stt` and `tts` true), the window's page connected, and a typed question on
+  a `speak=1` socket was answered in text and speech: first text 164 ms, first audio 1.4 s,
+  50 tokens/s, LLM fully on the GPU.
+- **Not verified:** nobody has looked at the screen (no screenshot tool on the machine) and
+  no real person has spoken into a real microphone yet.
+- Merged today: Phase 0 skeleton (PR #1), the brain server, voice stages, the window, the
+  docs batches and the follow-up fixes listed below.
+- In progress: `fix/stt-runtime-fallback` (speech-to-text falls back to CPU for a request
+  when the GPU fails; approved after one small fix).
 - Phase 0 gate still open: turning on a real light needs Docker + Home Assistant,
   which needs the owner (sudo). Not blocking the window goal.
 
@@ -65,13 +66,14 @@ only for now; satellites on other devices come later.
 | Branch | Session | What | Status |
 | --- | --- | --- | --- |
 | `feat/brain-server` | Staff SDE | FastAPI brain server, WebSocket chat, bots store, connector registry, `serve` and `window` commands, laptop profile | merged and pushed after two review rounds (16 findings fixed); `main` is `c6e8b1e`, 170 tests pass; `sasha serve` and `sasha window` exist |
-| `feat/web-ui` | Design expert | Face + home screen, bots screen, settings/connectors, mock mode | in progress; face approved by the owner (the particle orb); review found the mic stayed open after leaving Home, being fixed. Rule recorded: the mic is never open without a visible sign |
+| `feat/web-ui` | Design expert | Face + home screen, bots screen, settings/connectors, mock mode | merged and pushed after three review rounds: particle orb with four states, Home with subtitles, history drawer and facts strip, Bots with up to three chat tabs, Settings with connector cards, mock mode |
 | `feat/voice-stages` | Jack of all tasks | faster-whisper STT and Kokoro TTS stages, fakes, bench script | merged and pushed (`b53a118`); wired into the server |
 | `fix/server-followups` | Staff SDE | window and Home Assistant error hardening | merged and pushed (`99ae0ac`) |
-| `fix/server-followups-2` | Staff SDE | chat-capable models only; invalid Home Assistant address is a warning; socket limit in health; contract v0.1.1 | approved; two more commits coming; not merged |
+| `fix/server-followups-2` | Staff SDE | dead proxy only on closed privileged ports; a malformed Home Assistant address becomes a warning; `/api/models` lists only chat-capable models with a `tools` flag, bounded to about 3 s; `health.limits.max_sockets`; the window waits up to 90 s on a cold start with progress lines; contract v0.1.1 | merged and pushed |
 | `chore/env-tmpdir` | | temp files inside the project | merged and pushed (`5aa4ee5`) |
-| `chore/env-tmpdir-notes` | | the temp folder self-cleans entries older than 7 days | in review |
-| `fix/warmup-timeouts` | | warm-up timeouts | in progress, not merged |
+| `chore/env-tmpdir-notes` | | `env.sh` refuses to run outside a bash checkout of the repo and removes temp entries older than 7 days | merged and pushed (`f2bfae5`) |
+| `fix/warmup-timeouts` | | short connect timeout for the model warm-up; voice turns record the STT and TTS model versions in telemetry | merged and pushed |
+| `fix/stt-runtime-fallback` | | speech-to-text falls back to CPU for a request when the GPU fails | approved after one small fix; in progress, not merged |
 | `docs/scope-refresh` | Grunt work | plan.md, decisions.md, linkedin-notes.md, README, .env.example for the new scope | merged and pushed (`6fbc60d`, 86 tests pass) |
 | `docs/handoff` | Documentation engineer | this file, `team.md`, devlog; owner notes in `User_reference/` | merged and pushed (`main` is `5bd49eb`); work continues on this branch with new commits. Also owns `plan.md`, `decisions.md`, `linkedin-notes.md`, `README.md`, `.env.example` |
 
@@ -109,7 +111,10 @@ eyes; eyes stay as a switch.
   8.15 GB, 58 tokens/s). The server warms the LLM before loading the voice stages and
   keeps it loaded for 24 h. Known limit: a reload after the keep-alive expires can split
   it again.
-- **Rule: the microphone is never open without a visible sign.**
+- **Rule: the microphone is never open without a visible sign.** Leaving Home, hiding the
+  window or closing the page closes it; a start in progress can be cancelled; repeated Talk
+  presses open one microphone.
+- **One voice brain on the GPU at a time for the team.** Two would not both fit in 8 GB.
 
 - **VRAM headroom on the 8 GB laptop card is about 1 GB** (LLM 5.2 GB at 8k context + STT
   0.8 GB = 7.1 of 8.15 GB). A bigger context could push LLM layers to the CPU.
@@ -117,12 +122,15 @@ eyes; eyes stay as a switch.
 ## Next after these land
 
 Our own design. In order:
-1. Check the full voice loop in the window with a real microphone (the server side is wired).
-2. MCP connectors, with an approval step before any tool that changes something.
-3. Per-bot avatar and tool groups.
-4. Wake word ("Hey <name>") in the window, then Marathi (Phase 2).
-5. A browser-control bot with live view and take-over.
-6. A safe "open an app or page on this device" tool, allowlisted.
+1. Check the full voice loop in the window with a real microphone.
+2. MCP connectors, with an approval step before any tool that changes something
+   (contract v0.2; a design note exists).
+3. Wake word ("Hey <name>") in the window.
+4. Per-stage speech timings in telemetry.
+5. Marathi (Phase 2).
+
+Later: per-bot avatar and tool groups; a browser-control bot with live view and take-over;
+a safe "open an app or page on this device" tool, allowlisted.
 
 ## Pending doc follow-ups
 

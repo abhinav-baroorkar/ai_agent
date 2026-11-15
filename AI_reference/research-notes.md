@@ -48,3 +48,9 @@ script. Not yet measured with a real microphone in the window.
 - A/B: starting the first piece of an answer early (first sentence as soon as it ends, or
   a cut at a pause after 40 characters) took first audio from 1085 to 956 ms.
 
+## 2026-11-14 (late evening): first run from `main`
+
+`sasha window` started from `main` on the laptop, voice on. A typed question on a `speak=1`
+socket: first text 164 ms, first audio 1.4 s, 50 tokens/s, LLM fully on the GPU. Typed input,
+so it does not include speech-to-text. Not measured with a real microphone.
+
