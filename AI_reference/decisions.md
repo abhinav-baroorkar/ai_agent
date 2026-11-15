@@ -462,3 +462,7 @@ Summary of the design that passed review (two rounds). Opt-in until the measurem
   `CLAUDE.md`. It was added in `59e21a7` after the reviewer's note on `4e71b41`. Both `CLAUDE.md`
   commits were made on `main` at the owner's instruction and reviewed afterwards.
 
+- **Send-guard exception: parked by the owner (2026-11-14) until Gmail is linked.** It stays as
+  reviewed. The question "is the narrow exception acceptable, or must the rule be absolute?" is
+  asked again before any Gmail code is merged (Phase 4).
+

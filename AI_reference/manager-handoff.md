@@ -47,7 +47,7 @@ only for now; satellites on other devices come later.
 
 ## State of `main`
 
-- `main` is `59e21a7` (2026-11-14, late evening). 377 tests pass with all extras.
+- `main` is `0600003` (2026-11-14, late evening). 377 tests pass with all extras.
 - **Wake word:** the tray icon, `sasha listen` and `sasha autostart` are merged. The listener
   can't open the microphone until `feat/wake-server` is on `main`. Nothing has run on real
   audio yet.
@@ -193,6 +193,12 @@ Ideas from an earlier project of the owner's: read-only, no copying (owner's dec
   GPL vendored or committed. Open question: keep them as an optional install, or
   spend time on a GPL-free path (lexicon-based G2P plus our own small ONNX runner,
   worse on unknown words)?
+
+## Ask the owner before...
+
+- **Before Gmail work merges (Phase 4):** is the narrow send-guard exception acceptable, or must
+  the rule be absolute? The owner parked this on 2026-11-14; the exception stays as reviewed
+  until then. Primary asks again at that gate.
 
 ## How to resume if the manager session is new
 
