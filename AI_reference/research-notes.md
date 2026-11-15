@@ -69,3 +69,13 @@ Speech-to-text on CPU: median 1935 ms per segment. That is not the production pa
 uses the GPU, about 127 ms). Nothing has run on real audio, and the measurement plan in
 `decisions.md` (false accepts over 8 h, accept rate at 1, 3 and 5 m) has not started.
 
+## 2026-11-14 (night): Marathi model facts (as reported by web fetch summaries; not verified)
+
+The research is saved locally. Marathi–English is postponed (see `decisions.md`).
+
+- The open Marathi models for speech-to-text, translation and text-to-speech are MIT or Apache
+  licensed, but gated on Hugging Face (terms must be accepted and a token is needed).
+- One small text-to-speech candidate is non-commercial, and another's training data is share-alike.
+- No published Marathi evaluation exists for the two local LLMs in use.
+- No published results for Marathi–English code-mixed speech exist for any candidate.
+

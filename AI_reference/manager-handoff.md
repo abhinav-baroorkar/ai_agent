@@ -47,7 +47,7 @@ only for now; satellites on other devices come later.
 
 ## State of `main`
 
-- `main` is `e233db4` (2026-11-14, night). 484 tests.
+- `main` is `3943566` (2026-11-14, night). 484 tests at `e233db4`.
 - **Wake word:** all three parts are on `main` (`feat/wake-server` at `f0ce325`, three review
   rounds). The window runs from `main` with `health.wake.available` true. The wake word has not
   run on a real microphone: real-microphone checks are scheduled with the owner. **Rule: no
@@ -88,7 +88,7 @@ only for now; satellites on other devices come later.
 | `fix/warmup-timeouts` | | short connect timeout for the model warm-up; voice turns record the STT and TTS model versions in telemetry | merged and pushed |
 | `fix/stt-runtime-fallback` | | speech-to-text falls back to CPU for a request when the GPU fails | merged and pushed (`3f76eee`) |
 | `feat/wake-server` | Staff SDE | brain side of the wake word: gate, abuse limits, reserved socket, contract v0.2 | merged and pushed (`f0ce325`) after three review rounds |
-| `fix/wake-truthful-reply` | | truthful spoken replies for refused or failed device changes; gate for voice device control; clock tool | in progress, not merged |
+| `fix/wake-truthful-reply` | | truthful spoken replies for refused or failed device changes; gate for voice device control; clock tool | in review: on wake turns the server releases the model's text sentence by sentence only while no device call has been attempted and no change is claimed, then states what was and wasn't changed from the tool results; device control by voice can't be switched on without it; a read-only clock tool for every bot |
 | `feat/browser-core` | | the assistant's own browser, first parts | in progress; two blocking review fixes |
 | `fix/listener-confirm-race` | | a listener test that failed under load | in progress |
 | `feat/wake-listener` | Jack of all tasks | `sasha listen` (always-on listener), `sasha autostart` | merged and pushed after two review rounds; follow-up `fix/wake-listener-notes` merged |
@@ -174,33 +174,32 @@ Build order set by the owner on 2026-11-14 (night). Our own design.
   robot body (all "device work, later"). Why: device work needs hands-on testing, scheduled after
   the first week.
 - **No "fun" features** (games, trivia, stories, a music visualiser).
-- In flight next to Marathi: the assistant's own browser (own profile inside the project, live
+- In flight next to timers, alarms and reminders: the assistant's own browser (own profile inside the project, live
   view, take over, approval before anything that changes something, no access to the local
   network; voice-started requests are read-only there). Ideas from an earlier project of the
   owner's only; own code.
+- Postponed, conditional: Marathi–English support (Phase 2). The owner's condition: the base assistant must keep working properly. Marathi support is optional and may only be added if it doesn't slow the English path (latency and GPU placement measured before and after); otherwise it stays out.
 - Check the full voice loop and the wake word on a real microphone (checks are scheduled with the owner).
 
 In order, unless the owner changes it:
 
-1. Marathi–English support (Phase 2). A facts-first research task is running (models, licences,
-   which are gated and need the owner's acceptance, sizes, CPU feasibility); design follows.
-2. Timers, alarms and reminders.
-3. Memory ("remember that...").
-4. A morning brief. It needs calendar and mail, so the parked send-guard question is asked
+1. Timers, alarms and reminders.
+2. Memory ("remember that...").
+3. A morning brief. It needs calendar and mail, so the parked send-guard question is asked
    before the mail part.
-5. Media control for whatever is playing.
-6. Questions about the owner's own files (local search).
-7. Scheduled routines.
-8. "What's on my screen" with a vision model.
-9. Computer helpers: open apps and sites, dictation, local meeting and voice-note
+4. Media control for whatever is playing.
+5. Questions about the owner's own files (local search).
+6. Scheduled routines.
+7. "What's on my screen" with a vision model.
+8. Computer helpers: open apps and sites, dictation, local meeting and voice-note
    transcription, clipboard summary.
-10. Web search with a spoken summary (through the assistant's own browser).
-11. Calculation tools.
-12. Speaker ID with per-person profiles.
-13. Lists.
-14. Proactive reminders.
-15. MCP connectors with approvals, bot templates, and multi-step tasks with a plan.
-16. An activity log, "forget the last 5 minutes", and a visible everything-is-local status.
+9. Web search with a spoken summary (through the assistant's own browser).
+10. Calculation tools.
+11. Speaker ID with per-person profiles.
+12. Lists.
+13. Proactive reminders.
+14. MCP connectors with approvals, bot templates, and multi-step tasks with a plan.
+15. An activity log, "forget the last 5 minutes", and a visible everything-is-local status.
 
 Four items on this list handle very private data. Each gets a short design note and a review before
 any code, like the wake word and the browser: questions about the owner's files, "what's on my
@@ -233,8 +232,6 @@ Ideas from an earlier project of the owner's: read-only, no copying (owner's dec
 
 ## Ask the owner before...
 
-- **When the Marathi research lands:** the owner will probably need to accept terms on some model
-  pages and put a Hugging Face token into the secrets file personally. Details to follow.
 
 - **Before Gmail work merges (Phase 4):** is the narrow send-guard exception acceptable, or must
   the rule be absolute? The owner parked this on 2026-11-14; the exception stays as reviewed

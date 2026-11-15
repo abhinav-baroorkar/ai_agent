@@ -133,7 +133,7 @@ the Phase 0 real-light gate stays open and must pass before the v0.1 release.
 | --- | --- | --- | --- | --- |
 | 0 | Repo, config, telemetry, Ollama LLM stage, Home Assistant tool, text CLI | Telemetry on; first devlog | LLM turns on a real light via Home Assistant from the text CLI | Done except the real-light gate, which waits for Docker |
 | 1 | Brain server, main window with face, bots, connectors screen, English voice loop | Rename is config only; release v0.1 and demo clip | Lights work by voice in English | In progress |
-| 2 | Marathi: IndicConformer, IndicTrans2, Indic Parler-TTS, fast path | Record code-mixed command set; cascade vs direct; v0.2 | A Marathi light command works end to end | |
+| 2 | Marathi: IndicConformer, IndicTrans2, Indic Parler-TTS, fast path | Record code-mixed command set; cascade vs direct; v0.2 | A Marathi light command works end to end | Postponed, conditional (see the build order) |
 | 3 | Speaker ID and permissions (software, in the build order below); pets and camera vision are device work, later | Speaker ID by room, distance and noise | Guests can only control lights | |
 | 4 | Gmail drafts, calendar brief, MCP connectors | Prompt-injection tests; demo video | Morning brief on screen; drafts only. Before Gmail work merges: ask the owner again about the send-guard exception | |
 | 5 | Satellites on other devices, wake-word arbitration (device work, later) | Which device should answer; Wi-Fi latency per satellite | Two devices hear one wake word, the right one answers | |
@@ -146,29 +146,28 @@ the Phase 0 real-light gate stays open and must pass before the v0.1 release.
   with real devices, cameras, pet devices, room-to-room announcements, satellites on other devices
   and the robot body. Why: device work needs hands-on testing, scheduled after the first week.
 - **No "fun" features** (games, trivia, stories, a music visualiser).
-- The assistant's own browser stays the feature in flight next to Marathi–English.
+- The assistant's own browser stays the feature in flight next to timers, alarms and reminders.
+- Postponed, conditional: Marathi–English support (Phase 2). The owner's condition: the base assistant must keep working properly. Marathi support is optional and may only be added if it doesn't slow the English path (latency and GPU placement measured before and after); otherwise it stays out.
 - Everything else on the recommended list is built as current tasks end, in this order unless the
   owner changes it:
 
-1. Marathi–English support (Phase 2). A facts-first research task is running (models, licences,
-   which are gated and need the owner's acceptance, sizes, CPU feasibility); design follows.
-2. Timers, alarms and reminders.
-3. Memory ("remember that...").
-4. A morning brief. It needs calendar and mail, so the parked send-guard question is asked
+1. Timers, alarms and reminders.
+2. Memory ("remember that...").
+3. A morning brief. It needs calendar and mail, so the parked send-guard question is asked
    before the mail part.
-5. Media control for whatever is playing.
-6. Questions about the owner's own files (local search).
-7. Scheduled routines.
-8. "What's on my screen" with a vision model.
-9. Computer helpers: open apps and sites, dictation, local meeting and voice-note
+4. Media control for whatever is playing.
+5. Questions about the owner's own files (local search).
+6. Scheduled routines.
+7. "What's on my screen" with a vision model.
+8. Computer helpers: open apps and sites, dictation, local meeting and voice-note
    transcription, clipboard summary.
-10. Web search with a spoken summary (through the assistant's own browser).
-11. Calculation tools.
-12. Speaker ID with per-person profiles.
-13. Lists.
-14. Proactive reminders.
-15. MCP connectors with approvals, bot templates, and multi-step tasks with a plan.
-16. An activity log, "forget the last 5 minutes", and a visible everything-is-local status.
+9. Web search with a spoken summary (through the assistant's own browser).
+10. Calculation tools.
+11. Speaker ID with per-person profiles.
+12. Lists.
+13. Proactive reminders.
+14. MCP connectors with approvals, bot templates, and multi-step tasks with a plan.
+15. An activity log, "forget the last 5 minutes", and a visible everything-is-local status.
 
 Four items on this list handle very private data. Each gets a short design note and a review before any code, like the wake word and the browser: questions about the owner's files, "what's on my screen", dictation and meeting or voice-note transcription together with the clipboard helper, and speaker profiles. Each note says which folders or screens, what is stored and for how long, the visible sign, and how to turn it off.
 
