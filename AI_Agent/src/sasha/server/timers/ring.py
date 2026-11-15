@@ -46,17 +46,27 @@ class RingPlayer:
         self.hub = hub
         self.lock: asyncio.Lock | None = None
         self.speaker: Speaker | None = None
+        self.playing: str | None = None  # the item whose ring is being sent
 
-    def ring_threadsafe(self, item_id: str, say: str, tone: bool) -> None:
+    def ring_threadsafe(self, item_id: str, say: str, tone: bool, check: bool = True) -> None:
         with contextlib.suppress(RuntimeError):  # the socket's loop is gone
-            asyncio.run_coroutine_threadsafe(self.play(item_id, say, tone), self.conv.loop)
+            play = self.play(item_id, say, tone, check)
+            asyncio.run_coroutine_threadsafe(play, self.conv.loop)
 
-    async def play(self, item_id: str, say: str, tone: bool) -> None:
+    def stop(self, item_id: str) -> None:
+        """The item ended (T4): its speech in flight stops now."""
+        if self.speaker is not None and self.playing == item_id:
+            self.speaker.cancel()
+
+    async def play(self, item_id: str, say: str, tone: bool, check: bool = True) -> None:
         conv = self.conv
         self.lock = self.lock or asyncio.Lock()
         async with self.lock:
             if not await self._turn_done():
                 return  # a long turn is speaking: skip this one, the next tone follows
+            if check and not self.hub.still_rings(item_id, conv):
+                return  # T4: dismissed (or moved) while it waited
+            self.playing = item_id
             conv.ring_started(item_id)
             if tone:
                 conv.emit({"type": "tts_start", "sample_rate": TONE_RATE})
@@ -65,7 +75,9 @@ class RingPlayer:
                 conv.emit({"type": "tts_end"})
             elif say:
                 await self._say(say)
-        await conv.ring_played(item_id)
+            self.playing = None
+        if not check or self.hub.still_rings(item_id, conv):
+            await conv.ring_played(item_id)
 
     async def _turn_done(self) -> bool:
         wait = self.hub.config.ring_wait_s

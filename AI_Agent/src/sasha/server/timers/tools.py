@@ -14,11 +14,18 @@ confirm (`confirm(action) -> bool`, the listener's existing flow).
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 from sasha.server.timers.model import REPEATS, TimerItem, clean_text, spoken_time
-from sasha.server.timers.resolve import Ask, Resolved, clock_time, duration_s, next_repeat
+from sasha.server.timers.resolve import (
+    Ask,
+    Resolved,
+    clock_time,
+    duration_s,
+    next_repeat,
+    whole,
+)
 from sasha.server.timers.service import TimerError, TimerService
 from sasha.tools.base import Tool, ToolError, ToolRegistry
 
@@ -26,12 +33,18 @@ TIMER_TOOLS = (
     "set_timer", "set_alarm", "set_reminder", "list_timers", "cancel_timer", "snooze_timer",
 )  # fmt: skip
 MIN_TIMER_S = 5
+# The model sometimes puts the repeat in `day` (bench: day="weekdays"); read it so.
+DAY_REPEATS = {
+    "weekdays": "weekdays", "every weekday": "weekdays", "weekends": "weekends",
+    "every weekend": "weekends", "daily": "daily", "every day": "daily", "everyday": "daily",
+}  # fmt: skip
 _INT = {"type": "integer"}
 _STR = {"type": "string"}
 _PERIOD = {"type": "string", "enum": ["am", "pm"], "description": "Only if the person said it"}
 _DAY = {
     "type": "string",
-    "description": "today, tomorrow, a weekday (monday...) or YYYY-MM-DD; omit if not said",
+    "description": "today, tomorrow, a weekday (monday...), a day of the month (30th) or "
+    "YYYY-MM-DD; omit if not said",
 }
 
 
@@ -69,10 +82,12 @@ class TimerTools:
         service: TimerService,
         source: str = "chat",
         confirm: Callable[[str], bool] | None = None,
+        rings_here: Callable[[str], bool] | None = None,
     ) -> None:
         self.service = service
         self.source = source
         self.confirm = confirm
+        self.rings_here = rings_here  # wake: does this item ring on the asking device?
         self.max_text = service.config.max_text
 
     # --- helpers -------------------------------------------------------------
@@ -100,10 +115,20 @@ class TimerTools:
         return out
 
     def _approve(self, items: list[TimerItem], verb: str) -> None:
-        """D4: a wake turn needs the spoken yes for "all" or a chat-made item."""
+        """D4: a wake turn needs the spoken yes for "all" or a chat-made item. Not for
+        stopping the one item ringing on this device (T10): "<name>, stop" just works,
+        like a bare "stop" in the stop window."""
         if self.source != "wake":
             return
         if len(items) <= 1 and all(i.created_by == "wake" for i in items):
+            return
+        ringing_here = (
+            len(items) == 1
+            and items[0].state == "ringing"
+            and self.rings_here is not None
+            and self.rings_here(items[0].id)
+        )
+        if ringing_here:
             return
         what = f"all {len(items)} timers" if len(items) > 1 else f"the {items[0].kind}"
         if self.confirm is None or not self.confirm(f"{verb} {what}"):
@@ -125,7 +150,7 @@ class TimerTools:
                 if len(active) == 1:
                     return active
                 raise Ask("Which one? Call list_timers and ask the person.", "ambiguous_item")
-            found = [i for i in service.find(key) if i.state in states]
+            found = service.find(key, states)
         if not found:
             raise Ask("No timer matches that. Call list_timers and ask which.", "unknown")
         if len(found) > 1:
@@ -157,18 +182,23 @@ class TimerTools:
         label: Any = "",
     ) -> dict[str, Any]:
         repeat = str(repeat or "none").strip().lower()
+        said_day = str(day or "").strip().lower()
+        if said_day in DAY_REPEATS and repeat in ("none", DAY_REPEATS[said_day]):
+            repeat, day = DAY_REPEATS[said_day], ""  # day="weekdays": that's a repeat
         if repeat not in REPEATS:
             raise Ask("repeat must be none, daily, weekdays or weekends", "bad_value")
         if repeat != "none" and day:
             raise Ask("A repeating alarm takes no day. Ask if it should repeat.", "bad_day")
         now = self.service.now_local()
-        resolved = clock_time(now, hour, minute, period, day)
+        resolved = clock_time(now, hour, minute, period, day, alarm=True)  # R1
         when = resolved.when
+        h = resolved.hour if resolved.hour is not None else when.hour  # as asked (DST nit)
+        m = resolved.minute if resolved.minute is not None else when.minute
         if repeat != "none":
-            when = next_repeat(now, when.hour, when.minute, repeat)
+            when = next_repeat(now, h, m, repeat)
             resolved = Resolved(when, resolved.moved_to_tomorrow and when.date() > now.date())
         item = TimerItem("", "alarm", when.timestamp(), label=clean_text(label, self.max_text),
-                         repeat=repeat, hour=when.hour, minute=when.minute)  # fmt: skip
+                         repeat=repeat, hour=h, minute=m)  # fmt: skip
         item = self._add(item)
         return {
             "ok": True,
@@ -195,8 +225,9 @@ class TimerTools:
         if relative and hour not in (None, ""):
             raise Ask("Give either in_hours/in_minutes or a clock time, not both.", "bad_value")
         now = self.service.now_local()
-        if relative:
-            resolved = Resolved(now + timedelta(seconds=duration_s(in_hours, in_minutes, 0)))
+        if relative:  # T8: real seconds from now, like set_timer (not wall-clock time)
+            due = self.service.clock() + duration_s(in_hours, in_minutes, 0)
+            resolved = Resolved(datetime.fromtimestamp(due, self.service.zone))
         else:
             resolved = clock_time(now, hour, minute, period, day)
         item = self._add(TimerItem("", "reminder", resolved.when.timestamp(), text=words))
@@ -209,11 +240,13 @@ class TimerTools:
             out = []
             for i in items:
                 at = spoken_time(datetime.fromtimestamp(i.due, service.zone))
-                entry = {"id": i.id, "kind": i.kind, "label": i.label, "state": i.state, "at": at}
+                entry = {"id": i.id, "kind": i.kind, "state": i.state, "at": at}
                 if i.kind == "timer" and i.state == "scheduled":
                     entry["left"] = _in_words(max(0.0, i.due - service.clock()))
-                if self.source != "wake":  # reminder text isn't read out to the room
-                    entry["text"] = i.text
+                if self.source != "wake":  # user text isn't read out to the room
+                    entry["label"], entry["text"] = i.label, i.text
+                elif i.created_by == "wake":  # a voice-made label was said aloud anyway
+                    entry["label"] = i.label
                 out.append(entry)
         return {"now": spoken_time(service.now_local()), "items": out}
 
@@ -221,20 +254,25 @@ class TimerTools:
         """Cancel (or, if it is ringing, dismiss) one item, or "all"."""
         items = self._pick(str(which or ""), ("scheduled", "ringing", "pending"))
         self._approve(items, "cancel")
-        for item in items:
-            if item.state in ("ringing", "pending"):
-                self.service.dismiss(item.id)
-            else:
-                self.service.cancel(item.id)
-        return {"ok": True, "stopped": [{"kind": i.kind, "label": i.label} for i in items]}
+        stopped, failed = [], 0
+        for item in items:  # per item: one that ended meanwhile doesn't undo the rest
+            try:
+                if item.state in ("ringing", "pending"):
+                    self.service.dismiss(item.id)
+                else:
+                    self.service.cancel(item.id)
+                stopped.append({"kind": item.kind, "label": item.label})
+            except TimerError:
+                failed += 1
+        if not stopped:
+            raise TimerError("It has already ended.", "not_active")
+        return {"ok": True, "stopped": stopped, "already_ended": failed}
 
     def snooze_timer(self, which: Any = "", minutes: Any = None) -> dict[str, Any]:
-        items = self._pick(str(which or ""), ("ringing", "pending"))
+        # T3: a missed timer or reminder can be snoozed from a chat ("again in 10").
+        items = self._pick(str(which or ""), ("ringing", "pending", "missed"))
         self._approve(items, "snooze")
-        try:
-            mins = int(minutes) if minutes not in (None, "") else None
-        except (TypeError, ValueError):
-            raise Ask("minutes must be a whole number from 1 to 60", "bad_value") from None
+        mins = whole(minutes, "minutes", 1, 60) if minutes not in (None, "") else None
         done = [self.service.snooze(i.id, mins) for i in items]
         due = datetime.fromtimestamp(done[0].due, self.service.zone)
         return {"ok": True, "count": len(done), "rings_again_at": spoken_time(due)}
@@ -248,14 +286,15 @@ class TimerTools:
                  {"type": "object", "properties": {"hours": _INT, "minutes": _INT,
                   "seconds": _INT, "label": _STR}}, g(self.set_timer)),
             Tool("set_alarm", "Set an alarm at a clock time. Give hour and minute as said; "
-                 "period only if the person said morning/evening/am/pm. If the tool asks, "
-                 "ask the person; never guess.",
+                 "period only if the person said morning/evening/am/pm. For a date, call "
+                 "get_current_time first. If the tool asks, ask the person; never guess.",
                  {"type": "object", "properties": {"hour": _INT, "minute": _INT,
                   "period": _PERIOD, "day": _DAY, "repeat": {"type": "string",
                   "enum": list(REPEATS)}, "label": _STR}, "required": ["hour"]},
                  g(self.set_alarm)),
             Tool("set_reminder", "Remind the person of something: either in_hours/in_minutes "
-                 "from now, or a clock time (hour, minute, period, day). Not both.",
+                 "from now, or a clock time (hour, minute, period, day). Not both. If the "
+                 "person said no time, ask them when; never pick a time yourself.",
                  {"type": "object", "properties": {"text": _STR, "in_hours": _INT,
                   "in_minutes": _INT, "hour": _INT, "minute": _INT, "period": _PERIOD,
                   "day": _DAY}, "required": ["text"]}, g(self.set_reminder)),
@@ -276,9 +315,10 @@ def add_timer_tools(
     service: TimerService,
     source: str = "chat",
     confirm: Callable[[str], bool] | None = None,
+    rings_here: Callable[[str], bool] | None = None,
 ) -> ToolRegistry:
     """`registry` with this source's timer tools (any earlier timer tools replaced)."""
     out = ToolRegistry(registry.get(n) for n in registry.names if n not in TIMER_TOOLS)
-    for tool in TimerTools(service, source, confirm).tools():
+    for tool in TimerTools(service, source, confirm, rings_here).tools():
         out.register(tool)
     return out

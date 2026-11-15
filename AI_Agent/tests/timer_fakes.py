@@ -79,12 +79,19 @@ class FakeTarget:
         self.ring_role = role
         self.frames: list[dict[str, Any]] = []
         self.rings: list[tuple[str, str, bool]] = []
+        self.unchecked: list[str] = []  # rings sent with check=False (lines, say)
+        self.stops: list[str] = []
 
     def push_threadsafe(self, frame: dict[str, Any]) -> None:
         self.frames.append(frame)
 
-    def ring_threadsafe(self, item_id: str, say: str, tone: bool) -> None:
+    def ring_threadsafe(self, item_id: str, say: str, tone: bool, check: bool = True) -> None:
         self.rings.append((item_id, say, tone))
+        if not check:
+            self.unchecked.append(item_id)
+
+    def stop_ring_threadsafe(self, item_id: str) -> None:
+        self.stops.append(item_id)
 
     def types(self) -> list[str]:
         return [f["type"] for f in self.frames]

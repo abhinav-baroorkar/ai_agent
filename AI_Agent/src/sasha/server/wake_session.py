@@ -14,6 +14,7 @@ Telemetry gets one line per check with labels and timings, never text.
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import logging
 import time
@@ -124,7 +125,8 @@ class ListenerConversation(Conversation):
         )
         tools = assistant.tools
         if timers is not None and any(n in tools for n in TIMER_TOOLS):  # D4: voice-made
-            tools = add_timer_tools(tools, timers.service, "wake", self.confirm.blocking)
+            here = functools.partial(timers.rings_on, target=self)  # T10: no confirm then
+            tools = add_timer_tools(tools, timers.service, "wake", self.confirm.blocking, here)
         assistant.tools = self.policy.wrap(tools)
 
     def emit(self, frame: Frame) -> None:
@@ -163,6 +165,11 @@ class ListenerConversation(Conversation):
     def ring_started(self, item_id: str) -> None:
         if self.stop_window is not None:
             self.stop_window.close()  # the next tone: the window before it ends
+
+    def ring_stopped(self, item_id: str) -> None:
+        super().ring_stopped(item_id)
+        if self.stop_window is not None and self.stop_window.item_id == item_id:
+            self.stop_window.close()  # T6: no window once its item has ended
 
     async def ring_played(self, item_id: str) -> None:
         if self.stop_window is not None:
@@ -276,10 +283,11 @@ class ListenerConversation(Conversation):
             return
         self._start(self._segment(audio))
 
-    def _drop_reason(self) -> str | None:
+    def _drop_reason(self, own_segment: bool = False) -> str | None:
+        """`own_segment`: asked from inside a segment's task, which is the busy one."""
         if self.paused:
             return "dropped_paused"
-        if self.busy:
+        if self.busy and not own_segment:
             return "dropped_busy"
         if self.voice.speaking.speaking():
             return "dropped_speaking"
@@ -303,8 +311,12 @@ class ListenerConversation(Conversation):
             del audio
         stt_ms = (time.perf_counter() - started) * 1000
         window = self.stop_window
-        if stop_for is not None and window is not None and window.judge(stop_for, heard):
-            return  # a stop word in the stop window: handled, the text dropped
+        if stop_for is not None and window is not None:
+            if window.judge(stop_for, heard):
+                return  # a stop word in the stop window: handled, the text dropped
+            if reason := self._drop_reason(own_segment=True):  # T7: as any other segment
+                self._miss(reason, segment_bytes)
+                return
         await self._decide(heard, segment_bytes, stt_ms)
 
     async def _decide(self, heard: Transcript, segment_bytes: int, stt_ms: float) -> None:

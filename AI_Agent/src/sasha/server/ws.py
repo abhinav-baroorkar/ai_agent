@@ -84,9 +84,18 @@ class Conversation:
     def push_threadsafe(self, frame: dict[str, Any]) -> None:
         self.emit_threadsafe(frame)
 
-    def ring_threadsafe(self, item_id: str, say: str, tone: bool) -> None:
+    def ring_threadsafe(self, item_id: str, say: str, tone: bool, check: bool = True) -> None:
         if self.ringer is not None:
-            self.ringer.ring_threadsafe(item_id, say, tone)
+            self.ringer.ring_threadsafe(item_id, say, tone, check)
+
+    def stop_ring_threadsafe(self, item_id: str) -> None:
+        with contextlib.suppress(RuntimeError):  # the loop is gone: nothing to stop
+            self.loop.call_soon_threadsafe(self.ring_stopped, item_id)
+
+    def ring_stopped(self, item_id: str) -> None:
+        """The item ended: its ring speech stops (the listener also closes its window)."""
+        if self.ringer is not None:
+            self.ringer.stop(item_id)
 
     def ring_started(self, item_id: str) -> None:
         """A ring's speech is about to start on this socket (the listener overrides)."""

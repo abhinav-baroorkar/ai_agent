@@ -233,3 +233,48 @@ def test_other_segments_do_not_stop_it(settings: Settings, tmp_path: Path, heard
     assert result == {"type": "stop_result", "id": item.id, "accepted": False, "action": None}
     assert service.items[item.id].state == "ringing"
     assert got[-1] == {"type": "wake", "heard": False, "command": False}  # the normal check
+
+
+def open_window(settings: Settings, tmp_path: Path) -> tuple[Any, Any, TimerService, TimerItem]:
+    h, stt = make(settings, tmp_path, tts=FakeTTS(), speaking_tail_s=0.05)
+    service, clock = with_timers(h)
+    item = timer(service, 5, label="tea")
+    clock.advance(5)
+    return h, stt, service, item
+
+
+def test_t6_card_dismiss_closes_the_stop_window(settings: Settings, tmp_path: Path) -> None:
+    h, stt, service, item = open_window(settings, tmp_path)
+    client = h.client()
+    with client.websocket_connect(f"{WS}/ws?wake=1&speak=1") as ws:
+        listen(ws)
+        time.sleep(0.1)
+        service.tick()
+        frames(ws, "stop_window")
+        assert client.post(f"/api/timers/{item.id}/dismiss").status_code == 200
+        frames(ws, "timer_stopped")
+        time.sleep(0.1)  # the stop reaches the socket's loop
+        stt.say("stop")
+        segment(ws)
+        got = frames(ws, "wake")  # a normal wake check, not a stop answer
+    assert "stop_result" not in types(got) and got[-1]["heard"] is False
+
+
+def test_t7_fall_through_is_dropped_while_speaking(
+    settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sasha.server.speaking import SpeakingTracker
+
+    name = settings.assistant.wake_word.phrase
+    h, stt, service, _ = open_window(settings, tmp_path)
+    with h.client().websocket_connect(f"{WS}/ws?wake=1&speak=1") as ws:
+        listen(ws)
+        time.sleep(0.1)
+        service.tick()
+        frames(ws, "stop_window")
+        monkeypatch.setattr(SpeakingTracker, "speaking", lambda self: True)  # Home speaks
+        stt.say(f"{name}, what time is it")
+        segment(ws)
+        got = frames(ws, "wake")
+    assert first(got, "stop_result")["accepted"] is False
+    assert got[-1]["heard"] is False and h.llm("big-model").seen == []  # no wake turn

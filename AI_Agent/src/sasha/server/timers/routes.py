@@ -60,8 +60,7 @@ def add_timer_routes(app: FastAPI, service: TimerService, hub: Hub, json_body: J
     @app.post("/api/timers/{item_id}/say")
     async def say(item_id: str, request: Request) -> dict[str, Any]:
         await body_or_none(request)
-        with service.lock:
-            item = service.get(item_id)
+        item = await run_in_threadpool(service.get, item_id)  # the lock, off the loop
         if not hub.say_text(item):
             return JSONResponse({"error": "Nothing connected can speak it"}, 409)  # type: ignore[return-value]
         return {"ok": True}

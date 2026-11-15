@@ -27,7 +27,10 @@ class RingTarget(Protocol):
 
     def push_threadsafe(self, frame: dict[str, Any]) -> None: ...
 
-    def ring_threadsafe(self, item_id: str, say: str, tone: bool) -> None: ...
+    # `check`: play only if the item still rings on this socket when it's its turn (T4)
+    def ring_threadsafe(self, item_id: str, say: str, tone: bool, check: bool = True) -> None: ...
+
+    def stop_ring_threadsafe(self, item_id: str) -> None: ...  # T4/T6: it stopped
 
 
 def tone_pcm(rate: int = TONE_RATE, seconds: float = 0.35, freq: float = 880.0) -> bytes:
@@ -90,10 +93,11 @@ class Hub:
     def broadcast(self, snapshot: dict[str, Any]) -> None:
         self._all({"type": "timers", **snapshot})
 
-    def ring(self, item: TimerItem) -> bool:
-        """Start a ring. False if no socket is connected (the item waits as pending)."""
-        late = item.late_s > self.config.late_after_s
-        say = self.generic([item]) if late else self.line(item)  # D2: late = generic only
+    def ring(self, item: TimerItem, generic: bool = False) -> bool:
+        """Start a ring. False if no socket is connected (the item waits as pending).
+        `generic`: it was pending; like a late one it gets only the generic line (D2)."""
+        late = generic or item.late_s > self.config.late_after_s
+        say = self.generic([item]) if late else self.line(item)
         frame = {"type": "timer_ringing", "id": item.id, "kind": item.kind,
                  "created_by": item.created_by, "say": say}  # fmt: skip
         if not self._all(frame):
@@ -115,8 +119,12 @@ class Hub:
             device.ring_threadsafe(item.id, "", True)
 
     def stopped(self, item: TimerItem, how: str) -> None:
+        """Ended (any way): the device it rang on stops its ring speech and closes its
+        stop window at once (T4, T6), then every socket hears `timer_stopped`."""
         with self._lock:
-            self._device.pop(item.id, None)
+            device = self._device.pop(item.id, None)
+        if device is not None:
+            device.stop_ring_threadsafe(item.id)
         self._all({"type": "timer_stopped", "id": item.id, "how": how})
 
     def rings_on(self, item_id: str, target: RingTarget) -> bool:
@@ -156,12 +164,17 @@ class Hub:
                        "created_by": item.created_by, "say": say})  # fmt: skip
         speaker = self._speaker()
         if speaker is not None:
-            speaker.ring_threadsafe(items[0].id, say, False)
+            speaker.ring_threadsafe(items[0].id, say, False, check=False)
 
     def say_text(self, item: TimerItem) -> bool:
         """The owner tapped an item (or asked): speak its own text now."""
         speaker = self._speaker()
         if speaker is None:
             return False
-        speaker.ring_threadsafe(item.id, self.line(item), False)
+        speaker.ring_threadsafe(item.id, self.line(item), False, check=False)
         return True
+
+    def still_rings(self, item_id: str, target: RingTarget) -> bool:
+        """For a ring about to play (T4): the item rings, and on this socket."""
+        item = self.service.items.get(item_id) if self.service is not None else None
+        return item is not None and item.state == "ringing" and self.rings_on(item_id, target)

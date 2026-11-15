@@ -61,7 +61,9 @@ def test_alarm_period_rules(tmp_path: Path) -> None:
     with pytest.raises(TimerAsk) as err:
         alarm(hour=7)  # 07:00 and 19:00 both ahead
     assert err.value.reason == "ambiguous_period"
-    evening = alarm(hour=5)  # only 17:00 is ahead
+    with pytest.raises(TimerAsk):
+        alarm(hour=5)  # R1: only 17:00 is ahead today, but 05:00 tomorrow is likely
+    evening = handler(service, "set_reminder")(text="x", hour=5)  # reminders: 17:00
     assert local(service.items[evening["id"]].due).hour == 17
     early = alarm(hour=5, period="am")  # passed: tomorrow, and the result says so
     assert local(service.items[early["id"]].due) == datetime(2031, 3, 28, 5, 0, tzinfo=ZONE)
