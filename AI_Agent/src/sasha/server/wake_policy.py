@@ -17,6 +17,7 @@ Decisions are reported through `record(label)`: labels only, never arguments.
 from __future__ import annotations
 
 import json
+import math
 import re
 import threading
 import time
@@ -61,6 +62,17 @@ def _entities(entity_id: Any) -> list[str]:
     if isinstance(entity_id, list):
         return [str(e) for e in entity_id]
     return []
+
+
+def _unit_number(value: Any) -> float | None:
+    """`value` as a finite float in [0, 1] (numbers or numeric strings), else None."""
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        return None
+    try:
+        number = float(value)
+    except ValueError:
+        return None
+    return number if math.isfinite(number) and 0.0 <= number <= 1.0 else None
 
 
 def _data_dict(data: Any) -> dict[str, Any] | None:
@@ -136,11 +148,16 @@ class WakeToolPolicy:
                 raise self._refuse("refused_switch", "Switches can't be controlled by voice")
             values = _data_dict(data)
             capped = False
-            volume = values.get("volume_level") if values else None
-            if values is not None and isinstance(volume, (int, float)):  # noqa: SIM102
-                if volume > self.config.volume_cap:
-                    values["volume_level"] = self.config.volume_cap
-                    capped = True
+            if values is not None and "volume_level" in values:
+                # Coerce, validate, then limit: Home Assistant turns "1.0" into 1.0, so a
+                # string must not slip past the cap.
+                volume = _unit_number(values["volume_level"])
+                if volume is None:
+                    raise self._refuse(
+                        "refused_bad_value", "volume_level must be a number from 0 to 1"
+                    )
+                capped = volume > self.config.volume_cap
+                values["volume_level"] = min(volume, self.config.volume_cap)
             changed = self.turn_entities | set(entities)
             needs_yes = (
                 "all" in entities

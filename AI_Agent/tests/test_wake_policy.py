@@ -151,6 +151,30 @@ def test_volume_is_capped() -> None:
     assert p.devices.calls[1]["data"] == {"volume_level": 0.3}
 
 
+@pytest.mark.parametrize(
+    "data",
+    [{"volume_level": "1.0"}, '{"volume_level": "0.99"}', '{"volume_level": 1}'],
+)
+def test_volume_as_string_is_coerced_then_capped(data: Any) -> None:
+    """S1: Home Assistant coerces "1.0" to 1.0, so strings must not slip past the cap."""
+    p = Policy()
+    args = {"domain": "media_player", "service": "volume_set", "entity_id": "media_player.tv"}
+    result = p.tools.call("call_service", {**args, "data": data})
+    assert result.ok and json.loads(result.content)["note"] == "volume limited to 0.6"
+    assert p.devices.calls[0]["data"] == {"volume_level": 0.6}
+
+
+@pytest.mark.parametrize(
+    "bad",
+    ["loud", "nan", "inf", "-0.1", "1.5", 2, -1, True, None, [0.5], {"v": 1}],
+)
+def test_volume_must_be_a_finite_number_from_0_to_1(bad: Any) -> None:
+    p = Policy()
+    ok, body = p.call("media_player.tv", "media_player", "volume_set", volume_level=bad)
+    assert not ok and "volume_level must be a number from 0 to 1" in body["error"]
+    assert p.devices.calls == [] and p.records == ["refused_bad_value"]
+
+
 def test_rate_limit_six_per_minute_brain_wide() -> None:
     now = [0.0]
     limiter = RateLimiter(6, clock=lambda: now[0])
