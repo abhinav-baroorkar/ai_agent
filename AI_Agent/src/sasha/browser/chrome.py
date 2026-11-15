@@ -65,12 +65,20 @@ def check_profile(path: Path, data_dir: Path) -> Path:
 
 
 def chrome_flags(profile: Path, proxy_port: int) -> list[str]:
-    isolation = [f for f in ISOLATION_FLAGS if not f.startswith("--host-resolver-rules=")]
+    replaced = ("--host-resolver-rules=", "--disable-features=")
+    isolation = [f for f in ISOLATION_FLAGS if not f.startswith(replaced)]
+    window_off = next(
+        (f.split("=", 1)[1] for f in ISOLATION_FLAGS if f.startswith("--disable-features=")), ""
+    )
+    # One --disable-features flag (a second would replace the first). The back-forward
+    # cache is off so "back" is a normal load whose end we can see.
+    disabled = ",".join(x for x in (window_off, "BackForwardCache") if x)
     return [
         "--headless=new",
         "--remote-debugging-pipe",
         f"--user-data-dir={profile}",
         *isolation,
+        f"--disable-features={disabled}",
         "--disable-gpu",
         "--mute-audio",
         "--disable-quic",

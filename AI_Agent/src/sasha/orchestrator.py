@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from sasha.config import Settings
+from sasha.conversation import current_turn, new_turn
 from sasha.pipeline.llm import LLM, LLMCancelled, LLMResponse, Message, StreamingLLM
 from sasha.telemetry import RequestTrace, TelemetryWriter
 from sasha.tools import ToolRegistry
@@ -97,6 +98,8 @@ class Assistant:
         trace.record_text("user", text)
         calls_made: list[dict[str, Any]] = []
         self.last_tool_calls = calls_made
+        owner_said = (*(m["content"] for m in self._history if m["role"] == "user"), text)
+        token = current_turn.set(new_turn(owner_said, input_mode))  # for tools (B1)
         try:
             reply = self._run(text, trace, calls_made, hooks)
         except BaseException as exc:  # includes Ctrl-C: still write the telemetry line
@@ -104,6 +107,8 @@ class Assistant:
             if isinstance(exc, Exception):
                 raise RequestFailed(calls_made) from exc
             raise  # Ctrl-C, SystemExit: unchanged, so `except Exception` can't swallow them
+        finally:
+            current_turn.reset(token)
         trace.record_text("assistant", reply.text)
         reply.telemetry = trace.finish(success=True)
         self._history += [

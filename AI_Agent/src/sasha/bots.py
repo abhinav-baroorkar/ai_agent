@@ -16,6 +16,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+from sasha.browser.policy import BrowserCombinationError, check_combination
 from sasha.state import JsonStore
 
 MAIN_ID = "main"
@@ -154,6 +155,10 @@ class BotStore:
         unknown = [c for c in ids if c not in known]
         if unknown:
             raise BotError(f"Unknown connector(s): {', '.join(unknown)}")
+        try:
+            check_combination(ids)  # B4: no private-data connector next to the browser
+        except BrowserCombinationError as exc:
+            raise BotError(str(exc)) from None
         return list(dict.fromkeys(ids))  # drop duplicates, keep order
 
     def _check_model(self, model: str | None) -> None:

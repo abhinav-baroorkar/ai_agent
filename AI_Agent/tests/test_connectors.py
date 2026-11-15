@@ -125,8 +125,9 @@ def test_build_deps_uses_state_dir(
     monkeypatch.setattr(deps_module, "gpu_share", lambda *a, **k: None)
     paths = settings.paths.model_copy(update={"root": tmp_path, "data_dir": tmp_path / "Data"})
     deps = build_deps(settings.model_copy(update={"paths": paths}))
-    assert deps.connectors.ids == ["home_assistant"]
+    assert deps.connectors.ids == ["home_assistant", "browser"]
     assert deps.connectors.view("home_assistant")["status"] == "needs_setup"
+    assert deps.connectors.view("browser")["enabled"] is False  # off until the owner ticks it
     assert deps.bots.get("main").connectors == ["home_assistant"]
     assert deps.stt is None and deps.tts is None
     # (connectors, not model: a model change would ask the real Ollama for its list)
