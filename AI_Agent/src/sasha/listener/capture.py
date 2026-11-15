@@ -90,17 +90,29 @@ class CaptureProcess:
         self.proc: asyncio.subprocess.Process | None = None
         self._pid: int | None = None
         self._killed = False
+        self._starting = False
 
     async def start(self) -> None:
-        argv, hook = with_death_signal(self.command)
-        self.proc = await asyncio.create_subprocess_exec(
-            *argv,
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-            preexec_fn=hook,
-        )
-        self._pid = self.proc.pid
+        """Spawn the child. asyncio forks and execs synchronously and then waits for the
+        pipes; during that wait `pid` is still None, so a kill can't be signalled yet.
+        `_starting` covers that gap: the child counts as live until start() is done,
+        and a kill that arrived meanwhile is carried out as soon as the pid exists."""
+        self._starting = True
+        try:
+            argv, hook = with_death_signal(self.command)
+            self.proc = await asyncio.create_subprocess_exec(
+                *argv,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+                preexec_fn=hook,
+            )
+            self._pid = self.proc.pid
+            if self._killed:  # killed while spawning (any thread): do it now
+                self._killed = False
+                self.kill()
+        finally:
+            self._starting = False
 
     @property
     def pid(self) -> int | None:
@@ -111,6 +123,17 @@ class CaptureProcess:
         """False as soon as `kill()` was called (SIGKILL can't be ignored), even before
         the child has been reaped."""
         return self.proc is not None and self.proc.returncode is None and not self._killed
+
+    @property
+    def live_or_starting(self) -> bool:
+        """What the tray must treat as "microphone open": while start() runs (the child
+        may exist with no pid yet, killed or not) and while the child is alive and not
+        killed. False only once a kill can no longer leave a child behind."""
+        if self._starting:
+            return True
+        if self.proc is None:
+            return not self._killed  # about to start: counts as open (the safe side)
+        return self.proc.returncode is None and not self._killed
 
     async def chunks(self) -> AsyncIterator[bytes]:
         assert self.proc is not None and self.proc.stdout is not None

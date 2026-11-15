@@ -17,26 +17,37 @@ from sasha.listener.contracts import MIC_OPEN_STATES  # noqa: E402
 from sasha.listener.guards import GuardEvent  # noqa: E402
 from sasha.listener.listener import Listener  # noqa: E402
 from tests.listener_fakes import FakeIndicator  # noqa: E402
+from tests.listener_oracle import ChildOracle  # noqa: E402
 from tests.listener_rig import Rig, go, until  # noqa: E402
 
 
 class WatchedIndicator(FakeIndicator):
-    """Fails the test if the visible-sign invariant is ever broken."""
+    """Records every break of the visible-sign invariant, judged by an oracle that does
+    not use the product's own predicate: a closed state may be shown only while every
+    fake-mic child is either gone (reaped) or has really been sent SIGKILL. Checked at
+    each set_state call and right after each child has finished starting."""
 
-    def __init__(self, rig: Rig) -> None:
+    def __init__(self, rig: Rig, oracle: ChildOracle) -> None:
         super().__init__()
         self.rig = rig
+        self.oracle = oracle
         self.violations: list[str] = []
 
+    def check(self, state: str, when: str) -> None:
+        if state not in MIC_OPEN_STATES and self.oracle.unsafe():
+            self.violations.append(f"{when}: {state!r} shown while a mic child is live")
+
     def set_state(self, state: str) -> None:
-        if state not in MIC_OPEN_STATES and any(p.running for p in self.rig.captures):
-            self.violations.append(f"{state} shown while the capture child runs")
+        self.check(state, "set_state")
         super().set_state(state)
 
 
-def _watched() -> Rig:
+def _watched(monkeypatch: pytest.MonkeyPatch) -> Rig:
     rig = Rig()
-    rig.indicator = WatchedIndicator(rig)
+    oracle = ChildOracle(rig.marker)
+    oracle.install(monkeypatch)
+    watched = WatchedIndicator(rig, oracle)
+    rig.indicator = watched
     real = rig.capture
 
     def capture() -> CaptureProcess:
@@ -44,10 +55,8 @@ def _watched() -> Rig:
         start = proc.start
 
         async def checked_start() -> None:
-            last = rig.indicator.states[-1] if rig.indicator.states else None
-            if last not in MIC_OPEN_STATES:
-                rig.indicator.violations.append(f"capture started while showing {last}")  # type: ignore[attr-defined]
             await start()
+            watched.check(watched.states[-1], "after start")
 
         proc.start = checked_start  # type: ignore[method-assign]
         return proc
@@ -56,7 +65,7 @@ def _watched() -> Rig:
     return rig
 
 
-def test_capture_runs_only_while_a_mic_open_state_is_shown() -> None:
+def test_capture_runs_only_while_a_mic_open_state_is_shown(monkeypatch: pytest.MonkeyPatch) -> None:
     """Review L2: every transition of a full turn keeps the invariant."""
 
     async def reply(ws: Any) -> None:
@@ -81,7 +90,7 @@ def test_capture_runs_only_while_a_mic_open_state_is_shown() -> None:
         await until(lambda: not rig.mic_open)
         await asyncio.sleep(0.1)
 
-    rig = _watched()
+    rig = _watched(monkeypatch)
     asyncio.run(rig.run(body))
     assert rig.indicator.violations == []  # type: ignore[attr-defined]
     assert {"thinking", "speaking", "waiting", "paused"} <= set(rig.indicator.states)
@@ -115,9 +124,11 @@ def test_confirm_then_yes() -> None:
         await until(lambda: rig.brain.segments >= 1)
         await until(lambda: lst.confirm.is_open, 5)
         assert lst.busy  # the turn is still running; only the window lets the mic open
-        await until(lambda: rig.mic_open)
-        assert rig.indicator.states[-1] == "listening"
+        opened_at = len(rig.indicator.states)
         await until(lambda: rig.brain.segments >= 2, 5)  # one segment, sent as wake audio
+        # The fake mic delivers its answer at once, so the window's capture may open and
+        # close between two polls: check what was shown, not a polled instant.
+        assert "listening" in rig.indicator.states[opened_at - 1 :]
         await until(lambda: not lst.confirm.is_open)
         await until(lambda: not lst.busy)
 
@@ -220,3 +231,37 @@ def test_confirm_window_accepts_a_short_yes() -> None:
 
     rig.capture = capture  # type: ignore[method-assign]
     asyncio.run(rig.run(body))
+
+
+def test_a_check_during_capture_start_never_leaves_a_closed_state_shown() -> None:
+    """The flake in test_confirm_then_yes: a `_changed()` (the 2 s check, a guard poll,
+    a frame from the brain) that runs while the capture child is still being spawned
+    must not leave a closed state ("thinking", "paused") on the tray once the child runs.
+    Checked when the child has started, not only at set_state calls."""
+
+    async def body(rig: Rig, lst: Listener) -> None:
+        await until(lambda: rig.mic_open)
+        await asyncio.sleep(0.1)
+
+    rig = Rig()
+    real = rig.capture
+    violations: list[str] = []
+
+    def capture() -> CaptureProcess:
+        proc = real()
+        start = proc.start
+
+        async def slow_start() -> None:
+            assert rig.listener is not None
+            rig.listener._changed()  # a check arrives while the child is being spawned
+            await asyncio.sleep(0.05)
+            await start()
+            if (state := rig.indicator.states[-1]) not in MIC_OPEN_STATES:
+                violations.append(f"child running while {state!r} is shown")
+
+        proc.start = slow_start  # type: ignore[method-assign]
+        return proc
+
+    rig.capture = capture  # type: ignore[method-assign]
+    asyncio.run(rig.run(body))
+    assert violations == []
