@@ -358,3 +358,66 @@ connections outside this computer and nothing written outside the project folder
 - **The start-at-login file lives outside the project folder,** so the owner approves it or
   runs the install command personally. Why: the stay-inside-the-folder rule.
 
+## 2026-11-14 — Wake word listener: approved design (three branches in progress, none merged)
+
+Summary of the design that passed review (two rounds). Opt-in until the measurement plan passes.
+
+- **Shape:** `sasha listen` is a thin always-on listener process, the first satellite. It
+  sends gated speech to the brain's existing WebSocket and plays the reply itself. It never
+  starts a brain (one voice brain on the GPU). `sasha autostart` sets up start at login.
+  Branches: `feat/wake-server` (brain side), `feat/wake-listener` (the program) and
+  `feat/wake-indicator` (tray icon and two short sounds).
+- **Detection v1 is by transcription:** the brain's existing speech-to-text transcribes each
+  gated segment, and a gate accepts only if the first word is the name (or a configured
+  variant). The name comes from config, never hard-coded. "Name, command" runs the command in
+  the same pass; the name alone arms a 5 s window for the next segment. Why: nothing new to
+  train or install to get a working loop on this laptop. A trained on-device wake-word model
+  can replace it later, and is the only design for other devices over Wi-Fi.
+- **Rejected:** the name mid-sentence or at the end, possessives and continuations, near names
+  (exact word match only), and the name alone with low speech-to-text confidence. A 3 s
+  cool-down follows any turn.
+- **Visible sign, fail closed.** The tray icon lives in the listener's process, and the
+  microphone opens only while the icon is confirmed shown. If the indicator, the screen-lock
+  state or the session state can't be read, the listener refuses to capture. The checks are
+  proved at start and polled about every 2 s, not just subscribed to. Why: a subscription to a
+  wrong signal name succeeds silently.
+- **Pause closes the microphone for real** (the capture process is killed). It is also paused
+  on screen lock, on suspend, on battery (default on) and while anything is speaking, plus a
+  short margin. Why: half-duplex stops the assistant hearing itself, including across sockets.
+- **Non-wake audio and its transcript are dropped:** never logged, stored, sent to the LLM or
+  returned to the client. Dropping is structural: the wake handler has no reference to the
+  assistant or to the telemetry text API. The listener writes no files. A debug audio dump
+  exists only behind a CLI flag for that run, with a distinct tray state.
+- **A short sound on every wake.** Why: a fullscreen app hides the icon.
+- **Abuse limits on the wake path, enforced on the server whatever the bot settings say:**
+  read-only by default. After the owner switches on device control for voice once in the Bots
+  screen (never by a tool or a model), a single light, fan or media player acts directly.
+  "All", any scene, or more than 3 distinct devices in one request ask for a spoken yes.
+  Switches are never controlled by voice in this version. Volume is capped at 0.6. At most
+  six device calls per minute. Why: no speaker check yet, so a stranger or a television gets
+  no more than the lowest-risk actions.
+- **Start at login through systemd user units generated inside the project** (`Data/
+  autostart/`). `sasha autostart` shows both files and the exact link paths first, and
+  reports the undo command. The brain unit starts with the graphical session, so an SSH login
+  doesn't load the model onto the GPU. The listener unit doesn't require the brain, so a brain
+  restart doesn't take the listener down; it goes offline and reconnects.
+- **One reserved socket for the listener,** so the window's tab cap is unchanged.
+- **Stays opt-in until the measurement plan passes:** false accepts over 8 h of mixed audio
+  (at most 1, plus 0 on name-in-sentence audio), accept rate at 1, 3 and 5 m (at least 90%),
+  microphone-closed checks, echo (0 wakes from the window's own speech), cost and power, and
+  latency (within 0.6 s of the spoken-turn median).
+- **New dependency approved by the reviewer:** jeepney (MIT) for the tray icon. Its licence
+  row is added when the branch merges.
+- **Limits of v1, stated plainly:** anyone in earshot or a television can trigger the same
+  device commands as typed chat, within the limits above. A false wake on the name alone makes
+  the next sentence a command. In a fullscreen app only the sound shows a wake.
+
+## 2026-11-14 — Owner decisions on wake word and voice control
+
+- **Wake phrase: the name alone,** read from config. The owner confirmed it is workable.
+- **What voice may control:** read-only by default; after the owner switches on device control
+  for voice once in the Bots screen, the limits above apply. Why: the owner chose the first
+  option offered.
+- **Start at login:** the owner allowed a session to create the start-at-login link. See the
+  team rule "One allowed write outside the project".
+
