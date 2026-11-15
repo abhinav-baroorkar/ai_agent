@@ -63,24 +63,35 @@ def pcm16_to_float(audio: AudioChunk) -> NDArray[np.float32]:
     return np.frombuffer(audio, dtype="<i2").astype(np.float32) / 32768.0
 
 
+# Case-sensitive on purpose: these are the CTranslate2/CUDA runtime's own phrasings.
 _DEVICE_ERROR = re.compile(
-    r"CUDA|cuBLAS|CUBLAS|cuDNN|CUDNN|out of memory|libcu\w*\.so|device-side|GPU", re.I
+    r"CUDA (error|failed)|CUBLAS_STATUS_\w+|CUDNN_STATUS_\w+|cuDNN|out of memory"
+    r"|libcu\w+\.so|device-side assert"
 )
+_CUDA_LIBRARY = re.compile(r"libcu\w+\.so")
+_QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
 GPU_STRIKES = 3  # consecutive GPU failures before STT stays on the CPU until restart
 
 
 def is_device_error(exc: BaseException) -> bool:
-    """A failure of the GPU or its libraries (e.g. CUDA out of memory), not of the input."""
-    return isinstance(exc, (RuntimeError, OSError)) and bool(_DEVICE_ERROR.search(str(exc)))
+    """A failure of the GPU or its libraries (e.g. CUDA out of memory), not of the input.
+    An OSError counts only when it names a CUDA library (libcu*.so), so a missing model
+    file is not mistaken for a GPU problem."""
+    text = str(exc)
+    if isinstance(exc, OSError):
+        return bool(_CUDA_LIBRARY.search(text))
+    return isinstance(exc, RuntimeError) and bool(_DEVICE_ERROR.search(text))
 
 
 def safe_reason(exc: BaseException) -> str:
     """Text that is safe to log. CTranslate2/CUDA device errors come from the C++ runtime
-    and carry no audio or transcript, so their message is kept (printable ASCII, at most
-    160 chars). For anything else only the exception type is logged."""
+    and carry no audio or transcript, so their message is kept, with any quoted part
+    replaced by <quoted>, as printable ASCII of at most 160 chars. For anything else
+    only the exception type is logged."""
     if not is_device_error(exc):
         return type(exc).__name__
-    message = "".join(c if 32 <= ord(c) < 127 else "?" for c in str(exc))[:160]
+    unquoted = _QUOTED.sub("<quoted>", str(exc))
+    message = "".join(c if 32 <= ord(c) < 127 else "?" for c in unquoted)[:160]
     return f"{type(exc).__name__}: {message}"
 
 
@@ -95,7 +106,13 @@ class FasterWhisperSTT:
     the GPU) fall back to a CPU int8 model for that request. The CPU model is built
     once, on first need, and kept. Later requests try the GPU again; after
     `GPU_STRIKES` consecutive GPU failures the stage stays on the CPU until restart.
-    `model_version()` reports the device the last request really used."""
+    After a fallback both models stay loaded (GPU memory for one, ~0.5 GB of RAM for
+    the CPU model) until restart.
+
+    `model_version()` reports the device the last request really used. That state is
+    shared by the whole stage, so with several sockets another socket's turn can run
+    between this turn's transcription and the moment its telemetry reads the version;
+    the recorded device can then belong to that other turn."""
 
     def __init__(
         self,

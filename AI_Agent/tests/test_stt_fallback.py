@@ -87,14 +87,28 @@ def test_device_errors_are_recognised() -> None:
     assert is_device_error(OSError("Library libcublas.so.12 is not found or cannot be loaded"))
     assert not is_device_error(RuntimeError("something else"))
     assert not is_device_error(ValueError(OOM))
+    # Review S1: words like "GPU" in user text, or a missing file, are not device errors.
+    assert not is_device_error(
+        RuntimeError("Invalid token in 'please switch on the GPU fan in the study'")
+    )
+    assert not is_device_error(
+        FileNotFoundError(2, "No such file or directory", "/models/voice-gpu/config.json")
+    )
+    assert is_device_error(RuntimeError("CUDA error: device-side assert triggered"))
+    assert is_device_error(RuntimeError("cuDNN failed with status CUDNN_STATUS_INTERNAL_ERROR"))
 
 
 def test_safe_reason_keeps_device_messages_only() -> None:
     assert safe_reason(RuntimeError(OOM)) == f"RuntimeError: {OOM}"
     assert safe_reason(ValueError(SECRET)) == "ValueError"
     assert safe_reason(RuntimeError(SECRET)) == "RuntimeError"
-    long = safe_reason(RuntimeError("CUDA " + "x" * 500 + "\né"))
+    quoted = safe_reason(RuntimeError(f"CUDA failed with error out of memory near '{SECRET}'"))
+    assert quoted == "RuntimeError: CUDA failed with error out of memory near <quoted>"
+    double = safe_reason(RuntimeError(f'CUDA error: bad value "{SECRET}" in kernel'))
+    assert "4321" not in double and "<quoted>" in double
+    long = safe_reason(RuntimeError("CUDA error " + "x" * 500 + "\né"))
     assert len(long) <= len("RuntimeError: ") + 160 and "\n" not in long
+    assert long.startswith("RuntimeError: CUDA error xxx")  # still a device error
 
 
 def test_oom_falls_back_to_cpu_for_that_request(
