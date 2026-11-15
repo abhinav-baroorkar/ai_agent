@@ -141,3 +141,44 @@ def test_the_proxy_logs_no_hosts(caplog: Any) -> None:
             (b"CONNECT secret-host.example:443 HTTP/1.1\r\n\r\n", b""),
         )
     assert "secret-host" not in caplog.text and "10.9.9.9" not in caplog.text
+
+
+def test_out_of_range_port_is_a_400_not_a_crash() -> None:
+    """Review BC4."""
+    req = b"GET http://public.example:99999/ HTTP/1.1\r\nHost: x\r\n\r\n"
+    out, proxy, connected = run({"public.example": [PUBLIC]}, (req, b""))
+    assert out[0].startswith(b"HTTP/1.1 400") and connected == [] and proxy.stats.bad_requests == 1
+
+
+def test_connections_are_capped() -> None:
+    async def main() -> bytes:
+        proxy = FilteringProxy(max_connections=1)
+        port = await proxy.start()
+        try:
+            _idle_r, idle_w = await asyncio.open_connection("127.0.0.1", port)  # holds the slot
+            reply = await ask(port, b"CONNECT x.example:443 HTTP/1.1\r\n\r\n")
+            idle_w.close()
+            assert proxy.stats.over_capacity == 1
+            return reply
+        finally:
+            await proxy.stop()
+
+    assert asyncio.run(main()).startswith(b"HTTP/1.1 503")
+
+
+def test_one_request_per_plain_http_connection() -> None:
+    """Review BC5: a second request on the same client connection is not forwarded."""
+    first = b"GET http://public.example/one HTTP/1.1\r\nHost: public.example\r\n\r\n"
+    second = b"GET http://other.example/two HTTP/1.1\r\nHost: other.example\r\n\r\n"
+    out, _, connected = run({"public.example": [PUBLIC]}, (first + second, b""))
+    assert out[0].startswith(b"ECHO:GET /one ") and b"/two" not in out[0]
+    assert connected == [f"{PUBLIC}:80"]
+
+
+def test_request_bodies_are_bounded_and_chunked_is_refused() -> None:
+    post = b"POST http://public.example/f HTTP/1.1\r\nHost: p\r\nContent-Length: 5\r\n\r\nhello"
+    chunked = b"POST http://public.example/f HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"
+    huge = b"POST http://public.example/f HTTP/1.1\r\nContent-Length: 999999999\r\n\r\n"
+    out, _, _ = run({"public.example": [PUBLIC]}, (post, b""), (chunked, b""), (huge, b""))
+    assert out[0].startswith(b"ECHO:POST /f ") and out[0].endswith(b"hello")
+    assert out[1].startswith(b"HTTP/1.1 501") and out[2].startswith(b"HTTP/1.1 400")

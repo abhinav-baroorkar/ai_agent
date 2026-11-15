@@ -8,7 +8,7 @@ import ipaddress
 import pytest
 
 from sasha.browser.guard import check_ip, parse_ip, resolve
-from sasha.browser.origin import check_open_url, normalise, search_url
+from sasha.browser.origin import SearchRefusedError, check_open_url, normalise, search_url
 
 REFUSED = {
     # host string: category
@@ -52,6 +52,15 @@ REFUSED = {
     "fd00::1": "private",
     "fc00::1": "private",
     "ff02::1": "multicast",
+    # review BC3: IPv4-compatible, IPv4-translated and site-local forms
+    "::7f00:1": "loopback",
+    "::127.0.0.1": "loopback",
+    "::ffff:0:7f00:1": "loopback",
+    "::ffff:0:a00:1": "private",
+    "::808:808": "reserved",  # deprecated form, never "ok" even for a public address
+    "fec0::1": "private",
+    "64:ff9b::808:808": "reserved",  # NAT64 even to a public address: Python marks the
+    # range reserved; refusing is the safe side, and this laptop has no NAT64 anyway
 }
 
 
@@ -63,7 +72,7 @@ def test_refused_addresses(host: str, why: str) -> None:
     assert not verdict.allowed and verdict.category == why, (host, verdict)
 
 
-@pytest.mark.parametrize("host", ["8.8.8.8", "1.1.1.1", "2606:4700::1111", "64:ff9b::808:808"])
+@pytest.mark.parametrize("host", ["8.8.8.8", "1.1.1.1", "2606:4700::1111"])
 def test_public_addresses_pass(host: str) -> None:
     ip = parse_ip(host)
     assert ip is not None and check_ip(ip).allowed
@@ -143,19 +152,49 @@ def test_bare_host_and_query_written_by_the_owner() -> None:
     assert not check_open_url("https://example.org/news?id=8", owner).allowed
 
 
-def test_search_template_and_wake_turns() -> None:
+def test_search_is_built_by_the_server_only() -> None:
+    """Review BC2: no model-written search URL is ever accepted."""
     url = search_url(SEARCH, "weather in Pune")
-    assert check_open_url(url, [], search_template=SEARCH).reason == "search"
+    assert url == "https://duckduckgo.com/html/?q=weather+in+Pune"
+    for model_url in (url, url + "&extra=leak", "https://duckduckgo.com/html/#frag"):
+        assert not check_open_url(model_url, ["what's the weather?"]).allowed
+    for shortcut in ("!w Pune", "  !g x", "\\ first result"):
+        with pytest.raises(SearchRefusedError):
+            search_url(SEARCH, shortcut)
+    with pytest.raises(SearchRefusedError):
+        search_url(SEARCH, "   ")
+    with pytest.raises(ValueError):
+        search_url("https://example.org/search", "x")
+
+
+def test_wake_turns_get_no_raw_urls() -> None:
     owner = ["open https://en.wikipedia.org/wiki/Pune"]
     raw = check_open_url("https://en.wikipedia.org/wiki/Pune", owner, wake_turn=True)
     assert not raw.allowed and raw.reason == "wake_turn_raw_url"
     allowed = check_open_url(
-        "https://en.wikipedia.org/wiki/Pune", owner, wake_turn=True, allowlist=["en.wikipedia.org"]
+        "https://en.wikipedia.org/wiki/Pune#x",
+        owner,
+        wake_turn=True,
+        allowlist=["en.wikipedia.org"],
     )
-    assert allowed.allowed and allowed.reason == "allowlist"
-    assert check_open_url(url, [], wake_turn=True, search_template=SEARCH).allowed
-    with pytest.raises(ValueError):
-        search_url("https://example.org/search", "x")
+    assert allowed.allowed and allowed.url == "https://en.wikipedia.org/wiki/Pune"
+    with_query = check_open_url(
+        "https://en.wikipedia.org/w?leak=1", owner, wake_turn=True, allowlist=["en.wikipedia.org"]
+    )
+    assert not with_query.allowed
+
+
+def test_the_url_opened_is_rebuilt_from_the_owners_words() -> None:
+    """Review BC1: the model's fragment or extra query never reaches Chrome."""
+    owner = ["show me example.com/news/today and example.org/p?id=3#part2"]
+    v = check_open_url("https://example.com/news/today#anything-the-model-wants", owner)
+    assert v.allowed and v.url == "https://example.com/news/today"
+    assert not check_open_url("https://example.com/news/today?x=1", owner).allowed
+    kept = check_open_url("example.org/p", owner)
+    assert kept.allowed and kept.url == "https://example.org/p?id=3#part2"  # the owner's own
+    assert check_open_url("http://example.com/news/today", owner).url == (
+        "https://example.com/news/today"  # the owner's scheme, not the model's
+    )
 
 
 def test_normalise() -> None:

@@ -27,6 +27,8 @@ HEAD_LIMIT = 16 * 1024
 HEAD_TIMEOUT_S = 10.0
 CONNECT_TIMEOUT_S = 10.0
 IDLE_TIMEOUT_S = 120.0
+MAX_CONNECTIONS = 256
+MAX_BODY = 1024 * 1024  # phase 1 is read-only; a larger request body is refused
 _HOP_HEADERS = {b"proxy-connection", b"proxy-authorization", b"connection", b"keep-alive"}
 
 
@@ -37,15 +39,20 @@ class ProxyStats:
     allowed: int = 0
     refused: Counter[str] = field(default_factory=Counter)
     bad_requests: int = 0
+    over_capacity: int = 0
     bytes_in: int = 0
     bytes_out: int = 0
 
 
 class FilteringProxy:
-    def __init__(self, resolver: Resolver = system_resolver) -> None:
+    def __init__(
+        self, resolver: Resolver = system_resolver, max_connections: int = MAX_CONNECTIONS
+    ) -> None:
         self.resolver = resolver
+        self.max_connections = max_connections
         self.stats = ProxyStats()
         self._server: asyncio.base_events.Server | None = None
+        self._active = 0
 
     @property
     def port(self) -> int:
@@ -63,14 +70,23 @@ class FilteringProxy:
             self._server = None
 
     async def _handle(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        self._active += 1
         try:
+            if self._active > self.max_connections:
+                self.stats.over_capacity += 1
+                return await self._reply(writer, 503, "busy")
             head = await asyncio.wait_for(reader.readuntil(b"\r\n\r\n"), HEAD_TIMEOUT_S)
             await self._serve(head, reader, writer)
         except (asyncio.IncompleteReadError, asyncio.LimitOverrunError, asyncio.TimeoutError):
             self.stats.bad_requests += 1
+        except ValueError:  # e.g. a port out of range in the URL
+            self.stats.bad_requests += 1
+            with contextlib.suppress(Exception):
+                await self._reply(writer, 400, "")
         except (ConnectionError, OSError):
             pass
         finally:
+            self._active -= 1
             with contextlib.suppress(Exception):
                 writer.close()
                 await writer.wait_closed()
@@ -95,22 +111,36 @@ class FilteringProxy:
             await writer.drain()
             return await self._pipe(reader, writer, *upstream)
         parts = urlsplit(target)
+        try:
+            port = parts.port or 80
+        except ValueError:  # e.g. http://host:99999/
+            return await self._reply(writer, 400, "bad_request")
         if parts.scheme != "http" or not parts.hostname:
             return await self._reply(writer, 400, "bad_request")
-        upstream = await self._open(parts.hostname, parts.port or 80, writer)
+        headers = [h for h in rest.split(b"\r\n") if h]
+        names = {h.split(b":", 1)[0].strip().lower(): h for h in headers}
+        if b"transfer-encoding" in names:
+            return await self._reply(writer, 501, "bad_request")  # no chunked request bodies
+        length = _content_length(names.get(b"content-length"))
+        if length is None:
+            return await self._reply(writer, 400, "bad_request")
+        body = await asyncio.wait_for(reader.readexactly(length), HEAD_TIMEOUT_S) if length else b""
+        upstream = await self._open(parts.hostname, port, writer)
         if upstream is None:
             return None
         path = parts.path or "/"
         if parts.query:
             path += "?" + parts.query
-        headers = [h for h in rest.split(b"\r\n") if h]
         kept = [h for h in headers if h.split(b":", 1)[0].strip().lower() not in _HOP_HEADERS]
         request = f"{method} {path} {version}\r\n".encode("latin-1")
-        request += b"\r\n".join([*kept, b"Connection: close"]) + b"\r\n\r\n"
+        request += b"\r\n".join([*kept, b"Connection: close"]) + b"\r\n\r\n" + body
         up_reader, up_writer = upstream
         up_writer.write(request)
         await up_writer.drain()
-        return await self._pipe(reader, writer, up_reader, up_writer)
+        # One request per client connection: nothing more the client sends on it is
+        # forwarded (a second request would reach this same, already-vetted upstream).
+        # The upstream closes after its answer (Connection: close) and so do we.
+        return await self._pipe(None, writer, up_reader, up_writer)
 
     async def _open(
         self, host: str, port: int, writer: asyncio.StreamWriter
@@ -138,14 +168,21 @@ class FilteringProxy:
             log.info("Browser request refused (%s)", why)
         elif why == "bad_request":
             self.stats.bad_requests += 1
-        reason = {400: "Bad Request", 403: "Forbidden", 431: "Too Large", 502: "Bad Gateway"}
+        reason = {
+            400: "Bad Request",
+            403: "Forbidden",
+            431: "Too Large",
+            501: "Not Implemented",
+            502: "Bad Gateway",
+            503: "Busy",
+        }
         writer.write(f"HTTP/1.1 {status} {reason[status]}\r\nContent-Length: 0\r\n\r\n".encode())
         with contextlib.suppress(ConnectionError):
             await writer.drain()
 
     async def _pipe(
         self,
-        reader: asyncio.StreamReader,
+        reader: asyncio.StreamReader | None,
         writer: asyncio.StreamWriter,
         up_reader: asyncio.StreamReader,
         up_writer: asyncio.StreamWriter,
@@ -165,4 +202,18 @@ class FilteringProxy:
                 with contextlib.suppress(Exception):
                     dst.close()
 
+        if reader is None:
+            await copy(up_reader, writer, False)
+            return
         await asyncio.gather(copy(reader, up_writer, True), copy(up_reader, writer, False))
+
+
+def _content_length(header: bytes | None) -> int | None:
+    """The request body length (0 when absent); None if invalid or too large."""
+    if header is None:
+        return 0
+    value = header.split(b":", 1)[1].strip()
+    if not value.isdigit():
+        return None
+    length = int(value)
+    return length if length <= MAX_BODY else None

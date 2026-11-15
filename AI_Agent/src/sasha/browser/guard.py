@@ -21,6 +21,8 @@ from dataclasses import dataclass
 IP = ipaddress.IPv4Address | ipaddress.IPv6Address
 ALLOWED_PORTS = frozenset({80, 443})
 NAT64 = ipaddress.ip_network("64:ff9b::/96")
+IPV4_COMPATIBLE = ipaddress.ip_network("::/96")  # deprecated ::a.b.c.d
+IPV4_TRANSLATED = ipaddress.ip_network("::ffff:0:0:0/96")  # SIIT ::ffff:0:a.b.c.d
 NAT64_LOCAL = ipaddress.ip_network("64:ff9b:1::/48")
 METADATA = ipaddress.ip_address("169.254.169.254")
 
@@ -80,7 +82,8 @@ def _number(part: str) -> int:
 
 
 def embedded_ipv4(ip: ipaddress.IPv6Address) -> list[ipaddress.IPv4Address]:
-    """IPv4 addresses an IPv6 address carries (mapped, 6to4, Teredo, NAT64)."""
+    """IPv4 addresses an IPv6 address carries (mapped, IPv4-compatible, IPv4-translated,
+    6to4, Teredo, NAT64)."""
     found: list[ipaddress.IPv4Address] = []
     if ip.ipv4_mapped is not None:
         found.append(ip.ipv4_mapped)
@@ -88,7 +91,8 @@ def embedded_ipv4(ip: ipaddress.IPv6Address) -> list[ipaddress.IPv4Address]:
         found.append(ip.sixtofour)
     if ip.teredo is not None:
         found.extend(ip.teredo)
-    if ip in NAT64:
+    compatible = ip in IPV4_COMPATIBLE and not (ip.is_loopback or ip.is_unspecified)
+    if ip in NAT64 or compatible or ip in IPV4_TRANSLATED:
         found.append(ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF))
     return found
 
@@ -98,8 +102,16 @@ def category(ip: IP) -> str:
     if isinstance(ip, ipaddress.IPv6Address):
         if ip in NAT64_LOCAL:
             return "nat64"
-        for inner in embedded_ipv4(ip):
-            if (why := category(inner)) != "ok":
+        if ip.is_site_local:
+            return "private"  # fec0::/10, deprecated site-local
+        legacy = ip in IPV4_TRANSLATED or (
+            ip in IPV4_COMPATIBLE and not (ip.is_loopback or ip.is_unspecified)
+        )
+        if legacy:  # deprecated forms: the inner address's reason, else never "ok"
+            why = category(ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF))
+            return why if why != "ok" else "reserved"
+        for embedded in embedded_ipv4(ip):
+            if (why := category(embedded)) != "ok":
                 return why
     if ip == METADATA:
         return "metadata"
@@ -113,7 +125,7 @@ def category(ip: IP) -> str:
         return "multicast"
     if ip.is_private:
         return "private"
-    if not ip.is_global:
+    if not ip.is_global or ip.is_reserved:
         return "reserved"  # shared/CGNAT, benchmarking, 240/4, 100::/64, ...
     return "ok"
 
