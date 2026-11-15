@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="css/home.css">
 <link rel="stylesheet" href="css/work.css">
 <link rel="stylesheet" href="css/chat.css">
+<link rel="stylesheet" href="css/timers.css">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -23,6 +24,9 @@
     <symbol id="i-chat" viewBox="0 0 24 24"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4A2.5 2.5 0 0 1 4 13.5z"/></symbol>
     <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3v5M15 3v5M6.5 8h11v3.5a5.5 5.5 0 0 1-11 0zM12 17v4"/></symbol>
     <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 7h11M8 12h11M8 17h11M4.5 7h.01M4.5 12h.01M4.5 17h.01"/></symbol>
+    <symbol id="i-timer" viewBox="0 0 24 24"><circle cx="12" cy="13.5" r="7"/><path d="M12 13.5V9.5M9.5 3h5M12 3v3.5"/></symbol>
+    <symbol id="i-alarm" viewBox="0 0 24 24"><path d="M6.5 16.5v-5a5.5 5.5 0 0 1 11 0v5l1.5 2H5zM10 20.5a2 2 0 0 0 4 0"/></symbol>
+    <symbol id="i-note" viewBox="0 0 24 24"><path d="M6 4h12v16l-6-3.5L6 20z"/></symbol>
     <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
   </defs>
 </svg>
@@ -30,6 +34,18 @@
 <button id="mic-on" class="mic-on" type="button" hidden>
   <span class="dot"></span>Microphone is on<span class="mic-on-stop">Stop</span>
 </button>
+
+<div id="ring-bar" class="ring-bar" role="alert" hidden>
+  <svg class="ico"><use id="ring-icon" href="#i-timer"/></svg>
+  <span id="ring-text" class="ring-text"></span>
+  <span class="ring-snooze" role="group" aria-label="Snooze">
+    <span>Snooze</span>
+    <button class="btn small" type="button" data-snooze="5">5</button>
+    <button class="btn small" type="button" data-snooze="10">10</button>
+    <button class="btn small" type="button" data-snooze="15">15 min</button>
+  </span>
+  <button id="ring-stop" class="btn ring-stop" type="button">Stop <kbd>Esc</kbd></button>
+</div>
 
 <div id="offline" class="banner" role="status" hidden>
   <span class="dot"></span><span id="offline-text">Offline. Trying to reconnect…</span>
@@ -47,6 +63,15 @@
       <a class="btn quiet" href="#settings"><svg class="ico"><use href="#i-plug"/></svg>Settings</a>
     </nav>
   </header>
+
+  <section id="timers" class="timers" aria-labelledby="timers-title" data-empty="true">
+    <h2 id="timers-title" class="eyebrow">Timers and reminders</h2>
+    <ul id="timer-list" class="timer-list"></ul>
+    <p id="timers-empty" class="timers-empty">Nothing is set. Just ask, for example “set a timer for ten minutes”.</p>
+    <details id="timers-done" hidden><summary></summary><ul id="timer-done-list" class="timer-list"></ul></details>
+    <p id="timers-error" class="form-error" role="status" hidden></p>
+    <button id="mock-ring" class="btn small quiet" type="button" hidden>Mock: make one ring</button>
+  </section>
 
   <div class="stage">
     <div id="face" class="face" data-state="idle" role="img" aria-label="Assistant">

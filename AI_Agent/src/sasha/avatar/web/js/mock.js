@@ -1,6 +1,7 @@
 // In-browser stand-in for the brain server, used with ?mock=1.
 // Follows Dependencies/team/api-contract.md (v0) message for message.
 import * as data from './mock-data.js';
+import * as timers from './mock-timers.js';
 
 const params = new URLSearchParams(location.search);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -54,6 +55,7 @@ export async function mockFetch(method, path, body) {
       return { ok: false, message: c.detail };
     }
   }
+  if (kind === 'timers') return timers.timersFetch(method, id, action, body, fail);
   throw fail(404, 'Not found.');
 }
 
@@ -81,6 +83,9 @@ export class MockSocket {
     this.heardTimer = null;
     this.run = 0;
     setTimeout(() => this.onopen && this.onopen(), 150);
+    timers.attach(this);
+    // ?mock=1&ring=1 makes the first timer ring a few seconds after the page opens.
+    if (params.has('ring') && speak) setTimeout(() => timers.ring(params.get('ring')), 3500);
     // ?mock=1&drop=1 drops the first connection once, to show the offline state.
     if (params.has('drop') && !MockSocket.dropped) {
       MockSocket.dropped = true;
@@ -111,6 +116,7 @@ export class MockSocket {
   }
 
   close() {
+    timers.detach(this);
     if (this.counted) MockSocket.open--;
     this.counted = false;
     this.stopAll();
@@ -120,6 +126,7 @@ export class MockSocket {
   send(raw) {
     if (typeof raw !== 'string') return; // mic frames: the mock ignores the sound
     const msg = JSON.parse(raw);
+    timers.onFrame(msg);
     if (msg.type === 'text') this.answer(pick(msg.text, this), false);
     if (msg.type === 'audio_start') this.listen();
     if (msg.type === 'audio_stop') this.heardDone();
