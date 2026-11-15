@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
+
+from sasha.browser.redirects import short
 
 PART_CHARS = 10_000
 NAME_CHARS = 160
@@ -83,7 +85,13 @@ def _value(node: dict[str, Any], key: str) -> str:
     return str(value) if value is not None else ""
 
 
-def read_tree(nodes: Iterable[dict[str, Any]], title: str = "") -> PageView:
+def read_tree(
+    nodes: Iterable[dict[str, Any]],
+    title: str = "",
+    destinations: Mapping[int, str] | None = None,
+) -> PageView:
+    """`destinations` maps a link's DOM node id to where it really leads (already
+    unwrapped from search redirects), shown after the link as `→ host/path`."""
     by_id = {str(n.get("nodeId")): n for n in nodes}
     children = {nid: [str(c) for c in n.get("childIds", [])] for nid, n in by_id.items()}
     child_ids = {c for cs in children.values() for c in cs}
@@ -117,7 +125,9 @@ def read_tree(nodes: Iterable[dict[str, Any]], title: str = "") -> PageView:
                     elements[number] = Element(
                         number, role, name, int(backend) if backend is not None else None
                     )
-                    lines.append(f'[{number}] {role} "{name}"')
+                    dest = (destinations or {}).get(int(backend)) if backend is not None else None
+                    arrow = f" → {short(dest)}" if dest else ""
+                    lines.append(f'[{number}] {role} "{name}"{arrow}')
                 return  # an element's own children are its label, already in `name`
             if role in HEADINGS and name:
                 flush()

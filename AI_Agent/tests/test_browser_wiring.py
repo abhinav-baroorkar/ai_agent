@@ -82,7 +82,7 @@ class FakeTabs:
     opened: ClassVar[list[str]] = []
 
     def __init__(self, *args: Any) -> None:
-        pass
+        self.engine_host: str | None = None
 
     async def navigate(self, url: str, new_tab: bool = False) -> dict[str, Any]:
         FakeTabs.opened.append(url)

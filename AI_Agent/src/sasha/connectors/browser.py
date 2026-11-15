@@ -2,7 +2,7 @@
 
 Off by default; the owner ticks it per bot in the Bots screen. A bot with it can't also
 have a private-data connector (`browser.policy`, review B4). The only setting is the
-search engine template, empty until the owner chooses one.
+search engine template: DuckDuckGo's HTML results page by default, changeable.
 """
 
 from __future__ import annotations
@@ -27,6 +27,8 @@ TOOL_NAMES = [
     "switch_tab",
 ]
 _conversations = itertools.count(1)
+# DuckDuckGo's plain HTML results page (no scripts needed), chosen by the owner.
+DEFAULT_SEARCH = "https://html.duckduckgo.com/html/?q={q}"
 
 
 def check_template(value: Any) -> str:
@@ -58,7 +60,7 @@ class BrowserConnector:
         return False
 
     def default_settings(self) -> dict[str, Any]:
-        return {"search_template": ""}
+        return {"search_template": DEFAULT_SEARCH}  # the owner's choice; changeable
 
     def validate_settings(self, settings: dict[str, Any]) -> dict[str, Any]:
         unknown = set(settings) - {"search_template"}

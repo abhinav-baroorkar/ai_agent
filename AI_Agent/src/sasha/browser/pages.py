@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -19,8 +19,10 @@ from sasha.browser.backstop import LogOnlyBackstop
 from sasha.browser.cdp import CDPError, CDPPipe
 from sasha.browser.chrome import Chrome, new_page
 from sasha.browser.reader import PageView, clean, read_tree
+from sasha.browser.redirects import unwrap
 
 LOAD_TIMEOUT_S = 20.0
+MAX_DESTINATIONS = 150  # links whose destination is looked up per read
 MAX_TABS = 3
 TabHook = Callable[[CDPPipe, str], Awaitable[None]]  # tests serve pages via Fetch
 
@@ -35,6 +37,7 @@ class Tab:
     session_id: str
     loaded: asyncio.Event
     view: PageView | None = None
+    destinations: dict[int, str] = field(default_factory=dict)  # link number -> real URL
 
 
 def domain_of(url: str) -> str:
@@ -43,11 +46,16 @@ def domain_of(url: str) -> str:
 
 class BrowserTabs:
     def __init__(
-        self, chrome: Chrome, backstop: LogOnlyBackstop, on_tab: TabHook | None = None
+        self,
+        chrome: Chrome,
+        backstop: LogOnlyBackstop,
+        on_tab: TabHook | None = None,
+        engine_host: str | None = None,
     ) -> None:
         self.chrome = chrome
         self.backstop = backstop
         self.on_tab = on_tab
+        self.engine_host = engine_host  # result links on this site are unwrapped
         self.tabs: list[Tab] = []
         self.current = -1
         chrome.pipe.on("Page.loadEventFired", self._loaded)
@@ -115,11 +123,19 @@ class BrowserTabs:
 
     async def read(self, part: int = 1) -> dict[str, Any]:
         tab = await self.tab()
+        here = await self._evaluate(tab, "location.href")
         if tab.view is None or part == 1:
             title = await self._evaluate(tab, "document.title")
             tree = await self._call("Accessibility.getFullAXTree", None, tab)
-            tab.view = read_tree(tree.get("nodes", []), title=str(title or ""))
-        here = await self._evaluate(tab, "location.href")
+            nodes = tree.get("nodes", [])
+            first = read_tree(nodes, title=str(title or ""))
+            by_node = await self._destinations(tab, first, str(here or ""))
+            tab.view = read_tree(nodes, title=str(title or ""), destinations=by_node)
+            tab.destinations = {
+                n: by_node[e.backend_node_id]
+                for n, e in tab.view.elements.items()
+                if e.backend_node_id is not None and e.backend_node_id in by_node
+            }
         return {
             "site": domain_of(str(here or "")),
             "parts": len(tab.view.parts),
@@ -136,11 +152,34 @@ class BrowserTabs:
             raise PageError(f"No element [{number}] on this page")
         if element.role != "link" or element.backend_node_id is None:
             raise PageError(f"[{number}] is a {element.role}; only links can be used for now")
-        href = await self._href(tab, element.backend_node_id)
+        href = tab.destinations.get(number) or unwrap(
+            await self._href(tab, element.backend_node_id), "", self.engine_host
+        )
         if urlsplit(href).scheme not in ("http", "https"):
             raise PageError(f"[{number}] doesn't lead to a web page")
         self.backstop.click()
         return await self.navigate(href)
+
+    async def _destinations(self, tab: Tab, view: PageView, base: str) -> dict[int, str]:
+        """Where each link (the first MAX_DESTINATIONS) really leads: its href attribute,
+        resolved and unwrapped from the search engine's redirect. One call per link."""
+        found: dict[int, str] = {}
+        links = [e for e in view.elements.values() if e.role == "link" and e.backend_node_id]
+        for element in links[:MAX_DESTINATIONS]:
+            node_id = element.backend_node_id
+            assert node_id is not None
+            try:
+                info = await self._call("DOM.describeNode", {"backendNodeId": node_id}, tab)
+            except CDPError:
+                continue
+            attributes = info.get("node", {}).get("attributes", [])
+            pairs = dict(zip(attributes[::2], attributes[1::2], strict=False))
+            href = pairs.get("href")
+            if href:
+                target = unwrap(str(href), base, self.engine_host)
+                if urlsplit(target).scheme in ("http", "https"):
+                    found[node_id] = target
+        return found
 
     async def _href(self, tab: Tab, backend_node_id: int) -> str:
         try:

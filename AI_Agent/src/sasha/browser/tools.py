@@ -24,6 +24,7 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, TypeVar
+from urllib.parse import urlsplit
 
 from sasha.browser.backstop import LogOnlyBackstop
 from sasha.browser.leaks import QueryLeakError, check_query
@@ -112,6 +113,8 @@ class BrowserConversation:
                 if self.tabs is None or id(chrome) != self.chrome_id:  # (re)started browser
                     self.tabs = BrowserTabs(chrome, self.bridge.backstop, self.bridge.on_tab)
                     self.chrome_id = id(chrome)
+                # result links on the current engine's site are unwrapped (redirects.py)
+                self.tabs.engine_host = urlsplit(self.search_template or "").hostname
                 return await use(self.tabs)
 
         try:
