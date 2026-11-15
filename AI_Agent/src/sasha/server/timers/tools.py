@@ -166,8 +166,8 @@ class TimerTools:
         self, hours: Any = 0, minutes: Any = 0, seconds: Any = 0, label: Any = ""
     ) -> dict[str, Any]:
         label = self.check.label(clean_text(label, self.max_text))  # not "ten minutes"
-        self.check.delay(label)  # S2: "a timer for 2 eggs" says no length
         total = duration_s(hours, minutes, seconds)
+        self.check.delay(total, label)  # S2: "a timer for 2 eggs" says no length
         if not MIN_TIMER_S <= total <= self.service.config.max_timer_s:
             raise Ask("A timer is 5 seconds to 24 hours. Ask for another length.", "bad_value")
         due = self.service.clock() + total
@@ -232,8 +232,9 @@ class TimerTools:
             raise Ask("Give either in_hours/in_minutes or a clock time, not both.", "bad_value")
         now = self.service.now_local()
         if relative:  # T8: real seconds from now, like set_timer (not wall-clock time)
-            self.check.delay(words)  # S2: the reminder's own words aren't the delay
-            due = self.service.clock() + duration_s(in_hours, in_minutes, 0)
+            delay = duration_s(in_hours, in_minutes, 0)
+            self.check.delay(delay, words)  # S2: the reminder's own words aren't the delay
+            due = self.service.clock() + delay
             resolved = Resolved(datetime.fromtimestamp(due, self.service.zone))
         else:
             hour, period = self.check.clock(hour, period, words)  # S2, S4: nor its time

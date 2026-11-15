@@ -185,11 +185,19 @@ class SaidCheck:
         """A label that only restates the time is dropped (it isn't content)."""
         return "" if label and Said("", self.cues).only_time_words(label) else label
 
-    def delay(self, *content: str) -> None:
-        """(c) a delay needs a number or a duration word, outside the content."""
+    def delay(self, total_s: int, *content: str) -> None:
+        """(c) a delay needs a number or a duration word, outside the content; and a
+        "half" or "quarter" said must be in it ("two and a half minutes" sent as 2
+        minutes, found by the bench)."""
         words = self.words(*content)
-        if words is not None and not words.has_delay():
+        if words is None:
+            return
+        if not words.has_delay():
             raise Ask("The person didn't say how long. Ask.", "not_said")
+        for word, parts in (("half", (30, 1800)), ("quarter", (15, 45, 900, 2700))):
+            has_part = total_s % 60 in parts or total_s % 3600 in parts
+            if word in words.words and not has_part:
+                raise Ask(f"The {word} the person said is missing. Ask how long.", "not_said")
 
     def clock(self, hour: Any, period: Any, *content: str) -> tuple[Any, Any]:
         """(b), S5, (a), S3: the (hour, period) the words support, else ask."""

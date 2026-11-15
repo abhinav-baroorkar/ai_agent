@@ -141,6 +141,28 @@ def test_s4_a_cue_in_the_content_is_not_a_cue(tmp_path: Path) -> None:
 # --- S3: a cue that contradicts the period ------------------------------------------------------
 
 
+@pytest.mark.parametrize(
+    ("said", "args", "ok"),
+    [
+        ("Give me a timer for two and a half minutes.", {"minutes": 2}, False),  # the bench
+        ("Give me a timer for two and a half minutes.", {"minutes": 2, "seconds": 30}, True),
+        ("Set a timer for an hour and a half.", {"minutes": 90}, True),
+        ("A timer for a quarter of an hour.", {"minutes": 15}, True),
+        ("A timer for a quarter of an hour.", {"minutes": 25}, False),
+    ],
+)
+def test_a_half_or_quarter_said_must_be_in_the_delay(
+    tmp_path: Path, said: str, args: dict[str, Any], ok: bool
+) -> None:
+    service, _, _ = make_service(tmp_path)
+    if ok:
+        one(service, said, "set_timer", **args)
+        assert len(service.items) == 1
+    else:
+        with pytest.raises(TimerAsk):
+            one(service, said, "set_timer", **args)
+
+
 @pytest.mark.parametrize("said", ["At 6:15.", "Wake me at 6.15 please"])
 def test_minutes_are_no_evening_cue(tmp_path: Path, said: str) -> None:
     """Bench run of fdc7aa6: "At 6:15." with am made the 15 a pm cue (18:15, wrong)."""
