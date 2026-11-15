@@ -118,7 +118,10 @@ class FilteringProxy:
         if parts.scheme != "http" or not parts.hostname:
             return await self._reply(writer, 400, "bad_request")
         headers = [h for h in rest.split(b"\r\n") if h]
-        names = {h.split(b":", 1)[0].strip().lower(): h for h in headers}
+        header_names = [h.split(b":", 1)[0].strip().lower() for h in headers]
+        if header_names.count(b"content-length") > 1:
+            return await self._reply(writer, 400, "bad_request")  # request smuggling guard
+        names = dict(zip(header_names, headers, strict=True))
         if b"transfer-encoding" in names:
             return await self._reply(writer, 501, "bad_request")  # no chunked request bodies
         length = _content_length(names.get(b"content-length"))

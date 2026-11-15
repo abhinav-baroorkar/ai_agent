@@ -182,3 +182,12 @@ def test_request_bodies_are_bounded_and_chunked_is_refused() -> None:
     out, _, _ = run({"public.example": [PUBLIC]}, (post, b""), (chunked, b""), (huge, b""))
     assert out[0].startswith(b"ECHO:POST /f ") and out[0].endswith(b"hello")
     assert out[1].startswith(b"HTTP/1.1 501") and out[2].startswith(b"HTTP/1.1 400")
+
+
+def test_two_content_length_headers_are_refused() -> None:
+    req = (
+        b"POST http://public.example/f HTTP/1.1\r\nHost: p\r\nContent-Length: 5\r\n"
+        b"Content-Length: 50\r\n\r\nhello"
+    )
+    out, _, connected = run({"public.example": [PUBLIC]}, (req, b""))
+    assert out[0].startswith(b"HTTP/1.1 400") and connected == []

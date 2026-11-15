@@ -158,11 +158,15 @@ def test_search_is_built_by_the_server_only() -> None:
     assert url == "https://duckduckgo.com/html/?q=weather+in+Pune"
     for model_url in (url, url + "&extra=leak", "https://duckduckgo.com/html/#frag"):
         assert not check_open_url(model_url, ["what's the weather?"]).allowed
-    for shortcut in ("!w Pune", "  !g x", "\\ first result"):
+    for shortcut in ("!w Pune", "  !g x", "\\\\ first result", "pune !w", "pune w!", "a \\\\b c"):
         with pytest.raises(SearchRefusedError):
             search_url(SEARCH, shortcut)
     with pytest.raises(SearchRefusedError):
         search_url(SEARCH, "   ")
+    assert search_url(SEARCH, "rock & roll 2024") == (
+        "https://duckduckgo.com/html/?q=rock+%26+roll+2024"  # ordinary punctuation is fine
+    )
+
     with pytest.raises(ValueError):
         search_url("https://example.org/search", "x")
 
@@ -171,17 +175,14 @@ def test_wake_turns_get_no_raw_urls() -> None:
     owner = ["open https://en.wikipedia.org/wiki/Pune"]
     raw = check_open_url("https://en.wikipedia.org/wiki/Pune", owner, wake_turn=True)
     assert not raw.allowed and raw.reason == "wake_turn_raw_url"
+    allow = ["en.wikipedia.org/wiki/Pune", "news.example/today"]
     allowed = check_open_url(
-        "https://en.wikipedia.org/wiki/Pune#x",
-        owner,
-        wake_turn=True,
-        allowlist=["en.wikipedia.org"],
+        "https://en.wikipedia.org/wiki/Pune#x", owner, wake_turn=True, allowlist=allow
     )
     assert allowed.allowed and allowed.url == "https://en.wikipedia.org/wiki/Pune"
-    with_query = check_open_url(
-        "https://en.wikipedia.org/w?leak=1", owner, wake_turn=True, allowlist=["en.wikipedia.org"]
-    )
-    assert not with_query.allowed
+    # review: a model-chosen path on an allowlisted host could carry text
+    for bad in ("https://en.wikipedia.org/wiki/my-secret", "https://news.example/today?leak=1"):
+        assert not check_open_url(bad, owner, wake_turn=True, allowlist=allow).allowed, bad
 
 
 def test_the_url_opened_is_rebuilt_from_the_owners_words() -> None:

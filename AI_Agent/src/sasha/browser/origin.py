@@ -92,14 +92,16 @@ class SearchRefusedError(ValueError):
 def search_url(template: str, q: str) -> str:
     """The only way to search: the server builds the URL from the template and the
     model's `q`. A model-written search URL is never accepted (it could carry extra
-    parameters or a fragment). Queries starting with `!` or `\\` are refused: some
-    engines treat them as redirects to other sites."""
+    parameters or a fragment). Any word starting with `!` or `\\`, or ending with `!`,
+    is refused: engines treat such words as redirects to other sites, anywhere in the
+    query."""
     if template.count("{q}") != 1:
         raise ValueError("search template needs exactly one {q} placeholder")
     query = " ".join(q.split())[:200]
     if not query:
         raise SearchRefusedError("empty search")
-    if query.startswith(("!", "\\")):
+    if any(w.startswith(("!", "\\")) or w.endswith("!") for w in query.split()):
+        # engines accept bang shortcuts anywhere in the query ("pune !w"), not only first
         raise SearchRefusedError("search shortcuts that redirect are not allowed")
     return template.replace("{q}", quote_plus(query))
 
@@ -118,10 +120,11 @@ def check_open_url(
     if target is None:
         return OriginVerdict(False, "not_a_web_address")
     if wake_turn:
-        hosts = {a.host for a in (normalise(site) for site in allowlist) if a is not None}
-        if target.host in hosts and not target.query:
-            # an allowlisted site: its path only (no query, no fragment from the model)
-            return OriginVerdict(True, "allowlist", target.url(query="", fragment=""))
+        # Owner-set addresses only, path included: a model-chosen path on an allowed
+        # host could carry text. What opens is the owner's entry, rebuilt.
+        for entry in (normalise(site) for site in allowlist):
+            if entry is not None and entry.key == target.key and target.query in ("", entry.query):
+                return OriginVerdict(True, "allowlist", entry.url())
         return OriginVerdict(False, "wake_turn_raw_url")
     for owned in owner_addresses(user_messages):
         if owned.key == target.key and target.query in ("", owned.query):
