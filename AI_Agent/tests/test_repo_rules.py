@@ -47,22 +47,45 @@ def test_persona_name_not_hardcoded_in_source() -> None:
     assert not offenders, f"Persona name hard-coded in: {offenders}"
 
 
+METHOD_SEND = re.compile(r"\.send\s*\(")  # messages().send(...) / drafts().send(...)
 SEND_PATTERNS = [
     re.compile(r"def\s+\w*send\w*\s*\("),  # def send_message(...
-    re.compile(r"\.send\s*\("),  # messages().send(...) / drafts().send(...)
+    METHOD_SEND,
     re.compile(r"""["']send["']"""),  # getattr(x, "send"), tool name "send"
 ]
+# Files that may call a connection's own `.send(` because they write frames to a local
+# transport, not messages on the owner's behalf. Path (relative to AI_Agent/) -> reason.
+# Only the `.send(` pattern is relaxed for them; the other two stay forbidden everywhere.
+# A new entry needs the reviewer's OK. Nothing under tools/ or connectors/ may ever be here.
+TRANSPORT_SEND_ALLOWED = {
+    "src/sasha/listener/indicator/bus.py": (
+        "writes D-Bus messages to the local session bus (tray icon)"
+    ),
+}
+NEVER_ALLOWED_DIRS = ("src/sasha/tools/", "src/sasha/connectors/")
 
 
 def test_no_send_function_anywhere() -> None:
     """Drafts only: no code path may send email (or anything else) on the owner's behalf."""
+    agent = REPO_ROOT / "AI_Agent"
     offenders = [
         f"{p.relative_to(REPO_ROOT)}: {pat.pattern}"
-        for p in (REPO_ROOT / "AI_Agent/src").rglob("*.py")
+        for p in (agent / "src").rglob("*.py")
         for pat in SEND_PATTERNS
         if pat.search(p.read_text(encoding="utf-8"))
+        and not (pat is METHOD_SEND and p.relative_to(agent).as_posix() in TRANSPORT_SEND_ALLOWED)
     ]
     assert not offenders, f"Send-like code found: {offenders}"
+
+
+def test_transport_send_allowlist_is_narrow_and_current() -> None:
+    """Every exception names a real file with a reason, and never a tool or a connector."""
+    for path, reason in TRANSPORT_SEND_ALLOWED.items():
+        assert not path.startswith(NEVER_ALLOWED_DIRS), f"{path} may never be allowlisted"
+        assert reason.strip(), f"{path} needs a reason"
+        file = REPO_ROOT / "AI_Agent" / path
+        assert file.is_file(), f"Stale allowlist entry: {path}"
+        assert METHOD_SEND.search(file.read_text(encoding="utf-8")), f"{path} no longer needs it"
 
 
 def test_tmp_path_stays_inside_the_checkout(tmp_path: Path) -> None:
