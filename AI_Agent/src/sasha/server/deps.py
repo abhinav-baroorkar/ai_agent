@@ -17,6 +17,7 @@ from sasha.orchestrator import Assistant
 from sasha.pipeline.llm import LLM, OllamaLLM
 from sasha.pipeline.stt import SpeechToText
 from sasha.pipeline.tts import TextToSpeech
+from sasha.prompting import build_prompt, prompt_lines
 from sasha.server.speaking import ListenerPresence
 from sasha.server.voice import load_voice_stages
 from sasha.server.wake_policy import RateLimiter
@@ -57,8 +58,9 @@ class ServerDeps:
         if self.wake_limiter is None:
             self.wake_limiter = RateLimiter(self.settings.profile.wake.max_calls_per_minute)
 
-    def make_assistant(self, bot: Bot) -> tuple[Assistant, list[str]]:
-        """A fresh conversation for `bot`, with its connectors' tools and the clock."""
+    def make_assistant(self, bot: Bot, spoken: bool = False) -> tuple[Assistant, list[str]]:
+        """A fresh conversation for `bot`, with its connectors' tools and the clock. Its
+        prompt says what those tools can really do; `spoken` adds the spoken style."""
         token = building_for_bot.set(bot.id)  # the browser notes whose conversation it is
         try:
             tools, warnings = self.connectors.tools_for(bot.connectors)
@@ -71,9 +73,14 @@ class ServerDeps:
             self.make_llm(bot.model),
             tools,
             self.telemetry,
-            system_prompt=self.bots.prompt_for(bot),
+            system_prompt=self.prompt_for(bot, tools.names, spoken),
         )
         return assistant, warnings
+
+    def prompt_for(self, bot: Bot, tool_names: list[str], spoken: bool = False) -> str:
+        """The bot's own prompt plus the facts about these tools (prompting.py)."""
+        lines = prompt_lines(self.settings)
+        return build_prompt(self.bots.prompt_for(bot), tool_names, lines, spoken)
 
 
 def make_telemetry(settings: Settings) -> PlacementTelemetry:

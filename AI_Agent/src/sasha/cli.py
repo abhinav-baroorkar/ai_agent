@@ -14,6 +14,7 @@ from sasha import __version__
 from sasha.config import Settings, load_settings
 from sasha.orchestrator import Assistant, Reply, RequestFailed
 from sasha.pipeline.llm import OllamaError, OllamaLLM
+from sasha.prompting import build_prompt, prompt_lines
 from sasha.telemetry import TelemetryWriter, snapshot_resources
 from sasha.tools import build_tools
 from sasha.tools.home_assistant import HomeAssistantClient
@@ -36,7 +37,12 @@ def make_assistant(settings: Settings, small: bool = False) -> tuple[Assistant, 
         enabled=settings.profile.telemetry.enabled,
         log_text=settings.profile.telemetry.log_text,
     )
-    return Assistant(settings, make_llm(settings, small), tools, telemetry), warnings
+    # Text only, so no spoken style; the prompt says what these tools can really do.
+    prompt = build_prompt(
+        settings.assistant.render_system_prompt(), tools.names, prompt_lines(settings)
+    )
+    llm = make_llm(settings, small)
+    return Assistant(settings, llm, tools, telemetry, system_prompt=prompt), warnings
 
 
 def format_timing(reply: Reply) -> str:
