@@ -29,7 +29,7 @@ from sasha.orchestrator import Assistant, Reply
 from sasha.server.deps import ServerDeps
 from sasha.server.speaking import ListenerPresence
 from sasha.server.voice import MIC_SAMPLE_RATE, VoiceStages
-from sasha.server.wake import WakeGate, WakeMatcher, is_yes
+from sasha.server.wake import WakeGate, WakeMatcher, confirm_reason
 from sasha.server.wake_policy import RateLimiter, WakeToolPolicy
 from sasha.server.ws import Conversation
 from sasha.telemetry import TelemetryWriter
@@ -301,25 +301,31 @@ class ListenerConversation(Conversation):
                 if self.voice.speaking.speaking():
                     break
                 await asyncio.sleep(0.05)
+        # The window starts at the end of the question's speech (tts_end + tail).
         await self.voice.speaking.wait_quiet(CONFIRM_SPEECH_WAIT_S)
         self.confirm_waiter = self.loop.create_future()
         try:
             audio = await asyncio.wait_for(self.confirm_waiter, window)
         except asyncio.TimeoutError:
             self._record_tool("confirm_timeout")
-            return False
+            return self._confirm_result("timeout")
         finally:
             self.confirm_waiter = None
-        if not audio:
-            return False
+        if not audio:  # cancelled or disconnected
+            return self._confirm_result("no")
         try:
             async with self.voice.stt_lock:
                 answer = await asyncio.to_thread(self.stt.transcribe, audio, MIC_SAMPLE_RATE)
         except Exception:
-            return False
-        yes = is_yes(answer.text, self.config.yes_words)
-        del answer, audio  # the answer's text is not kept either
-        return yes
+            return self._confirm_result("unclear")
+        reason = confirm_reason(answer.text, self.config.yes_words, self.config.no_words)
+        del answer, audio  # the answer's text is not kept, like any other wake audio
+        return self._confirm_result(reason)
+
+    def _confirm_result(self, reason: str) -> bool:
+        accepted = reason == "yes"
+        self.emit({"type": "confirm_result", "accepted": accepted, "reason": reason})
+        return accepted
 
     def _resolve_confirm(self, audio: bytes) -> None:
         if self.confirm_waiter is not None and not self.confirm_waiter.done():

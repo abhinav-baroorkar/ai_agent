@@ -151,3 +151,13 @@ def is_yes(text: str, yes_words: Sequence[str]) -> bool:
     """A confirmation answer: only a clear yes counts; anything else is no."""
     first = re.match(r"\W*(\w+)", text.lower())
     return first is not None and first.group(1) in {w.lower() for w in yes_words}
+
+
+def confirm_reason(text: str, yes_words: Sequence[str], no_words: Sequence[str]) -> str:
+    """`yes`, `no` or `unclear` for a spoken answer. Only `yes` accepts."""
+    if is_yes(text, yes_words):
+        return "yes"
+    first = re.match(r"\W*([\w']+)", text.lower())
+    if first is not None and first.group(1) in {w.lower() for w in no_words}:
+        return "no"
+    return "unclear"

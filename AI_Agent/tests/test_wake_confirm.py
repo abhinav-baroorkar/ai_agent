@@ -97,6 +97,7 @@ def test_confirm_yes_runs_the_change(settings: Settings, tmp_path: Path, name: s
         "timeout_s": 5.0,
     }
     assert dev.calls == [{"domain": "light", "service": "turn_off", "entity_id": "all"}]
+    assert rest[0] == {"type": "confirm_result", "accepted": True, "reason": "yes"}
     assert {"type": "tool", "name": "call_service", "ok": True} in rest
     assert not any(
         f.get("type") == "wake" for f in rest if isinstance(f, dict)
@@ -105,18 +106,23 @@ def test_confirm_yes_runs_the_change(settings: Settings, tmp_path: Path, name: s
     assert decisions == ["confirm_asked", "confirm_yes", "allowed"]
 
 
-@pytest.mark.parametrize("answer", ["no", "turn on the fan instead"])
+@pytest.mark.parametrize(
+    ("answer", "reason"),
+    [("no", "no"), ("Nope.", "no"), ("turn on the fan instead", "unclear"), ("", "unclear")],
+)
 def test_confirm_anything_but_yes_refuses(
-    settings: Settings, tmp_path: Path, name: str, answer: str
+    settings: Settings, tmp_path: Path, name: str, answer: str, reason: str
 ) -> None:
     _, dev, _, rest = _confirm_turn(settings, tmp_path, name, answer)
     assert dev.calls == []
+    assert rest[0] == {"type": "confirm_result", "accepted": False, "reason": reason}
     assert {"type": "tool", "name": "call_service", "ok": False} in rest
 
 
 def test_confirm_timeout_refuses(settings: Settings, tmp_path: Path, name: str) -> None:
-    h, dev, _, _rest = _confirm_turn(settings, tmp_path, name, None, confirm_window_s=0.2)
+    h, dev, _, rest = _confirm_turn(settings, tmp_path, name, None, confirm_window_s=0.2)
     assert dev.calls == []
+    assert rest[0] == {"type": "confirm_result", "accepted": False, "reason": "timeout"}
     decisions = [r["decision"] for r in telemetry_lines(h) if r.get("kind") == "wake_tool"]
     assert decisions == ["confirm_asked", "confirm_timeout", "confirm_no"]
 

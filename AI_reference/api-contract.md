@@ -106,13 +106,24 @@ Server → client (listener only):
     `armed_s` seconds is the command, without the name.
 - `{type:"armed_expired"}`: the armed window ended without a segment.
 - `{type:"confirm", action, timeout_s}`: a device change needs a spoken yes. The
-  question is also spoken (`tts_*`). The next segment within `timeout_s` seconds
-  (counted from the end of that speech) is read only as yes or no; anything else, or
-  nothing, means no.
+  question is also spoken (`tts_*`). The listener then opens its microphone for
+  exactly one segment and sends it as a normal `audio_start {wake:true}` segment.
+  The window counts `timeout_s` from the end of the question's speech (`tts_end`
+  plus the 300 ms tail). The server reads that segment only as yes or no (its text is
+  treated like other wake audio: not logged, not stored) and answers:
+- `{type:"confirm_result", accepted:bool, reason:"yes"|"no"|"timeout"|"unclear"}`.
+  Only a clear yes accepts; anything else is a no (`unclear` when it was neither).
+  On `timeout` the server sends it without waiting for a segment. The turn then
+  continues with normal `state` frames: acting on yes, saying it did nothing otherwise.
 - `{type:"pause_capture", reason:"speaking"}` / `{type:"resume_capture"}`: some
   socket on this server is speaking (plus 300 ms after its `tts_end`). The listener
   closes its microphone until `resume_capture`. Segments that arrive meanwhile get
   `wake{heard:false}`.
+
+The listener keeps its microphone closed while a turn runs (from `wake{heard:true,
+command:true}` until the final `state:"idle"`), except in the one-segment `confirm`
+window. The server drops (`wake{heard:false}`) any other segment during a turn.
+`health.wake.available` is false unless a speech-to-text stage is loaded.
 
 Wake turns (enforced by the server for every turn on a listener socket, whatever
 the `voice` bot's connectors say):
@@ -132,7 +143,7 @@ the `voice` bot's connectors say):
   lists only chat-capable models, each `{name, size_gb, tools:bool}`.
 - v0.2 (2026-11-14): wake word. Listener socket (`wake=1`) with the reserved slot;
   `audio_start.wake`; `listener_state`, `listener_stats`; `wake`, `armed_expired`,
-  `confirm`, `pause_capture`, `resume_capture`; built-in `voice` bot and
+  `confirm`, `confirm_result`, `pause_capture`, `resume_capture`; built-in `voice` bot and
   `Bot.wake_device_control`; health `wake.available` and `limits.reserved_sockets`.
 - Planned for v0.3 (not built yet): `POST /api/connectors` and
   `DELETE /api/connectors/{id}` to add and remove MCP connectors from Settings.

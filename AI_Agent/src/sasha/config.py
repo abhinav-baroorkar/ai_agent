@@ -64,6 +64,10 @@ class WakeConfig(BaseModel):
     yes_words: list[str] = Field(
         default_factory=lambda: ["yes", "yeah", "yep", "sure", "confirm", "ok", "okay"]
     )
+    # A clear no; anything that is neither is reported "unclear" (and still means no).
+    no_words: list[str] = Field(
+        default_factory=lambda: ["no", "nope", "nah", "don't", "dont", "stop", "cancel"]
+    )
 
 
 class Voice(BaseModel):
