@@ -20,17 +20,23 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass
 from typing import Any
 
 from sasha.config_timers import TimeCues
+from sasha.conversation import TurnContext
 from sasha.server.timers.resolve import Ask, whole
 
-UserWords = Callable[[], tuple[int, str]]  # (turn number, the person's text this turn)
+UserTurn = Callable[[], TurnContext | None]  # real callers: `current_turn.get`
+MAX_SPAN = 3  # at most the asked turn, one answer, and one more answer
 
 
-def words_of(owner: Any) -> UserWords:
-    """An Assistant's current (turn, user text), read when a tool is called."""
-    return lambda: (owner.user_turn, owner.user_text)
+@dataclass(frozen=True)
+class _Asked:
+    turn_id: int
+    count: int  # how many user messages the conversation had then
+    last: str  # that turn's message, to be sure the next turn follows it
+    span: int  # how many messages that turn's words covered
 
 
 _SPLIT = re.compile(r"(?<=\d)(?=[^\d\s])|(?<=[^\d\s:])(?=\d)")  # "7am" -> "7 am"
@@ -119,30 +125,39 @@ class Said:
 
 
 class SaidCheck:
-    """One per conversation's timer tools: the checks, and the asked-back memory (S1).
+    """One per conversation's timer tools: the checks, and which turn asked back (S1).
 
-    When a tool asks back ("7:00 in the morning or in the evening?"), the person answers
-    with only the missing part ("evening"). So the user text of the turn that was asked
-    is kept, in memory only, and checked together with the next turn's text. It is
-    forgotten once an item is made, or after that one more turn.
+    The words come from the conversation's turn context (`sasha.conversation`): the
+    owner's own messages, the current one last. When a tool asks back ("7:00 in the
+    morning or in the evening?"), the person answers with only the missing part
+    ("evening"), so the next turn is checked with the asked turn's message too. Only
+    the fact that a turn asked is kept here, never its text beyond a comparison; it
+    ends once an item is made, or when a later turn isn't the answer.
     """
 
-    def __init__(self, said: UserWords | None, cues: Iterable[TimeCues]) -> None:
+    def __init__(self, said: UserTurn | None, cues: Iterable[TimeCues]) -> None:
         self.said = said
         self.cues = list(cues)
-        self._asked: tuple[int, str] | None = None  # (turn, words) of the asked turn
+        self._asked: _Asked | None = None  # the last turn in which a tool asked back
+
+    def _span(self, turn: TurnContext) -> int:
+        """How many of the latest user messages are this turn's words: 1, or more when
+        this turn answers a question the tools asked in the turn just before."""
+        msgs, asked = turn.user_messages, self._asked
+        if asked is None:
+            return 1
+        if turn.turn_id == asked.turn_id:
+            return asked.span  # a second call in the same turn
+        answering = len(msgs) == asked.count + 1 and msgs[-2] == asked.last
+        return min(asked.span + 1, MAX_SPAN) if answering else 1
 
     def _text(self) -> str | None:
-        """This turn's words, plus the asked turn's if this is the very next turn."""
         if self.said is None:
-            return None
-        turn, text = self.said()
-        if self._asked is None or self._asked[0] == turn:
-            return text
-        if self._asked[0] == turn - 1:
-            return f"{self._asked[1]} {text}"
-        self._asked = None  # more than one turn on: forgotten
-        return text
+            return None  # direct calls in tests only
+        turn = self.said()
+        if turn is None or not turn.user_messages:
+            return ""  # not in a turn: nothing was said, so every time asks
+        return " ".join(turn.user_messages[-self._span(turn) :])
 
     def words(self, *content: str) -> Said | None:
         """None only for callers with no user text (direct calls in tests)."""
@@ -150,10 +165,11 @@ class SaidCheck:
         return None if text is None else Said(text, self.cues, content)
 
     def asked(self) -> None:
-        """A tool asked back: remember this turn's words (with any it carried) (S1)."""
-        text = self._text()
-        if text is not None and self.said is not None:
-            self._asked = (self.said()[0], text)
+        """A tool asked back: the next turn's words are checked with this turn's (S1)."""
+        turn = self.said() if self.said is not None else None
+        if turn is not None and turn.user_messages:
+            msgs = turn.user_messages
+            self._asked = _Asked(turn.turn_id, len(msgs), msgs[-1], self._span(turn))
 
     def done(self) -> None:
         self._asked = None

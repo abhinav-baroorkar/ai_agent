@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 
 from sasha.config_timers import TimeCues
+from sasha.conversation import TurnContext
 from sasha.server.timers.said import Said
 from sasha.server.timers.service import TimerService
 from sasha.server.timers.tools import TimerAsk, add_timer_tools
@@ -21,7 +22,8 @@ from tests.timer_fakes import ZONE, FakeClock, at, make_service
 
 
 def tool(service: TimerService, name: str, said: str) -> Any:
-    return add_timer_tools(ToolRegistry(), service, said=lambda: (1, said)).get(name).handler
+    turn = TurnContext((said,), "text", 1)
+    return add_timer_tools(ToolRegistry(), service, said=lambda: turn).get(name).handler
 
 
 def due_of(service: TimerService, result: dict[str, Any]) -> datetime:

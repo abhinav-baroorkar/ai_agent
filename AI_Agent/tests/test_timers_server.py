@@ -124,7 +124,7 @@ def test_d3_no_timer_tools_with_a_browser_connector(settings: Settings, tmp_path
         ws.receive_json()
         ws.send_json({"type": "text", "text": "hello"})
         turn_frames(ws)
-    h.bots.update("main", _fields({"connectors": ["fake", "web"]}))
+    h.bots.update("main", _fields({"connectors": ["web"]}))  # B4: the browser alone
     with client.websocket_connect(f"{WS}/ws") as ws:
         ws.receive_json()
         ws.send_json({"type": "text", "text": "hello"})
@@ -132,6 +132,18 @@ def test_d3_no_timer_tools_with_a_browser_connector(settings: Settings, tmp_path
     before, after = h.llm("big-model").offered
     assert "set_timer" in before and "get_current_time" in before
     assert not any(n.endswith("_timer") or n.startswith("set_") for n in after)
+
+
+def test_d3_agrees_with_the_browser_allowlist(settings: Settings, tmp_path: Path) -> None:
+    """Same test as browser/policy.py: the kind, or an id that looks like a browser
+    (also when the connector is gone and its kind unknown)."""
+    from sasha.bots import Bot
+
+    h = Harness(settings, tmp_path)
+    with_timers(h)
+    main = h.bots.get("main")
+    assert not h.deps.has_browser(main)
+    assert h.deps.has_browser(Bot(**{**main.model_dump(), "connectors": ["browser:work"]}))
 
 
 # --- wake turns -----------------------------------------------------------------------

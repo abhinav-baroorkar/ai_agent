@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from sasha.bots import Bot, BotStore
+from sasha.browser.policy import BROWSER
 from sasha.config import Settings, reload_secrets
 from sasha.connectors import (
     ConnectorError,
@@ -17,12 +18,12 @@ from sasha.connectors import (
     HomeAssistantConnector,
     build_connectors,
 )
+from sasha.conversation import current_turn
 from sasha.orchestrator import Assistant
 from sasha.pipeline.llm import LLM, OllamaLLM
 from sasha.pipeline.stt import SpeechToText
 from sasha.pipeline.tts import TextToSpeech
 from sasha.server.speaking import ListenerPresence
-from sasha.server.timers.said import words_of
 from sasha.server.timers.service import TimerService
 from sasha.server.timers.tools import add_timer_tools
 from sasha.server.voice import load_voice_stages
@@ -41,7 +42,6 @@ from sasha.telemetry import TelemetryWriter
 from sasha.tools.clock import CLOCK_TOOL, clock_tool
 
 log = logging.getLogger(__name__)
-BROWSER_KIND = "browser"
 
 
 @dataclass
@@ -80,19 +80,21 @@ class ServerDeps:
             system_prompt=self.bots.prompt_for(bot),
         )
         if self.timers is not None and not self.has_browser(bot):  # D3: never with a browser
-            said = words_of(assistant)  # the turn's own words
+            said = current_turn.get  # the owner's own messages (sasha.conversation)
             assistant.tools = add_timer_tools(tools, self.timers, said=said)
         return assistant, warnings
 
     def has_browser(self, bot: Bot) -> bool:
         """D3: a bot with any `browser` connector gets no timer tools (web pages could
-        otherwise set things that speak in the house)."""
+        otherwise set things that speak in the house). The same test as the browser's
+        own allowlist (browser/policy.py): its kind, or an id that looks like one."""
         for cid in bot.connectors:
             try:
-                if self.connectors.get(cid).kind == BROWSER_KIND:
-                    return True
+                kind: str | None = self.connectors.get(cid).kind
             except ConnectorError:
-                continue  # gone: it gives no tools either
+                kind = None  # gone or unknown: judged by its id, like the allowlist
+            if kind == BROWSER or cid.split(":", 1)[0] == BROWSER:
+                return True
         return False
 
 

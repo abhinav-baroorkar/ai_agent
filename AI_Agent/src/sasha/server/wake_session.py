@@ -24,13 +24,13 @@ from typing import Any
 from starlette.websockets import WebSocket
 
 from sasha.config import ReplyLines, WakeConfig
+from sasha.conversation import current_turn
 from sasha.orchestrator import Assistant, Reply
 from sasha.pipeline.stt import Transcript
 from sasha.server.speaking import ListenerPresence
 from sasha.server.speech import Speaker
 from sasha.server.timers.hub import Hub
 from sasha.server.timers.ring import StopWindow
-from sasha.server.timers.said import words_of
 from sasha.server.timers.tools import TIMER_TOOLS, add_timer_tools
 from sasha.server.voice import MIC_SAMPLE_RATE, VoiceStages
 from sasha.server.wake import WakeGate
@@ -89,7 +89,7 @@ class ListenerConversation(Conversation):
         )
         tools = assistant.tools
         if timers is not None and any(n in tools for n in TIMER_TOOLS):  # D4: voice-made
-            said = words_of(assistant)  # the wake command
+            said = current_turn.get  # the owner's messages: wake commands, after the name
             tools = add_timer_tools(tools, timers.service, "wake", self.confirm.blocking, said)
         assistant.tools = self.policy.wrap(tools)
 

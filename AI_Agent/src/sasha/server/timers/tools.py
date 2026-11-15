@@ -29,7 +29,7 @@ from sasha.server.timers.resolve import (
     next_repeat,
     whole,
 )
-from sasha.server.timers.said import SaidCheck, UserWords
+from sasha.server.timers.said import SaidCheck, UserTurn
 from sasha.server.timers.service import TimerError, TimerService
 from sasha.tools.base import Tool, ToolError, ToolRegistry
 
@@ -86,7 +86,7 @@ class TimerTools:
         service: TimerService,
         source: str = "chat",
         confirm: Callable[[str], bool] | None = None,
-        said: UserWords | None = None,
+        said: UserTurn | None = None,
     ) -> None:
         self.service = service
         self.source = source
@@ -323,7 +323,7 @@ def add_timer_tools(
     service: TimerService,
     source: str = "chat",
     confirm: Callable[[str], bool] | None = None,
-    said: UserWords | None = None,
+    said: UserTurn | None = None,
 ) -> ToolRegistry:
     """`registry` with this source's timer tools (any earlier timer tools replaced).
     `said` gives the turn's user text; every real caller passes it."""

@@ -33,9 +33,9 @@ from typing import Any
 import yaml
 
 from sasha.config import Settings, load_settings
+from sasha.conversation import current_turn
 from sasha.orchestrator import Assistant, RequestFailed
 from sasha.pipeline.llm import OllamaLLM
-from sasha.server.timers.said import words_of
 from sasha.server.timers.service import TimerService
 from sasha.server.timers.tools import TimerAsk, add_timer_tools
 from sasha.state import JsonStore
@@ -90,8 +90,7 @@ def run_case(
         base = ToolRegistry([clock_tool(service.now_local)])
         assistant = Assistant(settings, llm, base, telemetry)
         # As the server does (deps.make_assistant): the tools see the turn's own words.
-        said = words_of(assistant)
-        assistant.tools = recording(add_timer_tools(base, service, said=said), calls)
+        assistant.tools = recording(add_timer_tools(base, service, said=current_turn.get), calls)
         started = time.perf_counter()
         try:
             reply = assistant.handle_text(str(case["say"])).text

@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 
 from sasha.config import ReplyLines
+from sasha.conversation import TurnContext, new_turn
 from sasha.server.timers.service import TimerService
 from sasha.server.timers.tools import TimerAsk, add_timer_tools
 from sasha.server.wake_truth import TruthfulReply
@@ -20,16 +21,16 @@ from tests.timer_fakes import ZONE, FakeClock, FakeTarget, at, make_service
 
 
 class Turns:
-    """The person's words, turn by turn, as an Assistant gives them to the tools."""
+    """The owner's messages, turn by turn, as `current_turn` gives them to the tools."""
 
     def __init__(self, text: str) -> None:
-        self.turn, self.text = 1, text
+        self.turn = new_turn((text,), "text")
 
     def say(self, text: str) -> None:
-        self.turn, self.text = self.turn + 1, text
+        self.turn = new_turn((*self.turn.user_messages, text), "text")
 
-    def __call__(self) -> tuple[int, str]:
-        return self.turn, self.text
+    def __call__(self) -> TurnContext:
+        return self.turn
 
 
 def tools(service: TimerService, turns: Turns) -> ToolRegistry:
