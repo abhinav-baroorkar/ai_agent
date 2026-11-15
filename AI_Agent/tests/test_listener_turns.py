@@ -127,9 +127,11 @@ def test_confirm_then_yes() -> None:
         await until(lambda: rig.brain.segments >= 1)
         await until(lambda: lst.confirm.is_open, 5)
         assert lst.busy  # the turn is still running; only the window lets the mic open
-        await until(lambda: rig.mic_open)
-        assert rig.indicator.states[-1] == "listening"
+        opened_at = len(rig.indicator.states)
         await until(lambda: rig.brain.segments >= 2, 5)  # one segment, sent as wake audio
+        # The fake mic delivers its answer at once, so the window's capture may open and
+        # close between two polls: check what was shown, not a polled instant.
+        assert "listening" in rig.indicator.states[opened_at - 1 :]
         await until(lambda: not lst.confirm.is_open)
         await until(lambda: not lst.busy)
 
