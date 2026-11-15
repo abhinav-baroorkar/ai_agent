@@ -14,6 +14,7 @@ Telemetry gets one line per check with labels and timings, never text.
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import logging
 import time
@@ -58,7 +59,11 @@ async def open_listener(
         log.warning("Bot %s: %s", bot.id, warning)
     wake_word, config = settings.assistant.wake_word, settings.profile.wake
     matcher = WakeMatcher(
-        wake_word.phrase, wake_word.variants, config.fillers, config.continuations
+        wake_word.phrase,
+        wake_word.variants,
+        config.fillers,
+        config.continuations,
+        wake_word.word_variants,
     )
     assert deps.wake_limiter is not None
     conv = ListenerConversation(
@@ -269,22 +274,37 @@ class ListenerConversation(Conversation):
     # --- one segment -------------------------------------------------------------------
     async def _segment(self, audio: bytes) -> None:
         assert self.stt is not None
-        started = time.perf_counter()
+        queued = time.perf_counter()
         segment_bytes = len(audio)
+        hotwords = self.gate.matcher.phrase  # without it a short phrase comes out as anything
         try:
-            async with self.voice.stt_lock:
-                heard = await asyncio.to_thread(self.stt.transcribe, audio, MIC_SAMPLE_RATE)
+            async with self.voice.stt_lock:  # waits while another socket transcribes
+                started = time.perf_counter()
+                heard = await asyncio.to_thread(
+                    functools.partial(self.stt.transcribe, hotwords=hotwords),
+                    audio,
+                    MIC_SAMPLE_RATE,
+                )
         except Exception as exc:
             log.error("Speech recognition failed: %s", type(exc).__name__)
             self._miss("stt_error", segment_bytes)
             return
         finally:
             del audio
-        stt_ms = (time.perf_counter() - started) * 1000
+        done = time.perf_counter()
         decision = self.gate.decide(heard.text, heard.confidence)
         language = heard.language or self.language
+        confidence = heard.confidence
         del heard  # the transcript lives no longer than this decision
-        timings = {"stt_ms": round(stt_ms, 1), "variant": decision.variant}
+        timings: dict[str, Any] = {
+            "stt_ms": round((done - started) * 1000, 1),  # decoding only
+            "stt_wait_ms": round((started - queued) * 1000, 1),  # queued behind others
+            "stt_device": self.stt.model_version(),
+            "variant": decision.variant,
+            # numbers only, never the text: how sure the decoder was, and the bar
+            "confidence": None if confidence is None else round(confidence, 3),
+            "min_confidence": self.gate.min_confidence,
+        }
         if not decision.heard:
             self._miss(decision.outcome, segment_bytes, timings)
             return
@@ -310,7 +330,8 @@ class ListenerConversation(Conversation):
         await self._turn(command, language, "wake")
 
     def _miss(self, outcome: str, segment_bytes: int, extra: dict[str, Any] | None = None) -> None:
-        self.emit({"type": "wake", "heard": False, "command": False})
+        # `reason` is the outcome label only (never text), so the listener can say why
+        self.emit({"type": "wake", "heard": False, "command": False, "reason": outcome})
         self._check(outcome, segment_bytes, extra or {})
 
     # --- armed window ---------------------------------------------------------------------

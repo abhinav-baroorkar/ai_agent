@@ -20,7 +20,9 @@ class FakeSTT:
     def model_version(self) -> str:
         return "fake-stt"
 
-    def transcribe(self, audio: AudioChunk, sample_rate: int) -> Transcript:
+    def transcribe(
+        self, audio: AudioChunk, sample_rate: int, *, hotwords: str | None = None
+    ) -> Transcript:
         self.calls.append((len(audio), sample_rate))
         if not audio:
             return Transcript(text="", language=self.language, confidence=0.0)
