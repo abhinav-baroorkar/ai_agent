@@ -106,5 +106,11 @@ def test_tools_on_real_chrome(tmp_path: Path) -> None:
         finally:
             await bridge.stop()
         assert service.chrome is None
+        # the stop forgot the browsing history: the search query is nowhere in the profile
+        profile = tmp_path / "browser-profile"
+        assert not (profile / "Default" / "History").exists()
+        for f in profile.rglob("*"):
+            if f.is_file() and not f.is_symlink():
+                assert b"facts" not in f.read_bytes(), f.relative_to(profile)
 
     asyncio.run(main())

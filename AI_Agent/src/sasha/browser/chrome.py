@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from sasha.browser.cdp import CDPError, CDPPipe
+from sasha.browser.history import forget_history
 from sasha.listener.capture import with_death_signal
 from sasha.server.launch import CHROMIUM_BROWSERS, ISOLATION_FLAGS, browser_env
 
@@ -175,6 +176,7 @@ async def start_chrome(data_dir: Path, proxy_port: int, exe: str | None = None) 
     (profile / "home").mkdir(parents=True, exist_ok=True, mode=0o700)
     (profile / "tmp").mkdir(exist_ok=True, mode=0o700)
     (profile / "DevToolsActivePort").unlink(missing_ok=True)
+    forget_history(profile)  # in case the last run was killed before it could
     to_chrome_r, to_chrome_w = os.pipe()  # Chrome reads commands on its fd 3
     from_chrome_r, from_chrome_w = os.pipe()  # Chrome writes replies on its fd 4
     argv, hook = with_death_signal(
