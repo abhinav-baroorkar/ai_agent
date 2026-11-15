@@ -63,7 +63,7 @@ One role per session. Add or drop roles as the work needs.
    reports again. Repeat until the reviewer approves.
 7. **Merge.** Primary merges into `main` in dependency order, rebases and re-locks
    if two branches touched `pyproject.toml` / `uv.lock`, and runs all checks and a
-   privacy scan. Primary merges and pushes after the reviewer approves. The owner told Primary this directly on 2026-11-14; `CLAUDE.md` step 3 still says "once the owner says go" and is the owner's to update.
+   privacy scan. Primary merges and pushes after the reviewer approves. The owner decided this on 2026-11-14, and `CLAUDE.md` step 3 now says so.
 
 ## Report format
 
