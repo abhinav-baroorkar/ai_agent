@@ -19,6 +19,7 @@ from sasha.pipeline.tts import TextToSpeech
 from sasha.server.speaking import ListenerPresence
 from sasha.server.voice import load_voice_stages
 from sasha.server.wake_policy import RateLimiter
+from sasha.server.wake_truth import wake_control_allowed
 from sasha.server.warmup import (
     LLMPlacement,
     PlacementTelemetry,
@@ -29,6 +30,7 @@ from sasha.server.warmup import (
 )
 from sasha.state import JsonStore
 from sasha.telemetry import TelemetryWriter
+from sasha.tools.clock import CLOCK_TOOL, clock_tool
 
 log = logging.getLogger(__name__)
 
@@ -55,8 +57,10 @@ class ServerDeps:
             self.wake_limiter = RateLimiter(self.settings.profile.wake.max_calls_per_minute)
 
     def make_assistant(self, bot: Bot) -> tuple[Assistant, list[str]]:
-        """A fresh conversation for `bot`, with only its connectors' tools."""
+        """A fresh conversation for `bot`, with its connectors' tools and the clock."""
         tools, warnings = self.connectors.tools_for(bot.connectors)
+        if CLOCK_TOOL not in tools:
+            tools.register(clock_tool())  # every bot: read-only, so no guessed times
         assistant = Assistant(
             self.settings,
             self.make_llm(bot.model),
@@ -111,6 +115,7 @@ def build_deps(settings: Settings, reload_env: bool = True) -> ServerDeps:
         connector_ids=lambda: connectors.ids,
         main_connectors=[HomeAssistantConnector.id],
         installed_models=lambda: [m["name"] for m in list_models()],
+        wake_control_allowed=lambda: wake_control_allowed(settings.profile.wake),
     )
     # LLM first, then the voice stages: otherwise Ollama may put part of the LLM on the
     # CPU because speech-to-text already holds GPU memory (see server/warmup.py).

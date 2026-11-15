@@ -39,7 +39,9 @@ def test_w1_confirm_comes_after_the_earlier_speech_ends(settings: Settings, tmp_
     name = settings.assistant.wake_word.phrase
     h, stt = make(settings, tmp_path, tts=FakeTTS(), speaking_tail_s=0.05)
     with_devices(h)
-    stt.say(f"{name}, turn off all the lights", "yes")
+    # Not worded as a device request, so the model's sentence before its tool call is
+    # spoken (a change request would hold it, T1); the model still acts on it.
+    stt.say(f"{name}, it's too bright in here", "yes")
     before = resp("Let me check that for you.", [OFF_ALL])
     h.llm("big-model").responses = [before, resp("Done.")]
     with h.client().websocket_connect(f"{WS}/ws?wake=1&speak=1") as ws:

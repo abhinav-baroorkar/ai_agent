@@ -82,7 +82,8 @@ def test_bot_gets_only_its_connectors_tools(h: Harness) -> None:
         ws.send_json({"type": "text", "text": "hi"})
         frames_until_idle(ws, after_first=False)
     messages, offered_tools = h.llm("small").seen[0]
-    assert offered_tools is False  # no connectors -> no tools
+    assert offered_tools is True  # only the clock, which every bot gets
+    assert h.llm("small").offered[0] == ["get_current_time"]  # no connector tools
     assert messages[0]["content"].startswith("Be brief.")
     assert SAFETY_NOTE in messages[0]["content"]
 
@@ -94,7 +95,7 @@ def test_disabled_connector_gives_no_tools(h: Harness) -> None:
         opened(ws)
         ws.send_json({"type": "text", "text": "hi"})
         frames_until_idle(ws, after_first=False)
-    assert h.llm("big-model").seen[0][1] is False
+    assert h.llm("big-model").offered[0] == ["get_current_time"]  # no connector tools
 
 
 def test_unknown_bot_gets_error_and_close(h: Harness) -> None:

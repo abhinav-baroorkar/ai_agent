@@ -40,6 +40,17 @@ def test_phrase_is_the_name_alone(settings: Settings, name: str) -> None:
         ("{n}" + chr(0x2019) + "s phone is ringing", wake.REJECTED_POSSESSIVE, None),
         ("{n} is coming over later", wake.REJECTED_CONTINUATION, None),
         ("{n} said no", wake.REJECTED_CONTINUATION, None),
+        # a pause (comma) after the name means it is addressed, even before "is"
+        ("{n}, is the hallway light on?", wake.ACCEPTED_WITH_COMMAND, "is the hallway light on?"),
+        ("{n}! Is it raining?", wake.ACCEPTED_WITH_COMMAND, "Is it raining?"),
+        ("{n}? Is the fan on?", wake.ACCEPTED_WITH_COMMAND, "Is the fan on?"),
+        # T2: ".", "...", "-", ";", ":" are any pause to the transcriber: still "about"
+        ("{n}... was here", wake.REJECTED_CONTINUATION, None),
+        ("{n}. Is she coming?", wake.REJECTED_CONTINUATION, None),
+        ("{n} - is coming over", wake.REJECTED_CONTINUATION, None),
+        ("{n}; is it late", wake.REJECTED_CONTINUATION, None),
+        ("{n}: was there", wake.REJECTED_CONTINUATION, None),
+        ("{n}. Lights off.", wake.ACCEPTED_WITH_COMMAND, "Lights off."),
         ("Na{l} is here", wake.REJECTED_NO_NAME, None),  # near name, part of a word
         ("{n}ka is here", wake.REJECTED_NO_NAME, None),
         ("the weather is nice", wake.REJECTED_NO_NAME, None),

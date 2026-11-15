@@ -69,7 +69,7 @@ def test_read_only_by_default_through_the_socket(
     assert {"type": "tool", "name": "call_service", "ok": False} in got
     assert dev.calls == []
     decisions = [r["decision"] for r in telemetry_lines(h) if r.get("kind") == "wake_tool"]
-    assert decisions == ["refused_read_only"]
+    assert decisions == ["refused_read_only", "reply_not_changed"]  # the server said so
 
 
 def _confirm_turn(settings: Settings, tmp_path: Path, name: str, answer: str | None, **kw: Any):
@@ -124,7 +124,7 @@ def test_confirm_timeout_refuses(settings: Settings, tmp_path: Path, name: str) 
     assert dev.calls == []
     assert rest[0] == {"type": "confirm_result", "accepted": False, "reason": "timeout"}
     decisions = [r["decision"] for r in telemetry_lines(h) if r.get("kind") == "wake_tool"]
-    assert decisions == ["confirm_asked", "confirm_timeout", "confirm_no"]
+    assert decisions == ["confirm_asked", "confirm_timeout", "confirm_no", "reply_not_changed"]
 
 
 def test_c1_four_single_calls_ask_before_the_fourth(
@@ -147,7 +147,7 @@ def test_c1_four_single_calls_ask_before_the_fourth(
         assert len(dev.calls) == 3  # held before the 4th
         segment(ws)
         turn_frames(ws)
-    assert asked[-1]["action"] == "turn off d"
+    assert asked[-1]["action"] == "turn off a device I don't know"  # light.d isn't listed
     assert len(dev.calls) == 4
 
 
