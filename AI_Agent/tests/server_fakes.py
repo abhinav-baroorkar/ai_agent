@@ -17,6 +17,7 @@ from sasha.pipeline.stt import Transcript
 from sasha.pipeline.tts import SpeechAudio
 from sasha.server.app import create_app
 from sasha.server.deps import ServerDeps, make_telemetry
+from sasha.server.wake_truth import wake_control_allowed
 from sasha.state import JsonStore
 from sasha.tools import Tool
 
@@ -38,6 +39,7 @@ class FakeLLM:
         self.model = model
         self.responses = responses if responses is not None else []
         self.seen: list[tuple[list[Message], bool]] = []
+        self.offered: list[list[str]] = []  # tool names offered on each call
         self.hold = False
         self.started = threading.Event()
 
@@ -65,6 +67,7 @@ class FakeLLM:
         should_stop: Callable[[], bool] | None = None,
     ) -> LLMResponse:
         self.seen.append((list(messages), tools is not None))
+        self.offered.append([t["function"]["name"] for t in tools or []])
         self.started.set()
         while self.hold:
             if should_stop and should_stop():
@@ -177,6 +180,7 @@ class Harness:
             connector_ids=lambda: self.connectors.ids,
             main_connectors=["fake"],
             installed_models=lambda: [str(m["name"]) for m in self.models],
+            wake_control_allowed=lambda: wake_control_allowed(self.settings.profile.wake),
         )
         self.llms: dict[str, FakeLLM] = {}
         self.models: list[dict[str, Any]] = [{"name": "big-model", "size_gb": 6.6}]

@@ -83,8 +83,13 @@ class WakeMatcher:
             if rest[:1] in _APOSTROPHES and rest[1:2].lower() == "s":
                 return REJECTED_POSSESSIVE, None, index
             command = rest.lstrip(" \t,.;:!?-").strip()
+            # "<name> is coming over" talks about the name; "<name>, is the light on?"
+            # addresses it. Only a comma, "!" or "?" right after the name counts as
+            # addressing (T2): the transcriber writes "." and "..." for any pause, and
+            # "<name>... was here" or "<name> - is coming" still talk about the name.
+            addressed = re.match(r"\s*[,!?]", rest) is not None
             first = re.match(r"\w+", command.lower())
-            if first and first.group(0) in self._continuations:
+            if not addressed and first and first.group(0) in self._continuations:
                 return REJECTED_CONTINUATION, None, index
             if not command:
                 return ACCEPTED_ALONE, None, index
