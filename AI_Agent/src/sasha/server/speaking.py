@@ -13,6 +13,7 @@ Event-loop only: all calls come from coroutines or loop callbacks.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import math
 import time
 from collections.abc import Callable
@@ -112,12 +113,19 @@ class ListenerPresence:
     def __init__(self, keep_alive_while_listening: int | str = -1) -> None:
         self.value = keep_alive_while_listening
         self._listening: set[int] = set()
+        # Ollama keeps the last keep_alive it was sent, so when the last listener goes
+        # it must be told the normal value again (S4). Set by deps; must not raise.
+        self.on_idle: Callable[[], None] | None = None
 
     def set(self, sid: int, listening: bool) -> None:
+        was_active = self.active
         if listening:
             self._listening.add(sid)
         else:
             self._listening.discard(sid)
+        if was_active and not self.active and self.on_idle is not None:
+            with contextlib.suppress(Exception):  # restoring must never break a socket
+                self.on_idle()
 
     @property
     def active(self) -> bool:

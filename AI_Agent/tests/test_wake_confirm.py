@@ -174,6 +174,56 @@ def test_keep_alive_override_only_while_listening() -> None:
     assert llm.build_payload([])["keep_alive"] == "30m"  # normal value again on the next request
 
 
+def test_keep_alive_restored_when_the_last_listener_goes() -> None:
+    """S4: Ollama keeps the last keep_alive it was sent, so going idle resends normal."""
+    presence = ListenerPresence(-1)
+    restored: list[int] = []
+    presence.on_idle = lambda: restored.append(1)
+    presence.set(1, True)
+    presence.set(2, True)
+    presence.set(1, False)
+    assert restored == []  # one listener still on
+    presence.set(2, False)
+    assert restored == [1]
+    presence.set(2, False)  # already idle: not sent again
+    assert restored == [1]
+
+    def boom() -> None:
+        raise RuntimeError("ollama down")
+
+    presence.on_idle = boom
+    presence.set(3, True)
+    presence.set(3, False)  # never raises into the socket
+
+
+def test_restore_keep_alive_sends_a_no_prompt_generate(
+    settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import threading
+
+    from sasha.server import deps as deps_module
+
+    sent: list[tuple[str, str]] = []
+    done = threading.Event()
+
+    def fake_warm_up(cfg: Any, host: str, model: str, client: Any = None) -> str | None:
+        sent.append((model, str(cfg.keep_alive)))
+        done.set()
+        return None
+
+    monkeypatch.setattr(deps_module, "warm_up_llm", fake_warm_up)
+    monkeypatch.setattr(deps_module, "load_voice_stages", lambda s: (None, None, []))
+    monkeypatch.setattr(deps_module, "gpu_share", lambda host, model: None)
+    paths = settings.paths.model_copy(update={"root": tmp_path, "data_dir": tmp_path / "Data"})
+    deps = deps_module.build_deps(settings.model_copy(update={"paths": paths}), reload_env=False)
+    sent.clear()  # the startup warm-up
+    done.clear()
+    deps.presence.set(7, True)
+    deps.presence.set(7, False)
+    assert done.wait(5)
+    assert sent == [(settings.profile.llm.model, str(settings.profile.llm.keep_alive))]
+
+
 def test_listener_connect_rechecks_placement(settings: Settings, tmp_path: Path) -> None:
     h, _ = make(settings, tmp_path)
     checks: list[int] = []

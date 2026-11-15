@@ -130,6 +130,21 @@ def build_deps(settings: Settings, reload_env: bool = True) -> ServerDeps:
         name: stage.model_version for name, stage in (("stt", stt), ("tts", tts)) if stage
     }
 
+    def restore_keep_alive() -> None:
+        """Last listener gone: one no-prompt generate with the profile's keep_alive,
+        so Ollama stops keeping the model forever. In a thread, off the event loop."""
+
+        def restore() -> None:
+            try:
+                if warning := warm_up_llm(settings.profile.llm, host, bots.get("main").model):
+                    log.warning("keep_alive restore: %s", warning)
+            except Exception as exc:  # never raises
+                log.warning("keep_alive restore failed: %s", type(exc).__name__)
+
+        threading.Thread(target=restore, name="keep-alive-restore", daemon=True).start()
+
+    presence.on_idle = restore_keep_alive
+
     def recheck_placement() -> None:
         """Re-measure how much of the LLM is on the GPU (after resume or a reload)."""
         current = bots.get("main").model
