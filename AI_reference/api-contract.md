@@ -1,4 +1,4 @@
-# Brain API contract v0.2 (server, UI and listener all build against this)
+# Brain API contract v0.4 (server, UI and listener all build against this)
 
 Owner of this file: Primary. Staff SDE copies it to `AI_reference/api-contract.md`
 in the server branch. To change it, ask Primary; don't change it on your own.
@@ -12,7 +12,7 @@ per-device token; v0 has no auth because it only listens on localhost.
 
 | Method + path | Returns / does |
 | --- | --- |
-| `GET /api/health` | `{ok, assistant:{name, pronouns:{subject, object, possessive}}, profile, default_bot, voice:{stt:bool, tts:bool, tts_languages:["en"]}, wake:{available:bool}, limits:{max_sockets, reserved_sockets}}` |
+| `GET /api/health` | `{ok, assistant:{name, pronouns:{subject, object, possessive}}, profile, default_bot, voice:{stt:bool, tts:bool, tts_languages:["en"]}, wake:{available:bool}, limits:{max_sockets, reserved_sockets, browser_sockets}}` |
 | `GET /api/models` | `{models:[{name, size_gb, tools:bool}]}` from Ollama: only models that can chat; `tools` says whether the model supports tool calls |
 | `GET /api/bots` | `{bots:[Bot]}` |
 | `POST /api/bots` | create a Bot, returns it |
@@ -35,6 +35,7 @@ wake_device_control:bool}`.
 `health.wake.available` is true when the server has a speech-to-text stage.
 `limits.max_sockets` is the UI's own budget of `/ws` connections;
 `limits.reserved_sockets` (1) is one extra slot that only a listener socket can use.
+`limits.browser_sockets` (1) is a separate slot for the browser live view (`/ws/browser`, v0.4).
 
 `Connector` = `{id, kind, name, enabled, status:"ok"|"off"|"needs_setup"|"error",
 detail, tools:[tool names], settings:{...non-secret}, secret_env:[env var names]}`.
@@ -137,6 +138,65 @@ the `voice` bot's connectors say):
   from wake turns.
 - 3 s cool-down after any turn on this server before the next wake is accepted.
 
+## Browser live view (v0.4)
+
+The window can watch the assistant's own browser and stop it. Watching only: the
+owner can't click or type into the page through the window in v0.4 (take-over for
+sign-ins and bot challenges comes later). Page content is untrusted: it reaches the
+window only as JPEG pictures and, for tabs, as a hostname and a short title shown as
+plain text.
+
+HTTP (same Host and Origin checks as every route; loopback clients only; a browser
+request with `Sec-Fetch-Site` other than `same-origin` or `none` gets 403):
+
+| Method + path | Returns / does |
+| --- | --- |
+| `GET /api/browser` | `BrowserState` (below) |
+| `GET /api/browser/frame` | one JPEG (`image/jpeg`, `Cache-Control: no-store`) of the current tab; 404 `{error}` when the browser isn't running |
+| `POST /api/browser/stop` | stop the browser now (Chrome and its proxy); `{ok:true}`, also when it wasn't running. No body needed; a body that is sent must be JSON |
+
+`BrowserState` = `{enabled:bool, running:bool, agent:"idle"|"working", holder:string|null,
+tabs:[{tab:int, site:string, title:string, current:bool}], guard:{allowed:int,
+refused:{<category>:int}, background_refused:int}}`.
+- `enabled`: the browser connector is switched on in Settings.
+- `agent`: `working` while a conversation is using the browser for a turn; `holder` is
+  an opaque id of that conversation, or null.
+- `tabs`: numbered as the model sees them. `site` is the hostname only, never a full
+  URL; `title` is page text, at most 80 characters, cleaned of control characters.
+  Show both with `textContent`, never as markup.
+- `guard`: counts from the filtering proxy since the browser started (0 when stopped).
+
+WebSocket `/ws/browser` (one viewer):
+- Same Host and Origin checks as `/ws`, and an `Origin` header is required (the
+  window's own); a socket from a non-loopback peer or without `Origin` is closed with
+  1008. It has its own slot, `health.limits.browser_sockets` (1): it never takes one
+  of the UI's `max_sockets` or the listener's reserved slot. A second viewer gets close
+  1013; retry after a second.
+- Server → window:
+  - `{type:"browser_state", ...BrowserState}`: on connect and whenever it changes.
+  - `{type:"browser_frame", tab, seq, w, h, jpeg}`: `jpeg` is base64. Sent only while
+    this socket is watching, at most about 5 a second, and only one at a time: the
+    next frame comes only after the window acknowledges this one. Frames over 512 KB
+    are dropped. Show it only as `<img src="data:image/jpeg;base64,...">` (the CSP
+    already allows `img-src data:`); never as HTML.
+  - `{type:"browser_stopped", reason:"idle"|"owner"|"brain_stopping"|"crashed"}`,
+    followed by a `browser_state` with `running:false`.
+  - `{type:"error", message}`.
+- Window → server:
+  - `{type:"browser_watch", on:bool}`: start or stop the frames (nothing is captured
+    while nobody watches). Watching survives the browser stopping and starting again:
+    frames resume when it is next used.
+  - `{type:"browser_ack", seq}`: after drawing frame `seq`.
+  - `{type:"browser_stop"}`: the same as `POST /api/browser/stop`; works at any time,
+    even in the middle of a page load or a turn. The turn's next browser step then
+    fails with "The owner stopped the browser" and the next use starts it again.
+- When no browser is running: `running:false`, no frames. Suggested panel text: "The
+  browser isn't running. It starts when you ask the assistant to look something up."
+  With `enabled:false`: "The browser is off. Turn it on in Settings." Keep the Stop
+  control visible (disabled while not running). The server keeps no last frame.
+- Nothing about URLs, sites, titles or frames goes into logs or telemetry: only counts
+  (frames sent and dropped, viewers, stops).
+
 ## Changes
 - v0.1 (2026-11-14): `speak` query parameter; one conversation per socket stated;
   `PUT /api/connectors/{id}` returns the Connector; `pronouns` is an object;
@@ -147,5 +207,9 @@ the `voice` bot's connectors say):
   `audio_start.wake`; `listener_state`, `listener_stats`; `wake`, `armed_expired`,
   `confirm`, `confirm_result`, `pause_capture`, `resume_capture`; built-in `voice` bot and
   `Bot.wake_device_control`; health `wake.available` and `limits.reserved_sockets`.
-- Planned for v0.3 (not built yet): `POST /api/connectors` and
+- v0.4 (2026-11-15): browser live view: `GET /api/browser`, `GET /api/browser/frame`,
+  `POST /api/browser/stop`; `/ws/browser` with `browser_state`, `browser_frame`,
+  `browser_stopped`, `browser_watch`, `browser_ack`, `browser_stop`; health
+  `limits.browser_sockets`.
+- Planned for v0.5 (not built yet): `POST /api/connectors` and
   `DELETE /api/connectors/{id}` to add and remove MCP connectors from Settings.
