@@ -1,135 +1,152 @@
-// Bots screen: the bot list in the rail, a tab per open chat.
+// Bots: the list beside the orb on Home, the "Your bots" page, and the chats.
+// One chat is in front at a time; a few can stay open behind it.
 import { api } from './api.js';
 import { $, h, icon, clear } from './dom.js';
 import { ChatView } from './chat.js';
-import { openBotForm } from './bot-form.js';
-import { cleanBot, cleanConnector, cleanModel, initial } from './clean.js';
+import { cleanBot, cleanConnector } from './clean.js';
 import { initBrowserPanel } from './browser-panel.js';
+import { miniOrb } from './faces/mini-orb.js';
+import { colorOf, usesOf, purposeOf, STARTS } from './bot-look.js';
+import { initSetup } from './setup.js';
+
+const HOME_MAX = 5; // how many bots the list on Home shows before "All bots"
 
 export function initBots(health) {
   const el = {
-    items: $('#bot-items'), tabs: $('#tabs'), chats: $('#chats'), empty: $('#bots-empty'), add: $('#new-bot'),
-    body: $('.bots-body'),
+    homeBox: $('#home-bots'), homeList: $('#home-bot-list'), homeAll: $('#home-all-bots'),
+    cards: $('#bot-cards'), note: $('#bots-note'), chats: $('#chats'),
   };
+  const name = health.assistant.name;
+  const MAX_OPEN = health.max_chats; // the server caps conversations; Home keeps one of them
   let bots = [];
+  let connectors = [];
   const open = new Map(); // bot id -> ChatView
   let active = null;
+  const orbs = new Map(); // "id:size" -> canvas, so an orb is made once per place
   const listeners = new Set();
-  // The server caps conversations (health.limits.max_sockets); Home keeps one of them.
-  const MAX_OPEN = health.max_chats;
-  let note = '';
   const panel = initBrowserPanel(health);
-  const browserIds = new Set(['browser']); // ids of connectors of kind "browser"
-  const panelOpen = new Map(); // bot id -> whether its chat shows the browser panel
-  const canBrowse = (bot) => bot.connectors.some((id) => browserIds.has(id));
+
+  const canBrowse = (bot) => connectors.some((c) => c.kind === 'browser' && bot.connectors.includes(c.id));
+  const look = (bot) => ({ color: colorOf(bot), uses: usesOf(bot, connectors), purpose: purposeOf(bot, name) });
+  function orb(bot, size) {
+    const key = `${bot.id}:${size}`;
+    if (!orbs.has(key)) orbs.set(key, miniOrb(colorOf(bot), size));
+    return orbs.get(key);
+  }
 
   async function load() {
-    try {
-      bots = ((await api('GET', '/api/bots')).bots || []).map(cleanBot);
-    } catch (err) {
-      clear(el.items).append(h('li', { class: 'form-error' }, err.message));
+    const [b, c] = await Promise.allSettled([api('GET', '/api/bots'), api('GET', '/api/connectors')]);
+    if (b.status !== 'fulfilled') {
+      clear(el.cards).append(h('p', { class: 'form-error' }, b.reason.message));
       return;
     }
+    bots = (b.value.bots || []).map(cleanBot);
+    if (c.status === 'fulfilled') connectors = (c.value.connectors || []).map(cleanConnector);
     for (const [id, chat] of open) {
-      const bot = bots.find((b) => b.id === id);
-      if (bot) chat.update(bot); else closeChat(id);
+      const bot = bots.find((x) => x.id === id);
+      if (bot) chat.update(bot, look(bot)); else closeChat(id);
     }
-    // which connectors are browsers (normally just the one called "browser")
-    api('GET', '/api/connectors').then((r) => {
-      const ids = (r.connectors || []).map(cleanConnector).filter((c) => c.kind === 'browser').map((c) => c.id);
-      if (ids.length) { browserIds.clear(); ids.forEach((id) => browserIds.add(id)); showPanel(); }
-    }).catch(() => {});
     render();
     listeners.forEach((fn) => fn(bots));
   }
 
   function render() {
-    clear(el.items).append(...bots.map((bot) => h('li', {},
-      h('button', { class: 'bot-item', type: 'button', 'aria-current': String(bot.id === active), onclick: () => show(bot.id) },
-        h('span', { class: 'avatar', 'aria-hidden': 'true' }, initial(bot.name)),
-        h('span', { class: 'name' }, bot.name),
-        h('span', { class: 'model' }, bot.model),
-        open.has(bot.id) && h('span', { class: 'open-dot', title: 'Chat is open' })))));
+    const mine = bots.filter((b) => !b.builtin);
+    // Home: the first few, each with its own orb
+    clear(el.homeList).append(...mine.slice(0, HOME_MAX).map((bot) => h('li', {},
+      h('button', { class: 'mate', type: 'button', onclick: () => go(bot.id) }, orb(bot, 40),
+        h('span', {}, h('b', {}, bot.name), h('small', {}, look(bot).uses.text.toLowerCase()))))));
+    el.homeAll.textContent = mine.length > HOME_MAX ? `All ${mine.length} bots` : 'See and change your bots';
+    el.homeBox.hidden = false;
 
-    clear(el.tabs).append(...[...open.values()].map((chat) => h('div', { class: 'tab', dataset: { active: String(chat.bot.id === active) } },
-      h('button', { class: 'tab-open', type: 'button', role: 'tab', 'aria-selected': String(chat.bot.id === active), onclick: () => show(chat.bot.id) },
-        chat.busy && h('span', { class: 'busy', title: 'Answering' }), chat.bot.name),
-      h('button', { class: 'tab-close', type: 'button', 'aria-label': `Close chat with ${chat.bot.name}`, onclick: () => closeChat(chat.bot.id) }, icon('x')))));
+    // The page: a way to make one, the main assistant, then the rest
+    const main = bots.filter((b) => b.builtin);
+    clear(el.cards).append(newCard(), ...[...main, ...mine].map(card));
 
-    if (note) el.tabs.append(h('p', { class: 'tab-note', role: 'status' }, note));
     for (const chat of open.values()) chat.el.hidden = chat.bot.id !== active;
-    el.empty.hidden = open.size > 0;
-    el.body.hidden = open.size === 0;
-    showPanel();
+    const front = bots.find((b) => b.id === active);
+    panel.show(front && open.has(front.id) ? front : null, !!front && canBrowse(front));
   }
 
-  function show(id) {
+  function newCard() {
+    return h('article', { class: 'bot-card new' },
+      h('div', { class: 'row' }, h('span', { class: 'plus' }, icon('plus')), h('h3', {}, 'Make a new bot')),
+      h('div', { class: 'starts' }, ...STARTS.map((s) => h('button', { type: 'button', onclick: () => setup.begin({ start: s.id }) }, s.title))));
+  }
+
+  function card(bot) {
+    const lk = look(bot);
+    const uses = bot.builtin ? `Main assistant · ${lk.uses.text.toLowerCase()}` : lk.uses.text;
+    return h('article', { class: `bot-card ${bot.builtin ? 'main' : ''}` },
+      h('div', { class: 'row' }, orb(bot, 52), h('div', { style: 'min-width:0' }, h('h3', {}, bot.name),
+        h('span', { class: 'uses', dataset: { kind: lk.uses.kind } }, uses))),
+      h('p', {}, lk.purpose),
+      h('div', { class: 'foot' },
+        h('button', { class: 'btn primary', type: 'button', onclick: () => go(bot.id) }, bot.builtin ? 'Chat in text' : 'Chat'),
+        h('button', { class: 'btn quiet', type: 'button', onclick: () => setup.begin({ bot }) }, 'Change'),
+        open.has(bot.id) && h('span', { class: 'open-mark' }, 'Chat open')));
+  }
+
+  // Bring a bot's chat to the front, opening it if there is room.
+  function go(id) {
     const bot = bots.find((b) => b.id === id);
     if (!bot) return;
-    note = '';
-    if (!open.has(id) && open.size >= MAX_OPEN) {
-      note = `${MAX_OPEN} chats can be open at once. Close one to open ${bot.name}.`;
-      render();
-      return;
-    }
+    el.note.hidden = true;
+    if (!open.has(id) && open.size >= MAX_OPEN) return atLimit(bot);
     if (!open.has(id)) {
-      const chat = new ChatView(bot, { onBusy: render, onEdit: edit, onBrowser: toggleBrowser });
-      if (!panelOpen.has(id)) panelOpen.set(id, canBrowse(bot)); // open by default for a bot that browses
+      const chat = new ChatView(bot, look(bot), { health, onEdit: (b) => setup.begin({ bot: b }), onClose: (b) => { closeChat(b.id); location.hash = '#bots'; } });
       open.set(id, chat);
       el.chats.append(chat.el);
     }
     active = id;
+    location.hash = '#chat';
     render();
     open.get(id).input.focus();
+    return undefined;
   }
 
-  // The panel follows the chat in front: one browser, one viewer, whichever chat is shown.
-  function showPanel() {
-    const bot = bots.find((b) => b.id === active);
-    const isOpen = !!bot && open.has(bot.id) && panelOpen.get(bot.id) === true;
-    for (const chat of open.values()) chat.browserBtn.setAttribute('aria-pressed', String(panelOpen.get(chat.bot.id) === true));
-    panel.show(bot || null, !!bot && canBrowse(bot), isOpen, () => bot && toggleBrowser(bot));
-  }
-
-  function toggleBrowser(bot) {
-    panelOpen.set(bot.id, !panelOpen.get(bot.id));
-    showPanel();
+  // Only so many conversations can be open at once. Say so, and offer the way out.
+  function atLimit(bot) {
+    const many = MAX_OPEN === 1 ? 'one chat' : `${MAX_OPEN} chats`;
+    clear(el.note).append(
+      h('span', {}, `You already have ${many} open, and that is as many as can be open at once. Close one to open ${bot.name}:`),
+      ...[...open.values()].map((c) => h('button', { class: 'btn small', type: 'button', onclick: () => { closeChat(c.bot.id); go(bot.id); } }, `Close ${c.bot.name}`)),
+      h('button', { class: 'btn small quiet', type: 'button', onclick: () => { el.note.hidden = true; } }, 'Not now'));
+    el.note.hidden = false;
+    location.hash = '#bots';
   }
 
   function closeChat(id) {
     const chat = open.get(id);
     if (!chat) return;
-    note = '';
     chat.close();
     open.delete(id);
-    panelOpen.delete(id);
-    if (active === id) active = open.size ? [...open.keys()].pop() : null;
+    if (active === id) active = null;
     render();
   }
 
-  async function lists() {
-    const [m, c] = await Promise.allSettled([api('GET', '/api/models'), api('GET', '/api/connectors')]);
-    return {
-      models: m.status === 'fulfilled' ? (m.value.models || []).map(cleanModel).filter((x) => x.name) : [],
-      connectors: c.status === 'fulfilled' ? (c.value.connectors || []).map(cleanConnector) : [],
-    };
-  }
-
-  async function edit(bot) {
-    const main = bots.find((b) => b.builtin);
-    const result = await openBotForm({ bot, ...(await lists()), preferModel: main && main.model });
-    if (!result) return;
-    if (result.deleted) closeChat(result.deleted);
-    await load();
-    if (result.bot && !bot) show(cleanBot(result.bot).id);
-  }
-
-  el.add.addEventListener('click', () => edit(null));
+  const setup = initSetup({
+    health,
+    lists: () => ({ bots, connectors }),
+    async saved(bot, isNew) {
+      await load();
+      if (isNew) go(cleanBot(bot).id); else location.hash = open.has(bot.id) && active === bot.id ? '#chat' : '#bots';
+    },
+    async deleted(id) {
+      closeChat(id);
+      await load();
+      location.hash = '#bots';
+    },
+  });
 
   return {
     load,
-    edit,
     get bots() { return bots; },
+    get hasChat() { return active !== null && open.has(active); },
+    change(bot) { setup.begin({ bot }); },
+    // opened straight at #setup, the lists may not have arrived yet
+    showSetup() { if (bots.length) setup.show(); else load().then(() => setup.show()); },
+    leaveSetup() { setup.leave(); },
     onChange(fn) { listeners.add(fn); },
   };
 }

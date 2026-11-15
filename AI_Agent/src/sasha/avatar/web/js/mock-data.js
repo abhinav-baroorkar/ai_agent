@@ -5,7 +5,7 @@ const params = new URLSearchParams(location.search);
 
 export const health = {
   ok: true,
-  assistant: { name: params.get('name') || 'Mira', pronouns: { subject: 'she', object: 'her', possessive: 'her' } },
+  assistant: { name: params.get('name') || 'Assistant', pronouns: { subject: 'she', object: 'her', possessive: 'her' } },
   profile: 'laptop (mock)',
   default_bot: 'main',
   voice: { stt: params.get('voice') !== '0', tts: params.get('voice') !== '0', tts_languages: ['en'] },

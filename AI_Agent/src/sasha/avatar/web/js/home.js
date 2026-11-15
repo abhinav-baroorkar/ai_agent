@@ -8,6 +8,7 @@ import { Mic, micErrorText } from './audio-in.js';
 import { startMockMic } from './mock-mic.js';
 import { initReadouts, initHistory, watchMicPermission, spokenTail, MIC_BLOCKED_HELP } from './home-extras.js';
 import { initTimers } from './timers.js';
+import { micSign } from './mic-sign.js';
 import { Endpointer, loudness, TUNING } from './endpoint.js';
 
 const LABEL = { idle: 'Ready', listening: 'Listening', thinking: 'Thinking', speaking: 'Speaking' };
@@ -64,7 +65,7 @@ export async function initHome(health, onOnline) {
     el.status.dataset.tone = conv.online ? shown : 'offline';
     el.status.textContent = !conv.online ? 'Offline' : phase === 'finishing' ? 'Finishing…' : LABEL[shown];
     el.cancel.hidden = !(shown === 'thinking' || shown === 'speaking');
-    el.micOn.hidden = !(recording || starting); // the rule: the microphone is never open, or opening, without this sign
+    micSign('home', recording || starting); // the rule: the microphone is never open, or opening, without this sign
     el.mic.setAttribute('aria-pressed', String(recording));
     el.mic.dataset.blocked = String(blocked);
     el.mic.dataset.phase = phase;
