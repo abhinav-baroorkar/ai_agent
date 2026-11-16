@@ -22,7 +22,7 @@ import concurrent.futures
 import threading
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, TypeVar
 from urllib.parse import urlsplit
 
@@ -101,6 +101,9 @@ class BrowserConversation:
     epoch: int = -1  # the service's holder_epoch our tabs belong to
     queries: list[str] = field(default_factory=list)  # this turn's searches
     owner_stops: int = 0  # the service's count when this turn began
+    # Sites the tabs really loaded (from the page layer, never the model), for the
+    # browse helper's provenance (review P4). The helper clears it per lookup.
+    sites: list[str] = field(default_factory=list)
 
     def _turn(self) -> tuple[str, ...]:
         ctx = current_turn.get()
@@ -146,6 +149,9 @@ class BrowserConversation:
             result = self.bridge.run(run)
         except (PageError, BrowserBusyError, BrowserStoppedError) as e:
             raise ToolError(str(e)) from None
+        site = result.get("site")
+        if isinstance(site, str) and site and site not in self.sites and len(self.sites) < 5:
+            self.sites.append(site)
         return {**result, "note": NOTE} if "page" in result else result
 
     # --- the tools -------------------------------------------------------------------
@@ -206,6 +212,11 @@ def _obj(props: dict[str, Any], required: list[str] | None = None) -> dict[str, 
 
 
 def browser_tools(conv: BrowserConversation) -> list[Tool]:
+    """Read-only (phase 1), and every result is outside text (`taints`)."""
+    return [replace(t, read_only=True, taints=True) for t in _tools(conv)]
+
+
+def _tools(conv: BrowserConversation) -> list[Tool]:
     num = {"type": "integer", "minimum": 1}
     return [
         Tool(

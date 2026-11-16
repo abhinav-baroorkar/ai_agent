@@ -83,6 +83,11 @@ class BrowserConnector:
         return list(TOOL_NAMES)
 
     def build_tools(self, settings: dict[str, Any]) -> list[Tool]:
+        return browser_tools(self.conversation(settings))
+
+    def conversation(self, settings: dict[str, Any]) -> BrowserConversation:
+        """One conversation's own browser holder (a raw-browser bot, or the browse
+        helper of one main conversation, review P6)."""
         holder = f"conversation-{next(_conversations)}"
         bot = building_for_bot.get()
         if bot is not None:  # for the live view's holder_bot; the newest MAX_HOLDERS only
@@ -90,12 +95,11 @@ class BrowserConnector:
                 self.holders[holder] = bot
                 while len(self.holders) > MAX_HOLDERS:
                     self.holders.popitem(last=False)
-        conv = BrowserConversation(
+        return BrowserConversation(
             self.bridge,
             holder=holder,
             search_template=settings.get("search_template") or None,
         )
-        return browser_tools(conv)
 
     def test(self, settings: dict[str, Any]) -> TestResult:
         exe = find_chrome()

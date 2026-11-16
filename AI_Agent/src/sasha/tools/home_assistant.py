@@ -239,6 +239,7 @@ def build_home_assistant_tools(client: HomeAssistantClient) -> list[Tool]:
                 "required": [],
             },
             handler=client.list_devices,
+            read_only=True,
         ),
         Tool(
             name="get_state",
@@ -251,6 +252,7 @@ def build_home_assistant_tools(client: HomeAssistantClient) -> list[Tool]:
                 "required": ["entity_id"],
             },
             handler=client.get_state,
+            read_only=True,
         ),
         Tool(
             name="call_service",

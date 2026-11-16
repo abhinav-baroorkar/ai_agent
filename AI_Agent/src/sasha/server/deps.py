@@ -9,15 +9,18 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from sasha.bots import Bot, BotStore
+from sasha.bots import MAIN_ID, Bot, BotStore
+from sasha.browser.helper import BrowseHelper, browse_tool
 from sasha.config import Settings, reload_secrets
 from sasha.connectors import ConnectorRegistry, HomeAssistantConnector, build_connectors
+from sasha.connectors.browser import BrowserConnector
 from sasha.conversation import building_for_bot
 from sasha.orchestrator import Assistant
 from sasha.pipeline.llm import LLM, OllamaLLM
 from sasha.pipeline.stt import SpeechToText
 from sasha.pipeline.tts import TextToSpeech
 from sasha.prompting import build_prompt, prompt_lines
+from sasha.said import SaidGuard
 from sasha.server.speaking import ListenerPresence
 from sasha.server.voice import load_voice_stages
 from sasha.server.wake_policy import RateLimiter
@@ -61,21 +64,43 @@ class ServerDeps:
     def make_assistant(self, bot: Bot, spoken: bool = False) -> tuple[Assistant, list[str]]:
         """A fresh conversation for `bot`, with its connectors' tools and the clock. Its
         prompt says what those tools can really do; `spoken` adds the spoken style."""
+        llm = self.make_llm(bot.model)
         token = building_for_bot.set(bot.id)  # the browser notes whose conversation it is
         try:
             tools, warnings = self.connectors.tools_for(bot.connectors)
+            if (helper := self._browse_helper(bot, llm)) is not None:
+                tools.register(browse_tool(helper))
         finally:
             building_for_bot.reset(token)
         if CLOCK_TOOL not in tools:
             tools.register(clock_tool())  # every bot: read-only, so no guessed times
+        lister = tools.get("list_devices").handler if "list_devices" in tools else None
         assistant = Assistant(
             self.settings,
-            self.make_llm(bot.model),
+            llm,
             tools,
             self.telemetry,
             system_prompt=self.prompt_for(bot, tools.names, spoken),
+            change_guard=SaidGuard(lister),  # P1: changes after a web lookup
         )
         return assistant, warnings
+
+    def _browse_helper(self, bot: Bot, llm: LLM) -> BrowseHelper | None:
+        """Web lookups for the main assistant while the browser connector is on (design
+        10.1). A bot with the direct browser has the browser only (B4), so no helper."""
+        kinds = self.connectors.kinds
+        if bot.id != MAIN_ID or any(kinds.get(c) == "browser" for c in bot.connectors):
+            return None
+        browser = next((c for c, k in kinds.items() if k == "browser"), None)
+        settings = self.connectors.ready_settings(browser) if browser else None
+        if browser is None or settings is None:
+            return None
+        connector = self.connectors.get(browser)
+        if not isinstance(connector, BrowserConnector):
+            return None
+        conv = connector.conversation(settings)  # one holder per conversation (P6)
+        lines = prompt_lines(self.settings)
+        return BrowseHelper(conv, self.settings, llm, self.telemetry, lines)
 
     def prompt_for(self, bot: Bot, tool_names: list[str], spoken: bool = False) -> str:
         """The bot's own prompt plus the facts about these tools (prompting.py)."""

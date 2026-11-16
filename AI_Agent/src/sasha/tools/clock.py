@@ -38,4 +38,5 @@ def clock_tool(now: Callable[[], datetime] = _local_now) -> Tool:
         "for anything else, and don't mention the time or date unless they asked.",
         {"type": "object", "properties": {}},
         get_current_time,
+        read_only=True,
     )

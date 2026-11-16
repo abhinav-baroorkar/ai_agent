@@ -14,7 +14,7 @@ import itertools
 import logging
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 _turn_ids = itertools.count(1)
 log = logging.getLogger(__name__)
@@ -25,6 +25,8 @@ class TurnContext:
     user_messages: tuple[str, ...]  # this conversation's user messages, the current one last
     input_mode: str  # "text", "voice" (window) or "wake"
     turn_id: int
+    # The turn's own stop (the Stop button), so a helper inside a tool can see it too.
+    should_stop: Callable[[], bool] | None = field(default=None, compare=False)
 
 
 current_turn: contextvars.ContextVar[TurnContext | None] = contextvars.ContextVar(
@@ -32,8 +34,12 @@ current_turn: contextvars.ContextVar[TurnContext | None] = contextvars.ContextVa
 )
 
 
-def new_turn(user_messages: tuple[str, ...], input_mode: str) -> TurnContext:
-    return TurnContext(user_messages, input_mode, next(_turn_ids))
+def new_turn(
+    user_messages: tuple[str, ...],
+    input_mode: str,
+    should_stop: Callable[[], bool] | None = None,
+) -> TurnContext:
+    return TurnContext(user_messages, input_mode, next(_turn_ids), should_stop)
 
 
 # Which bot a conversation's tools are being built for (set by `make_assistant`), so a

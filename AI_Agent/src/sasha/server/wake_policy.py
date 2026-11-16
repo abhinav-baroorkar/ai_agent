@@ -23,10 +23,11 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any
 
 from sasha.config import CONTROLLABLE_DOMAINS, WakeConfig
-from sasha.tools import Tool, ToolError, ToolRegistry
+from sasha.tools import ToolError, ToolRegistry
 
 READ_ONLY_TOOLS = ("list_devices", "get_state", "get_current_time")
 CONTROL_TOOL = "call_service"
@@ -183,14 +184,12 @@ class WakeToolPolicy:
             tool = tools.get(name)
             if name == "list_devices":  # remember real names for what the server says
                 self._list_devices = tool.handler
-                allowed.register(
-                    Tool(tool.name, tool.description, tool.parameters, self._listing(tool.handler))
-                )
+                allowed.register(replace(tool, handler=self._listing(tool.handler)))
             elif name in READ_ONLY_TOOLS:
                 allowed.register(tool)
             elif name == CONTROL_TOOL:
                 guarded = self._guard(tool.handler)
-                allowed.register(Tool(tool.name, tool.description, tool.parameters, guarded))
+                allowed.register(replace(tool, handler=guarded))
         return allowed
 
     def _listing(self, handler: Callable[..., Any]) -> Callable[..., Any]:
