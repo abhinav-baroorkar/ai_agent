@@ -146,7 +146,7 @@ the Phase 0 real-light gate stays open and must pass before the v0.1 release.
   with real devices, cameras, pet devices, room-to-room announcements, satellites on other devices
   and the robot body. Why: device work needs hands-on testing, scheduled after the first week.
 - **No "fun" features** (games, trivia, stories, a music visualiser).
-- The assistant's own browser: phase 1 (read-only tools) and its live view in the Bots screen are merged. Next browser phase: **take-over** (a visible window, the brain disconnected while the owner drives, hand-back by restart), which the owner uses to solve the search engine's bot challenge; it is being designed and gets a design review before code. After that: acting with approvals, sign-in by take-over (low-value sites only), media.
+- The assistant's own browser: phase 1 (read-only tools) and its live view in the Bots screen are merged. The take-over (a visible window, the brain disconnected while the owner drives, hand-back by restart; the owner uses it to solve the search engine's person-check) and the `browse` helper (the main assistant browses through an isolated helper) are merged. No lasting sign-ins: the owner decided on 2026-11-16 that the assistant's browser keeps none, so the sign-in phase is dropped. After that: acting with approvals, media.
 - Postponed, conditional: Marathi–English support (Phase 2). The owner's condition: the base assistant must keep working properly. Marathi support is optional and may only be added if it doesn't slow the English path (latency and GPU placement measured before and after); otherwise it stays out.
 - Everything else on the recommended list is built as current tasks end, in this order unless the
   owner changes it:

@@ -695,3 +695,80 @@ Summary of the design that passed review (two rounds). Opt-in until the measurem
   entirely questions may stand instead. Two cases differ from the short wording: on a typed turn, a
   reply that is all questions is kept as the model wrote it; on a spoken turn where something was
   also made, an all-questions reply is spoken as it is.
+
+## 2026-11-16 — Browsing for the main assistant: the `browse` helper (merged, `feat/browse-helper` `a507613`)
+
+Reviewed at `a507613` (LGTM; two should-fixes left for a follow-up, below). Decisions, with reasons:
+- **B4: a bot never holds raw browser tools together with any connector that reads private data or
+  changes things.** A bot with the direct browser has the browser only. Any other bot browses only
+  through the `browse` helper, whose context has the browser tools and nothing else. Why: a web page
+  can contain hidden instructions; if the same model context could read private data or change
+  devices, the page could make it do so. Keeping the browser in its own context means a page can
+  only affect a lookup.
+- **Web lookups go to the main assistant only,** whenever the browser connector is on in Settings;
+  there is no per-bot switch yet. Why: one place to get right first; per-bot lookups can come later.
+- **Wake-word turns get no browsing.** Why: the room can't see the screen, so a voice turn can't
+  show what was read, and spoken input is the easiest to spoof (a television, visitors).
+- **P1 taint rule.** Every tool counts as changing unless marked read-only. In the same turn as a
+  successful lookup, no changing tool runs. While a looked-up turn is still in context, a device
+  change runs only if the owner's current message names the device and the action; anything else,
+  including a bare "yes", is refused (it fails closed; there is no confirm wording in the window yet,
+  so a "yes" after the assistant's question is refused while tainted). Why: after a page is read, the
+  model's next question might be one the page planted ("Shall I unlock the door?"). "Yes" doesn't say
+  which device or action, so only the owner naming both counts.
+- **Spoken lookup answers are capped at 500 characters and end with "From <site>."** from the
+  server's own record; chat tabs show a "looked up" line instead. Why: spoken answers can't be
+  skimmed, and the source must always be heard, taken from the server's own record so a page can't
+  fake it.
+- **The helper's searches may use only the owner's current words, the task, and words from pages it
+  has read.** Why: a page must not be able to make the helper search for things the owner never asked
+  about.
+- **While a web result is in the context, a tool that carries the owner's words** (for example a
+  reminder's text) **runs only if every word of those fields is the owner's own,** from this turn or
+  the previous one; glue words and plurals are allowed; cancel and snooze fail closed. Why: a page
+  must not be able to put words into a reminder that is spoken at ring time.
+- **Relaxation of the memory action rule (supersedes, for the target only, the rule in the 2026-11-15
+  memory entry).** The device and action may now be named in the owner's last 2 messages within 3
+  minutes, not only in the current message, so "turn it off" after "is the bedroom light on?" works.
+  Reviewed: a different device named now than earlier, or a negation ("don't turn it off"), is still
+  refused. This entry changes only where the target may be named.
+- **Known open items, from the review (a follow-up is expected):** an excluded target can still
+  count ("turn the kitchen light off, not the bedroom" passes the bedroom); the owner-words check
+  drops a negation ("remind me not to call the bank" can pass "call the bank").
+- The model's wording of a lookup reply is not trusted for the source or the length: both come from
+  the server (P8).
+
+## 2026-11-16 — Take-over of the assistant's browser (merged, `feat/browser-takeover` `9db9b10`; contract v0.5)
+
+- **The owner can drive the assistant's browser in a visible window for up to 15 minutes.** The
+  brain is disconnected while the owner drives (no automation connection, no screenshots), and hand-back
+  is by restarting the assistant's own headless browser, which starts blank on its next use. Why:
+  the owner sometimes has to solve a person-check; 15 minutes bounds it; a forgotten window must not
+  keep the bots out of the browser.
+- **On hand-back, downloads, form data, logins and history are wiped and only the search engine's
+  cookies are kept.** Why: the wipe means nothing the owner typed stays for a bot to see; the search
+  engine's cookie is kept so the check stays solved. The review at `9db9b10` found the wipe now also
+  covers caches, shared storage, trust tokens, reporting data and the browser's own cache folder.
+- **Owner decision, 2026-11-16: the assistant's browser keeps no sign-ins.** After a take-over
+  everything is wiped except the search engine's cookies. Why: a page can try to steer a bot, and a
+  bot signed in to the owner's accounts could act in them; the owner chose the recommended, simpler
+  option over lasting sign-ins. **This supersedes** the plan for a later "sign-in by take-over
+  (low-value sites only)" phase; that phase is dropped from `plan.md`.
+- A hand-back while a bot's turn is still running stops the assistant's headless browser mid-turn
+  (rare and safe; noted by the review as a possible refinement).
+- The search choice is therefore settled: DuckDuckGo, with its person-check solved by the owner
+  through the take-over.
+
+## 2026-11-16 — The window opens at login (merged, `feat/autostart-window` `c88784f`)
+
+- **The window opens at login through one XDG autostart entry,** at the owner's request: the owner
+  asked for the window to show up after every reboot. Why an autostart entry: it runs in the owner's
+  desktop session with its display settings, a closed window stays closed until the next login (or
+  the wake phrase, or `sasha window`), and the owner can switch it off in Startup Applications.
+- **Attach mode never starts a second brain.** `sasha window --attach` waits for the brain service
+  instead of starting its own, so two brains can never clash on one port. The check that the brain
+  is up refuses redirects (a redirect counts as "not up"; a probe with a local server answering 302
+  to a second server sent that second server 0 requests).
+- The entry is written only by `sasha autostart on --yes`, which the manager ran at 01:18 on
+  2026-11-16 after the merge; `sasha autostart off` removes it. See the new list of allowed writes
+  outside the project in `team.md`.
