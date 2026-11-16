@@ -22,7 +22,7 @@ import concurrent.futures
 import threading
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, TypeVar
 from urllib.parse import urlsplit
 
@@ -31,7 +31,9 @@ from sasha.browser.leaks import QueryLeakError, check_query
 from sasha.browser.origin import SearchRefusedError, check_open_url, search_url
 from sasha.browser.pages import BrowserTabs, PageError, TabHook
 from sasha.browser.service import BrowserBusyError, BrowserService, BrowserStoppedError
+from sasha.browser.task_check import MAX_PAGE_WORDS, check_search_words
 from sasha.conversation import current_turn, on_turn_end
+from sasha.said import words
 from sasha.tools import Tool, ToolError
 
 STEPS_PER_TURN = 12
@@ -98,8 +100,16 @@ class BrowserConversation:
     steps: int = 0
     started: float = 0.0
     chrome_id: int = field(default=0)
+    epoch: int = -1  # the service's holder_epoch our tabs belong to
     queries: list[str] = field(default_factory=list)  # this turn's searches
     owner_stops: int = 0  # the service's count when this turn began
+    # Sites the tabs really loaded (from the page layer, never the model), for the
+    # browse helper's provenance (review P4). The helper clears it per lookup.
+    sites: list[str] = field(default_factory=list)
+    # Set by the browse helper: its searches also pass the query-word rule (10.2).
+    helper_task: str | None = None
+    page_words: set[str] = field(default_factory=set)
+    blocked_queries: int = 0  # searches the query-word rule refused (a count only)
 
     def _turn(self) -> tuple[str, ...]:
         ctx = current_turn.get()
@@ -111,26 +121,32 @@ class BrowserConversation:
             self.turn_id, self.steps, self.started = ctx.turn_id, 0, time.monotonic()
             self.queries = []
             self.owner_stops = self.bridge.service.owner_stops
-            # "working" in the live view from this first step until the turn ends
-            service, holder = self.bridge.service, self.holder
-            self.bridge.call_soon(service.begin_turn, holder)
-            on_turn_end(ctx.turn_id, lambda: self.bridge.call_soon(service.end_turn, holder))
+            # the turn holds the browser from its first step (acquire) until it ends
+            on_turn_end(ctx.turn_id, self._release)
         if self.bridge.service.owner_stops != self.owner_stops:
             raise ToolError("The owner stopped the browser")
         self.steps += 1
         if self.steps > STEPS_PER_TURN:
+            self._release()  # it can't use the browser again this turn: let others in
             raise ToolError(f"Browser step limit reached ({STEPS_PER_TURN} per request)")
         if time.monotonic() - self.started > SECONDS_PER_TURN:
+            self._release()
             raise ToolError(f"Browser time limit reached ({SECONDS_PER_TURN:.0f} s per request)")
         return ctx.user_messages
+
+    def _release(self) -> None:
+        self.bridge.call_soon(self.bridge.service.end_turn, self.holder)
 
     def _op(self, use: Callable[[BrowserTabs], Awaitable[dict[str, Any]]]) -> dict[str, Any]:
         async def run() -> dict[str, Any]:
             service = self.bridge.service
-            async with service.acquire(self.holder, owner_stops=self.owner_stops) as chrome:
-                if self.tabs is None or id(chrome) != self.chrome_id:  # (re)started browser
+            async with service.acquire(
+                self.holder, owner_stops=self.owner_stops, turn=True
+            ) as chrome:
+                fresh = (id(chrome), service.holder_epoch) != (self.chrome_id, self.epoch)
+                if self.tabs is None or fresh:  # (re)started, or handed to someone else
                     self.tabs = BrowserTabs(chrome, self.bridge.backstop, self.bridge.on_tab)
-                    self.chrome_id = id(chrome)
+                    self.chrome_id, self.epoch = id(chrome), service.holder_epoch
                 # result links on the current engine's site are unwrapped (redirects.py)
                 self.tabs.engine_host = urlsplit(self.search_template or "").hostname
                 return await use(self.tabs)
@@ -139,6 +155,13 @@ class BrowserConversation:
             result = self.bridge.run(run)
         except (PageError, BrowserBusyError, BrowserStoppedError) as e:
             raise ToolError(str(e)) from None
+        site = result.get("site")
+        if isinstance(site, str) and site and site not in self.sites and len(self.sites) < 5:
+            self.sites.append(site)
+        page = result.get("page")
+        helper_reading = self.helper_task is not None and len(self.page_words) < MAX_PAGE_WORDS
+        if helper_reading and isinstance(page, str):
+            self.page_words |= words(page)
         return {**result, "note": NOTE} if "page" in result else result
 
     # --- the tools -------------------------------------------------------------------
@@ -159,6 +182,12 @@ class BrowserConversation:
             check_query(str(q), owner[:-1], owner[-1] if owner else "", self.queries)
         except QueryLeakError as e:
             raise ToolError(str(e)) from None
+        if self.helper_task is not None:
+            try:
+                check_search_words(str(q), self.helper_task, owner[-1], self.page_words)
+            except ValueError as e:
+                self.blocked_queries += 1
+                raise ToolError(str(e)) from None
         self.queries.append(str(q))  # the turn's searches are checked together (W2)
         if not self.search_template:
             raise ToolError("No search engine is set yet; the owner can choose one in Settings")
@@ -166,7 +195,7 @@ class BrowserConversation:
             target = search_url(self.search_template, str(q))
         except SearchRefusedError as e:
             raise ToolError(str(e)) from None
-        return self._op(lambda tabs: tabs.navigate(target))
+        return self._op(lambda tabs: tabs.search_results(target))
 
     def read_page(self, part: int = 1) -> dict[str, Any]:
         self._turn()
@@ -199,6 +228,11 @@ def _obj(props: dict[str, Any], required: list[str] | None = None) -> dict[str, 
 
 
 def browser_tools(conv: BrowserConversation) -> list[Tool]:
+    """Read-only (phase 1), and every result is outside text (`taints`)."""
+    return [replace(t, read_only=True, taints=True) for t in _tools(conv)]
+
+
+def _tools(conv: BrowserConversation) -> list[Tool]:
     num = {"type": "integer", "minimum": 1}
     return [
         Tool(

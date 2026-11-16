@@ -21,6 +21,11 @@ per-device token; v0 has no auth because it only listens on localhost.
 | `GET /api/connectors` | `{connectors:[Connector]}` |
 | `PUT /api/connectors/{id}` | body `{enabled?, settings?}`; returns the updated Connector; secrets are never returned |
 | `POST /api/connectors/{id}/test` | `{ok, message}` connectivity check |
+| `GET /api/timers` | `{now, timers:[Timer]}` (v0.3; missed and done items are kept 7 days) |
+| `DELETE /api/timers/{id}` | cancel a scheduled item, or remove a missed or done one; `{ok:true}`. A ringing or pending item answers 409: end it with dismiss |
+| `POST /api/timers/{id}/dismiss` | stop a ringing or pending item; returns the Timer |
+| `POST /api/timers/{id}/snooze` | a ringing or pending item, or a missed timer or reminder (not a missed alarm: 409); body `{minutes: 1–60}` (the UI sends 5, 10 or 15); returns the Timer |
+| `POST /api/timers/{id}/say` | speak this item's text now (the owner tapped it); `{ok:true}` |
 
 `Bot` = `{id, name, model, system_prompt, connectors:[connector ids], builtin:bool,
 wake_device_control:bool, style}`.
@@ -71,7 +76,7 @@ Server → client:
 - `{type:"transcript", text, final:bool}`: what the brain heard
 - `{type:"tool", name, ok:bool}`: a tool ran
 - `{type:"reply_delta", text}`: streamed piece of the answer
-- `{type:"reply", text, tool_calls:[{name, ok}], timing:{total_ms, tokens_per_s}}`: final answer
+- `{type:"reply", text, tool_calls:[{name, ok}], sites:[string], timing:{total_ms, tokens_per_s}}`: final answer (`sites`: v0.5.1, Web lookups)
 - `{type:"tts_start", sample_rate}`, then binary speech frames, then `{type:"tts_end"}`
 - `{type:"error", message}`
 
@@ -145,6 +150,67 @@ the `voice` bot's connectors say):
   from wake turns.
 - 3 s cool-down after any turn on this server before the next wake is accepted.
 
+## Timers, alarms and reminders (v0.3)
+
+Items are made by talking (the model's timer tools); the UI lists, counts down,
+dismisses, snoozes and replays them. There is no create route in v0.3.
+
+`Timer` = `{id, kind:"timer"|"alarm"|"reminder", label, text, due_at, repeat:
+"none"|"daily"|"weekdays"|"weekends", state:"scheduled"|"ringing"|"pending"|"missed"|
+"done", late_s, snoozes, created_by:"chat"|"wake"}`.
+- `due_at` is ISO 8601 local time with offset; `now` (same format) comes with every
+  list, so the card counts down locally from `due_at` against `now`; there are no
+  per-second frames.
+- `text` is the reminder's text (empty for timers and alarms); `label` is optional.
+  Both are user text: show them as plain text, never as markup.
+- `pending`: it came due while nothing was connected; `late_s`: how late it fired.
+  When a socket connects, a pending alarm at most 10 min late rings then (`ringing`,
+  tones, the generic `say`); every other pending item becomes `missed`, announced with
+  the generic line (a repeating alarm moves on to its next occurrence instead).
+- A `missed` timer or reminder can be snoozed (card or chat), so the card may offer
+  snooze on it; a `missed` alarm can only be dismissed or removed.
+- `created_by:"wake"` items are marked as voice-made on the card.
+
+All HTTP routes above sit behind the same Host, Origin and JSON content-type checks
+as every other route. `dismiss` and `say` may be sent with no body at all; any body
+that is sent must be JSON (`415` otherwise).
+
+WebSocket, server → every socket:
+- `{type:"timers", now, timers:[Timer]}`: on connect, and after every change (create,
+  cancel, snooze, dismiss, removal, any state change). A snapshot always follows
+  `timer_stopped`, so the UI takes real values (such as the new `due_at` after a
+  snooze) from it.
+- `{type:"timer_ringing", id, kind, created_by, say}`: an item rings. `say` is the
+  plain-text sentence being spoken. For late and pending items it is only the generic
+  line (e.g. "You have 2 missed reminders.") and never contains the label or text;
+  their text is spoken only on `POST …/say`. The UI shows `say` as given and never
+  builds its own sentence from `text`.
+- `{type:"timer_stopped", id, how:"dismissed"|"snoozed"|"cancelled"|"timeout"}`.
+Exactly one socket speaks a ring: the Home socket (`speak=1`) if open, else the
+listener. The announcement and the repeating tone (every 10 s; up to 2 min, alarms 5
+min) arrive as ordinary `tts_start` / speech frames / `tts_end` on that socket, so the
+brain-wide `pause_capture` / `resume_capture` closes the listener's microphone for each.
+
+Client → server (any socket): `{type:"timer_dismiss", id}`, `{type:"timer_snooze",
+id, minutes}`.
+
+Listener only, while an item rings on the listener:
+- `{type:"stop_window", id, timeout_s}`: sent after a tone's playback has ended (after
+  `resume_capture`), at most 8 s, until the next tone. The listener may open its
+  microphone for one short segment, only if capture is allowed anyway, showing
+  listening, and sends it as a normal `audio_start {wake:true}` segment. It closes the
+  window at once on `timer_stopped` for that id (the server closes its side too).
+- `{type:"stop_result", id, accepted:bool, action:"dismiss"|"snooze"|null}`: the
+  segment counted only if it is at most 2 words and starts with exactly `stop`,
+  `dismiss` or `snooze`. Its text is discarded like other wake audio. A bare `snooze`
+  works at most 3 times per item.
+
+Wake turns: the timer tools work without `wake_device_control`, within limits (5
+created per 10 min, 10 voice-made items active). A wake turn can't cancel or snooze an
+item made in a chat without the spoken `confirm`, except what is ringing now, on any
+socket: "<name>, stop" stops (or snoozes) every ringing item with no yes. Bots with a
+`browser` connector get no timer tools.
+
 ## Browser live view (v0.4)
 
 The window can watch the assistant's own browser and stop it. Watching only: the
@@ -162,7 +228,7 @@ request with `Sec-Fetch-Site` other than `same-origin` or `none` gets 403):
 | `POST /api/browser/stop` | stop the browser now (Chrome and its proxy); `{ok:true}`, also when it wasn't running. No body needed; a body that is sent must be JSON |
 
 `BrowserState` = `{enabled:bool, running:bool, agent:"idle"|"working", holder:string|null,
-holder_bot:{id, name}|null, tabs:[{tab:int, site:string, title:string, current:bool}],
+holder_bot:{id, name, via}|null, tabs:[{tab:int, site:string, title:string, current:bool}],
 guard:{allowed:int, refused:{<category>:int}, background_refused:int}}`.
 - `enabled`: the browser connector's switch in Settings, nothing more. Whether a given
   bot may browse is up to the UI to work out from that bot's `connectors` list.
@@ -212,6 +278,51 @@ WebSocket `/ws/browser` (one viewer):
 - Nothing about URLs, sites, titles or frames goes into logs or telemetry: only counts
   (frames sent and dropped, viewers, stops).
 
+## Web lookups (v0.5.1)
+
+The main assistant can look things up on the web through the `browse` tool while the
+browser connector is on (Settings). The page text stays inside an isolated helper; the
+main conversation only gets a short answer and the sites it came from. A bot with the
+direct browser (the `browser` connector in its own `connectors`) works as before.
+
+Connectors:
+- `GET /api/connectors` (and the answer to `PUT /api/connectors/browser`): the browser
+  connector's `tools` include `"browse"` exactly while the main assistant is offered
+  web lookups (the connector is on and set up, and the main bot doesn't have the
+  direct browser in its own `connectors`). The window keys its "Web lookups" wording
+  on that; without it, it keeps today's wording.
+
+Main socket (`/ws`):
+- `reply` adds `sites:[string]`: the hostnames the turn's web results really came
+  from, in order, at most 5, from the server's own record of what the tabs loaded
+  (never the model's text). Empty for a turn without a web lookup or browser use.
+  Each is a plain hostname (letters, digits, dots, hyphens; up to 255 characters).
+- A `tool` frame with `name:"browse"` marks the lookup (`ok:false` when it was refused,
+  timed out or failed). The lookup takes 10 to 30 s; the state stays `thinking`.
+- `speak=1` sockets (the Home window), once a `browse` has returned `ok:true` in the
+  turn: the rest of the answer is released in whole sentences up to 500 characters
+  (what doesn't fit is neither shown nor spoken), then, unless the answer already
+  named the site, the server adds `From <site>.` (the first of `sites`, without
+  `www.`). The `reply_delta` frames, `reply.text`, the speech and the history all
+  carry the same text. `speak=0` sockets get the whole answer and no added line.
+- Wake-word turns (the listener socket) never browse.
+
+UI (for the UI session to build against):
+- Under a reply with a non-empty `sites`, show one line: "looked up: <site>, <site>"
+  (hostnames joined with ", ", with `textContent`, never as markup or links). On
+  `speak=1` the spoken "From <site>." is already part of the text; show the line too.
+- While a `tool` frame for `browse` is the latest one and no `reply_delta` has come
+  since, the status can read "Looking it up…".
+- Bot form wording: in this version only the main assistant gets web lookups, and
+  it has them whenever the browser connector is on in Settings (no per-bot field).
+  Its form can say "Web lookups: on while the browser is on in Settings". The
+  `browser` connector tick on a bot reads "Direct browser (advanced)" and still turns
+  that bot's other connectors off (B4).
+
+Live view: `holder_bot` adds `via:"helper"|"direct"`. `helper`: the main assistant's
+web lookup holds the browser (suggested text: "In use by <name> (web lookup)");
+`direct`: a bot with the direct browser. Frames, Stop and take-over work the same.
+
 ## Changes
 - v0.1 (2026-11-14): `speak` query parameter; one conversation per socket stated;
   `PUT /api/connectors/{id}` returns the Connector; `pronouns` is an object;
@@ -222,6 +333,9 @@ WebSocket `/ws/browser` (one viewer):
   `audio_start.wake`; `listener_state`, `listener_stats`; `wake`, `armed_expired`,
   `confirm`, `confirm_result`, `pause_capture`, `resume_capture`; built-in `voice` bot and
   `Bot.wake_device_control`; health `wake.available` and `limits.reserved_sockets`.
+- v0.3 (2026-11-15): timers, alarms and reminders: `/api/timers` routes; `timers`,
+  `timer_ringing`, `timer_stopped`, `stop_window`, `stop_result`; `timer_dismiss`,
+  `timer_snooze`.
 - v0.4 (2026-11-15): browser live view: `GET /api/browser`,
   `POST /api/browser/stop`; `/ws/browser` with `browser_state`, `browser_frame`,
   `browser_stopped`, `browser_watch`, `browser_ack`, `browser_stop`; health
@@ -230,8 +344,12 @@ WebSocket `/ws/browser` (one viewer):
   the window only over `/ws/browser`. `agent` is `working` for the whole turn and pushed
   at once; `guard.refused` counts only the pages' own refusals, the rest is
   `background_refused`.
-- v0.4.3 (2026-11-16): `wake` misses carry `reason` (a label, never text). The wake
+- v0.4.3 (2026-11-15): `wake` misses carry `reason` (a label, never text). The wake
   phrase is "hey" plus the name (assistant.yaml), not the name alone.
-- v0.4.4 (2026-11-16): `Bot.style` (the orb's breathing style), default `glow`.
+- v0.4.4 (2026-11-15): `Bot.style` (the orb's breathing style), default `glow`.
+- v0.5.1 (2026-11-15): web lookups: `browse` in the browser connector's `tools`;
+  `reply.sites`; on `speak=1` the answer after a `browse` is capped at 500 characters
+  and ends with "From <site>." unless it named it; `holder_bot.via`; the UI's "looked
+  up" line and bot form wording.
 - Planned for v0.5 (not built yet): `POST /api/connectors` and
   `DELETE /api/connectors/{id}` to add and remove MCP connectors from Settings.

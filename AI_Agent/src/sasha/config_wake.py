@@ -12,6 +12,10 @@ class ReplyLines(BaseModel):
     not_changed: str = "I didn't change: {names}."
     changed: str = "I changed: {names}."
     nothing_changed: str = "Nothing was changed."
+    ask_again: str = "Can you say the time again?"  # when the model's question also claimed
+    asking_words: list[str] = Field(  # a question opening with these is a real question
+        default_factory=lambda: ["should", "shall", "would", "will", "can", "could", "may"]
+    )
     more: str = "and {count} more"
     joiner: str = ", "
     unknown_one: str = "a device I don't know"

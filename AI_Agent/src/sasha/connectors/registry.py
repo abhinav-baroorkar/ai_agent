@@ -123,6 +123,14 @@ class ConnectorRegistry:
         self._last_test[connector_id] = result
         return result
 
+    def ready_settings(self, connector_id: str) -> dict[str, Any] | None:
+        """The settings of a connector that is on and set up, else None."""
+        connector = self._connectors.get(connector_id)
+        if connector is None:
+            return None
+        enabled, settings = self._state(connector)
+        return settings if enabled and connector.setup().ready else None
+
     def tools_for(self, connector_ids: Iterable[str]) -> tuple[ToolRegistry, list[str]]:
         """Tools from the given connectors that are enabled and set up, plus warnings."""
         registry = ToolRegistry()

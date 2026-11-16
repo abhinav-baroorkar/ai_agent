@@ -10,6 +10,9 @@ const params = new URLSearchParams(location.search);
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const copy = (x) => JSON.parse(JSON.stringify(x));
 let nextId = 1;
+// the server's own list and its exact message for a style it doesn't know
+const STYLE_NAMES = ['glow', 'ember', 'tide', 'gale', 'storm', 'mist', 'bloom', 'stone'];
+const STYLE_ERROR = `style: Input should be ${STYLE_NAMES.slice(0, -1).map((n) => `'${n}'`).join(', ')} or 'stone'`;
 
 function fail(status, error) {
   const err = new Error(error);
@@ -22,20 +25,28 @@ export async function mockFetch(method, path, body) {
   const [, , kind, id, action] = path.split('/'); // /api/<kind>/<id>/<action>
   if (kind === 'health') return copy(data.health);
   if (kind === 'models') return { models: copy(data.models) };
-  if (kind === 'bots') {
+  if (kind === 'bots') { // as the server answers (contract v0.4.4)
     const bot = data.bots.find((b) => b.id === id);
-    if (method === 'GET') { // like the server: the wake-word bot looks like the main one
-      const main = data.bots.find((b) => b.id === 'main');
-      return { bots: copy(data.bots).map((b) => (b.id === 'voice' && main.style ? { ...b, style: main.style } : b)) };
-    }
+    const main = data.bots.find((b) => b.id === 'main');
+    // the wake-word bot has no style of its own: it shows the main bot's
+    const shown = (b) => (b.id === 'voice' ? { ...b, style: main.style } : b);
+    const badStyle = (fields) => 'style' in fields && !STYLE_NAMES.includes(fields.style);
+    if (method === 'GET') return { bots: copy(data.bots.map(shown)) };
     if (method === 'POST') {
-      if (!body.name) throw fail(400, 'A bot needs a name.');
-      const made = { id: `b-${nextId++}`, system_prompt: '', connectors: [], style: 'glow', ...body, builtin: false };
+      if (!body.name) throw fail(400, 'name: required');
+      if (badStyle(body)) throw fail(400, STYLE_ERROR);
+      const made = { id: `b-${nextId++}`, system_prompt: '', connectors: [], ...body, style: body.style || 'glow', builtin: false };
       data.bots.push(made);
       return copy(made);
     }
     if (!bot) throw fail(404, 'That bot no longer exists.');
-    if (method === 'PATCH') return copy(Object.assign(bot, body));
+    if (method === 'PATCH') {
+      if (badStyle(body)) throw fail(400, STYLE_ERROR);
+      if ('style' in body && bot.id === 'voice') throw fail(400, "The wake-word bot shows the main bot's style; set it on main");
+      const fixed = ['name', 'system_prompt'].filter((k) => k in body);
+      if (bot.builtin && fixed.length) throw fail(400, `The built-in bot's ${fixed.join(' and ')} come from assistant.yaml`);
+      return copy(shown(Object.assign(bot, body)));
+    }
     if (method === 'DELETE') {
       if (bot.builtin) throw fail(400, 'The main assistant can’t be deleted.');
       data.bots.splice(data.bots.indexOf(bot), 1);
@@ -63,7 +74,7 @@ export async function mockFetch(method, path, body) {
   }
   if (kind === 'timers') return timers.timersFetch(method, id, action, body, fail);
   if (kind === 'browser') {
-    const answer = browser.browserFetch(method, id);
+    const answer = browser.browserFetch(method, id, fail);
     if (answer) return answer;
   }
   throw fail(404, 'Not found.');
@@ -188,7 +199,8 @@ export class MockSocket {
     await this.later(1300);
     if (step.tool) {
       this.emit({ type: 'tool', ...step.tool });
-      await this.later(600);
+      if (step.tool.name === 'browse') browser.use(true); // a web lookup holds the browser
+      await this.later(step.tool.name === 'browse' ? 3500 : 600);
     }
     const words = step.reply.split(' ');
     for (let i = 0; i < words.length; i++) {
@@ -196,7 +208,7 @@ export class MockSocket {
       await this.later(55);
     }
     const total = Math.round(performance.now() - started);
-    this.emit({ type: 'reply', text: step.reply, tool_calls: step.tool ? [step.tool] : [], timing: { total_ms: total, tokens_per_s: 38.4 } });
+    this.emit({ type: 'reply', text: step.reply, tool_calls: step.tool ? [step.tool] : [], sites: step.sites || [], timing: { total_ms: total, tokens_per_s: 38.4 } });
     const lang = /[\u0900-\u097F]/.test(step.reply) ? 'mr' : 'en';
     if (this.speaks && data.health.voice.tts && data.health.voice.tts_languages.includes(lang)) await this.speak(step.reply);
     this.emit({ type: 'state', state: 'idle' });

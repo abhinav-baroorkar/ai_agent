@@ -1,6 +1,7 @@
 /* Everything that is not Home: a top bar with the way back, and one pane under it. */
-.work { display: grid; grid-template-rows: auto minmax(0, 1fr); }
-.work-top { display: flex; align-items: center; gap: .6rem; padding: 14px max(20px, 2.5vw); }
+/* minmax(0, 1fr): a narrow window must not let the bar's own width push every pane sideways. */
+.work { display: grid; grid-template-rows: auto minmax(0, 1fr); grid-template-columns: minmax(0, 1fr); }
+.work-top { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; padding: 14px max(20px, 2.5vw); }
 .back-home { display: inline-flex; align-items: center; gap: .6rem; padding: .3rem 1.1rem .3rem .35rem; border-radius: 99px;
   background: var(--surface); border: 1px solid color-mix(in srgb, var(--lamp) 38%, var(--line)); color: var(--lamp); font-weight: 500; }
 .back-home:hover { background: var(--surface-2); }
@@ -24,7 +25,7 @@
 .facts dd { font-weight: 500; overflow-wrap: anywhere; }
 .facts dd.mono { font-family: var(--mono); font-size: .92rem; }
 
-.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; align-items: start; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 14px; align-items: start; }
 .card { display: grid; gap: .8rem; padding: 1.1rem 1.2rem; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
 .card.is-off { background: transparent; }
 .card-head { display: flex; align-items: flex-start; gap: .8rem; }

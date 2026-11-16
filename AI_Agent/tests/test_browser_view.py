@@ -262,9 +262,6 @@ def test_owner_stop_fails_the_turns_next_step() -> None:
     class Service:
         owner_stops = 0
 
-        def begin_turn(self, holder: str) -> None:
-            pass
-
         def end_turn(self, holder: str) -> None:
             pass
 
@@ -309,7 +306,7 @@ def test_state_names_the_bot_using_the_browser(setup: Any) -> None:
     state = client.portal.call(while_held)
     main = client.harness.bots.get("main")
     assert state["agent"] == "working" and state["holder"] == holder
-    assert state["holder_bot"] == {"id": "main", "name": main.name}
+    assert state["holder_bot"] == {"id": "main", "name": main.name, "via": "direct"}
     assert client.get("/api/browser").json()["holder_bot"] is None  # not held now
 
 

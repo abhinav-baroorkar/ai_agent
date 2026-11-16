@@ -109,21 +109,24 @@ class FakeTabs:
         FakeTabs.opened.append(url)
         return {"site": "x", "parts": 1, "page": "(part 1 of 1)\nhello"}
 
+    async def search_results(self, url: str) -> dict[str, Any]:
+        return await self.navigate(url)
+
     async def read(self, part: int = 1) -> dict[str, Any]:
         return {"site": "x", "parts": 1, "page": "(part 1 of 1)\nhello"}
 
 
 class FakeService:
     owner_stops = 0
-
-    def begin_turn(self, holder: str) -> None:
-        pass
+    holder_epoch = 0
 
     def end_turn(self, holder: str) -> None:
         pass
 
     @contextlib.asynccontextmanager
-    async def acquire(self, holder: str, owner_stops: int | None = None) -> AsyncIterator[object]:
+    async def acquire(
+        self, holder: str, owner_stops: int | None = None, turn: bool = False
+    ) -> AsyncIterator[object]:
         yield object()
 
     async def stop(self) -> None:

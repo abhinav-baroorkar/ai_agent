@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field, SecretStr, field_validator
 
 from sasha.config_app import AppText, WakeWord, WindowConfig
 from sasha.config_prompts import PromptLines
+from sasha.config_timers import TimersConfig
 from sasha.config_wake import ReplyLines as ReplyLines  # re-exported: moved, not renamed
 from sasha.config_wake import WakeConfig as WakeConfig
 
@@ -92,6 +93,9 @@ class LLMConfig(BaseModel):
     # Kept in the history (the model sees it, nobody else) when a reply was stopped.
     interrupted_note: str = "[The owner stopped this reply here; it was not finished.]"
     interrupted_keep_chars: int = 2000  # at most this much of a stopped reply is kept
+    # The said-check (sasha/said.py) may take a change's target from the owner's messages
+    # of the last 2 kept turns that ended within this many seconds ("turn it off").
+    target_window_s: float = Field(default=180.0, ge=0)
 
 
 class TelemetryConfig(BaseModel):
@@ -144,6 +148,7 @@ class Profile(BaseModel):
     tts: TTSConfig = Field(default_factory=TTSConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     wake: WakeConfig = Field(default_factory=WakeConfig)
+    timers: TimersConfig = Field(default_factory=TimersConfig)
     window: WindowConfig = Field(default_factory=WindowConfig)
     prompt_lines: dict[str, PromptLines] = Field(default_factory=lambda: {"en": PromptLines()})
 
