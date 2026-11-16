@@ -77,6 +77,8 @@ LONG_TALK = [
     "walked away.",
     "Coming up after the break: hey, have you ever wondered why the sky turns orange at sunset?",
 ]
+# Set "extra": names given at run time (never stored), each said these four ways.
+EXTRA_FORMS = ["{first} {n}.", "{first} {n}, turn on the light.", "{n}.", "I told {n} about it."]
 # Set 5 (review H1): the command after the phrase alone, decoded without the hint.
 FOLLOW_UPS = ["Turn on the kitchen light.", "What time is it?", "Set a timer for five minutes."]
 LEVELS = [(1.0, None), (0.25, None), (1.0, 20.0), (1.0, 10.0)]  # (gain, SNR dB or None)
@@ -124,8 +126,15 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument(
         "--set",
-        choices=("wake", "ordinary", "hey_other", "soundalike", "long_talk", "follow_up"),
+        choices=("wake", "ordinary", "hey_other", "soundalike", "long_talk", "follow_up", "extra"),
         default="wake",
+    )
+    p.add_argument(
+        "--extra-soundalikes",
+        default=os.environ.get("WAKE_EXTRA_SOUNDALIKES", ""),
+        help="comma-separated names for --set extra, given at run time only (or the "
+        "WAKE_EXTRA_SOUNDALIKES variable): e.g. names of people nearby. Never written to "
+        "config or git; results stay under Data/.",
     )
     p.add_argument("--no-hint", action="store_true", help="A/B: decode without the hint")
     p.add_argument("--quick", action="store_true", help="one speed, clean audio only")
@@ -155,7 +164,16 @@ def main() -> int:
             + [f"{first} {n}, turn on the light." for n in s.assistant.wake_word.test_soundalikes],
             "long_talk": LONG_TALK,
             "follow_up": FOLLOW_UPS,
+            # names from the command line only: after "hey", alone, and mid-sentence
+            "extra": [
+                t.format(first=first, n=n)
+                for n in (x.strip() for x in a.extra_soundalikes.split(","))
+                if n
+                for t in EXTRA_FORMS
+            ],
         }[a.set]
+        if a.set == "extra" and not texts:
+            p.error("--set extra needs --extra-soundalikes NAME[,NAME…]")
         items = [(f"{a.set[:2]}{i}", ph(t), False) for i, t in enumerate(texts)]
     speeds, levels = ([1.0], LEVELS[:1]) if a.quick else ([0.85, 1.0, 1.2], LEVELS)
     rng, rows = np.random.default_rng(7), []
@@ -200,7 +218,8 @@ def main() -> int:
     inserted_n = sum(bool(r.get("phrase_inserted")) for r in rows)
     print(
         f"\n{a.set}: {len(rows)} samples, {hits} woke; {dict(counts)}; "
-        f"phrase written but not said: {inserted_n}; hint={'off' if a.no_hint else 'on'}"
+        f"phrase written but not said: {inserted_n}; "
+        f"hint={'off' if a.no_hint or a.set == 'follow_up' else 'on'}"
     )
     out = s.paths.data_dir / "results"
     out.mkdir(parents=True, exist_ok=True)
