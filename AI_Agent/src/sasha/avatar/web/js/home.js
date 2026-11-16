@@ -36,7 +36,9 @@ export async function initHome(health, onOnline) {
   let attempt = 0; // bumped by every stop and every leave; a start that sees it change gives up
   const onHome = () => ['', '#home'].includes(location.hash);
   const realMic = !MOCK || params.get('mic') === 'real'; // mock mode normally uses a pretend microphone
-  let ender = null; // listens for the end of speech while recording
+  let ender = null;
+  let audioSent = false; // audio_start has gone out for the recording in progress
+  let flush = null; // sends a recording that was finished before the server was ready // listens for the end of speech while recording
   let level = 0; // the microphone level of the last frame, 0..1
   let stopMock = null;
   let backstops = []; // wall-clock timers that close the microphone even if no frames arrive
@@ -201,8 +203,15 @@ export async function initHome(health, onOnline) {
     recording = true;
     setText(el.heard, '');
     notice('');
+    flush = () => {
+      if (!held.length) return;
+      conv.startAudio();
+      held.splice(0).forEach((frame) => conv.sendAudio(frame));
+      conv.stopAudio();
+    };
     conv.whenIdle(() => {
       if (mine !== attempt) return; // stopped before the server was ready
+      audioSent = true;
       conv.startAudio();
       held.splice(0).forEach((frame) => conv.sendAudio(frame));
       started = true;
@@ -221,9 +230,7 @@ export async function initHome(health, onOnline) {
 
   // Nothing was said: close the microphone, discard the recording, and say so.
   function nothingHeard() {
-    stopMic(false);
-    conv.waiting = null;
-    conv.cancel();
+    discard();
     setText(el.heard, '');
     notice('I didn’t hear anything. Press Talk to try again, or type.');
   }
@@ -260,9 +267,21 @@ export async function initHome(health, onOnline) {
     backstops.forEach(clearTimeout);
     backstops = [];
     level = 0;
+    const sent = audioSent;
+    audioSent = false;
     if (!wasRecording) return render(); // it never got as far as telling the server
-    if (tellServer) conv.stopAudio();
+    // still waiting for the server: sending queues what was said for when it is idle
+    if (!sent) conv.waiting = tellServer ? flush : null;
+    else if (tellServer) conv.stopAudio();
     render();
+  }
+
+  // Throw the recording away. The server is told only if it has started hearing it:
+  // a cancel before that would stop the answer that was still running instead.
+  function discard() {
+    const sent = audioSent;
+    stopMic(false);
+    if (sent) conv.cancel();
   }
 
   el.mic.addEventListener('click', () => {
@@ -275,11 +294,7 @@ export async function initHome(health, onOnline) {
   // microphone and silences the answer. What was being recorded is discarded.
   function leave() {
     if (starting) stopMic(false);
-    if (recording) {
-      stopMic(false);
-      conv.waiting = null;
-      conv.cancel();
-    }
+    if (recording) discard();
     if (player.active) {
       stopAnswer();
       conv.cancel();
@@ -323,11 +338,7 @@ export async function initHome(health, onOnline) {
   document.addEventListener('keydown', (ev) => {
     if (!(ev.target instanceof Element)) return;
     if ($('#home').hidden || ev.target.closest('dialog') || history.isOpen) return;
-    if (ev.key === 'Escape' && (recording || starting)) { // throw the recording away
-      stopMic(false);
-      conv.waiting = null;
-      return conv.cancel();
-    }
+    if (ev.key === 'Escape' && (recording || starting)) return discard(); // throw the recording away
     if (ev.key === 'Escape' && !el.cancel.hidden) return el.cancel.click();
     if (ev.target.closest('input, textarea, select, button, a')) return;
     if (ev.code === 'Space' && canListen && conv.online) {

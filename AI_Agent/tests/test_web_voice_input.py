@@ -163,6 +163,24 @@ globalThis.holdMic = false;
   };
 }
 
+// "Send now" while the recording waits for a reply to finish: sent once idle, not dropped.
+{
+  location.hash = '#chat';
+  const conv = conversation('thinking');
+  const v = input(conv);
+  await v.start();
+  mic.onFrame(frame);
+  mic.onFrame(frame);
+  v.send(); // the owner clicks the microphone again: send it now
+  const beforeIdle = conv.log.slice();
+  const next = conv.waiting;
+  conv.state = 'idle';
+  if (next) next(); // the reply finished: the server is idle
+  results.sendNow = {
+    beforeIdle, after: conv.log.slice(beforeIdle.length), on: v.on, signAfter: !sign.hidden,
+  };
+}
+
 console.log(JSON.stringify(results));
 """
 
@@ -218,6 +236,15 @@ def test_the_sign_stays_up_while_any_part_of_the_page_has_the_microphone(
     results: dict[str, dict[str, object]],
 ) -> None:
     assert results["shared"] == {"stillUp": True, "downAtEnd": True}
+
+
+def test_send_now_while_waiting_sends_once_the_server_is_idle(
+    results: dict[str, dict[str, object]],
+) -> None:
+    got = results["sendNow"]
+    assert got["beforeIdle"] == ["cancel"]  # only the barge-in, nothing sent yet
+    assert got["after"] == ["audio_start", "frame", "frame", "audio_stop"]  # what was said, kept
+    assert got["on"] is False and got["signAfter"] is False  # the microphone closed at the click
 
 
 def test_discarding_a_recording_that_never_started_sends_no_cancel(
