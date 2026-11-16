@@ -151,6 +151,35 @@ def test_the_helper_has_the_browser_tools_and_nothing_else(
     assert all(set(offered) <= set(TOOL_NAMES) for offered in helper_llm.offered)
 
 
+def test_main_tool_results_and_replies_never_reach_the_helper(
+    settings: Settings, tmp_path: Path, conv: BrowserConversation
+) -> None:
+    """Review G3 (design check H2): a sentinel in a main-conversation tool result and one
+    in the main model's own earlier reply never appear in any helper request."""
+    state_sentinel, reply_sentinel = "STATE-SENTINEL-K7", "REPLY-SENTINEL-W3"
+    helper_llm = FakeLLM("helper")
+    helper = BrowseHelper(conv, settings, helper_llm, _telemetry(tmp_path), prompt_lines(settings))
+    schema: dict[str, Any] = {"type": "object", "properties": {}}
+    state = Tool("get_state", "s", schema, lambda: {"state": state_sentinel}, read_only=True)
+    main_llm = FakeLLM("main")
+    main = Assistant(
+        settings, main_llm, ToolRegistry([browse_tool(helper), state]), _telemetry(tmp_path)
+    )
+    main_llm.responses = [resp(calls=[ToolCall("get_state", {})]), resp(f"It is {reply_sentinel}.")]
+    main.handle_text("what state is the hall in?")
+    helper_llm.responses = [resp(ANSWER)]
+    main_llm.responses = [
+        resp(calls=[ToolCall("get_state", {})]),  # in the same turn, before the lookup
+        _browse("weather in pune"),
+        resp("ok"),
+    ]
+    main.handle_text("and the weather in pune?")
+    assert len(helper_llm.seen) == 1
+    text = _all_text(helper_llm)
+    assert state_sentinel not in text and reply_sentinel not in text
+    assert state_sentinel in _all_text(main_llm)  # (the main model did see both)
+
+
 # --- inheriting the turn (design 10.2) -------------------------------------------------
 def test_the_helper_runs_inside_the_main_turn(settings: Settings, tmp_path: Path) -> None:
     seen: list[Any] = []

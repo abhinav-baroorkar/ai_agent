@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from sasha.said import NEGATIONS
+
 
 class Limit(BaseModel):
     """Something the assistant can't do, said unless one of `unless_any` tools exists."""
@@ -29,6 +31,8 @@ class PromptLines(BaseModel):
         "sentences: no lists, no markdown, no asterisks or other symbols, no emoji."
     )
     times_word: str = "times"  # "2*3" is spoken as "2 times 3" (server/spoken.py)
+    # The said-check (said.py, review G1): these before a verb refuse a change.
+    negations: list[str] = Field(default_factory=lambda: list(NEGATIONS))
     # What this bot can really do, from its tools (prompting.py). The tools are extras:
     # in testing, "what you can do, and only this: tell the time" made the model answer
     # every question with "I can tell you the time and date" instead of answering it.

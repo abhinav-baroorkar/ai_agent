@@ -81,7 +81,8 @@ class ServerDeps:
             tools,
             self.telemetry,
             system_prompt=self.prompt_for(bot, tools.names, spoken),
-            change_guard=SaidGuard(lister),  # P1: changes after a web lookup
+            # P1: changes after a web lookup; negations in the bot's language (G1)
+            change_guard=SaidGuard(lister, tuple(prompt_lines(self.settings).negations)),
         )
         return assistant, warnings
 

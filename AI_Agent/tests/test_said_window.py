@@ -8,7 +8,7 @@ from typing import Any
 
 from sasha.browser.helper import BROWSE_TOOL
 from sasha.config import Settings
-from sasha.orchestrator import NAME_IT, SAME_TURN, Assistant
+from sasha.orchestrator import SAME_TURN, SAY_IT, Assistant
 from sasha.pipeline.llm import ToolCall
 from sasha.said import SaidGuard, device_change_said
 from sasha.telemetry import TelemetryWriter
@@ -111,7 +111,7 @@ def test_said_checked_tools_run_their_own_check(settings: Settings, tmp_path: Pa
     _turn(a, llm, "remind me", ToolCall("set_reminder", {}))
     assert ran == ["own"] and seen == []  # the guard deferred to the tool
     _turn(a, llm, "mystery please", ToolCall("mystery", {}))
-    assert home.other == [] and NAME_IT in str(llm.seen[-1][0][-1]["content"])
+    assert home.other == [] and SAY_IT in str(llm.seen[-1][0][-1]["content"])  # G4
     # the same-turn stop after a lookup still holds for it
     llm.responses = [
         resp(calls=[ToolCall(BROWSE_TOOL, {"task": "x"})]),
@@ -130,3 +130,31 @@ def test_without_always_guard_untainted_changes_need_no_check(
     _turn(a, llm, "lights out", _call("turn_off", "all"))
     assert len(home.calls) == 1 and seen == []
     assert Tool("x", "x", OBJ, lambda: None).said_checked is False
+
+
+# --- review G1, G2 -------------------------------------------------------------------
+def test_a_negated_request_is_refused() -> None:
+    kitchen = {"domain": "light", "service": "turn_off", "entity_id": "light.kitchen"}
+    door = {"domain": "lock", "service": "unlock", "entity_id": "lock.front_door"}
+    assert device_change_said("turn off the kitchen light", kitchen, NAMES)
+    for said in (
+        "don't turn off the kitchen light",
+        "do not turn off the kitchen light",
+        "please never turn off the kitchen light",
+        "don\u2019t turn the kitchen light off",
+    ):
+        assert not device_change_said(said, kitchen, NAMES), said
+    assert not device_change_said("don't unlock the front door", door, NAMES)
+    assert device_change_said("unlock the front door", door, NAMES)
+    guard = SaidGuard(lambda: DEVICES, negations=("ne",))  # the words come from config
+    assert guard("call_service", kitchen, "don't turn off the kitchen light")
+    assert not guard("call_service", kitchen, "ne turn off the kitchen light")
+
+
+def test_the_only_device_of_its_kind_may_be_named_by_kind() -> None:
+    tv = {"domain": "media_player", "service": "volume_up", "entity_id": "media_player.lr"}
+    one = {"media_player.lr": "Living room TV", "light.kitchen": "Kitchen Light"}
+    assert device_change_said("turn the tv volume up", tv, one)
+    two = {**one, "media_player.den": "Den TV"}
+    assert not device_change_said("turn the tv volume up", tv, two)  # which one?
+    assert device_change_said("turn the living room tv volume up", tv, two)

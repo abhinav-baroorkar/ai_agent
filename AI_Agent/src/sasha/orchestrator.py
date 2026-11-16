@@ -12,6 +12,7 @@ from typing import Any
 from sasha.config import Settings
 from sasha.conversation import current_turn, finish_turn, new_turn
 from sasha.pipeline.llm import LLM, LLMCancelled, LLMResponse, Message, StreamingLLM
+from sasha.said import DEVICE_TOOL
 from sasha.telemetry import RequestTrace, TelemetryWriter
 from sasha.tools import ToolRegistry
 from sasha.tools.base import ToolResult
@@ -26,6 +27,7 @@ ChangeGuard = Callable[[str, dict[str, Any], str, str], bool]
 EARLIER_TURNS = 2
 SAME_TURN = "Changes can't follow a web lookup in the same request; ask the owner to say it again"
 NAME_IT = "Say which device and what to do, and I'll do it."
+SAY_IT = "Say in your own words what to change, and I'll do it."  # not a device (G4)
 
 
 @dataclass
@@ -309,5 +311,5 @@ class Assistant:
             earlier = "" if self.tainted else self.earlier_owner_text()  # P1 stays strict
             if guard is not None and guard(name, arguments, text, earlier):
                 return None
-            message = NAME_IT
+            message = NAME_IT if name == DEVICE_TOOL else SAY_IT
         return ToolResult(ok=False, content=json.dumps({"error": message}, ensure_ascii=False))

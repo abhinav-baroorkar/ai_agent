@@ -20,7 +20,17 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 _WORD = re.compile(r"[^\W_]+", re.UNICODE)
+_TOKEN = re.compile(r"[^\W_]+(?:'[^\W_]+)?", re.UNICODE)  # keeps "don't" whole
 DEVICE_TOOL = "call_service"
+# Review G1: a negation within this many words before a verb or an action word refuses
+# the change ("don't turn off the kitchen light"). Fails closed ("no, turn it off" is
+# refused too). The words are per language (profile.prompt_lines.negations).
+NEGATION_REACH = 3
+NEGATIONS = ("don't", "dont", "do not", "never", "not", "no", "stop", "doesn't", "won't",
+             "shouldn't", "mustn't", "can't", "cannot")  # fmt: skip
+VERBS = {"turn", "switch", "set", "put", "make", "lock", "unlock", "open", "close", "play",
+         "pause", "dim", "brighten", "raise", "lower", "start", "run", "activate", "mute",
+         "toggle", "skip", "change", "resume"}  # fmt: skip
 
 # The words that name a kind of device (also the generic part of a device's name).
 KIND_WORDS: dict[str, set[str]] = {
@@ -65,6 +75,29 @@ def words(text: str) -> set[str]:
     return found | {w[:-1] for w in found if w.endswith("s") and len(w) > 3}
 
 
+def negated(owner_text: str, action_words: set[str], negations: tuple[str, ...]) -> bool:
+    """A negation within `NEGATION_REACH` words before a verb or an action word."""
+    tokens = [t.lower() for t in _TOKEN.findall(owner_text.replace("\u2019", "'"))]
+    single = {n for n in negations if " " not in n}
+    pairs = {tuple(n.split()) for n in negations if " " in n}
+    for i, token in enumerate(tokens):
+        if token not in VERBS and token not in action_words:
+            continue
+        before = tokens[max(0, i - NEGATION_REACH) : i]
+        if single & set(before):
+            return True
+        if any(tuple(before[j : j + 2]) in pairs for j in range(len(before) - 1)):
+            return True
+    return False
+
+
+def _only_one_of_its_kind(domain: str, entity: str, names: Mapping[str, str]) -> bool:
+    """Review G2: the house's only device of that kind may be named by the kind ("the
+    tv"); with several, the kind word alone never names one (fails closed)."""
+    same = [e for e in names if e.startswith(f"{domain}.")]
+    return same == [entity]
+
+
 def _target_words(domain: str, entity: str, name: str | None) -> set[str]:
     """The distinctive words that name this device (not "light", not "the")."""
     object_id = entity.split(".", 1)[1] if "." in entity else entity
@@ -82,7 +115,11 @@ def _entities(entity_id: Any) -> list[str]:
 
 
 def device_change_said(
-    owner_text: str, arguments: Mapping[str, Any], names: Mapping[str, str], earlier: str = ""
+    owner_text: str,
+    arguments: Mapping[str, Any],
+    names: Mapping[str, str],
+    earlier: str = "",
+    negations: tuple[str, ...] = NEGATIONS,
 ) -> bool:
     """`call_service(domain, service, entity_id, data)` named in `owner_text`? The target
     may also come from `earlier` (the owner's own recent messages, built by the
@@ -100,11 +137,18 @@ def device_change_said(
                 return False
             continue
         target = _target_words(domain, entity, names.get(entity))
+        if _only_one_of_its_kind(domain, entity, names):
+            target |= KIND_WORDS.get(domain, set())
         if not target or not targets & target:
             return False
+    scene_words = [_target_words(domain, e, names.get(e)) for e in entities]
+    actions = ACTION_WORDS.get(service, set()) | SETTING_WORDS
+    if domain == "scene":
+        actions = actions | set().union(*scene_words)
+    if negated(owner_text, actions, negations):
+        return False  # review G1: "don't turn off the kitchen light"
     if domain == "scene":  # the scene's own name is the action: said this turn
-        named_now = (said & _target_words(domain, e, names.get(e)) for e in entities)
-        return service == "turn_on" and all(named_now)
+        return service == "turn_on" and all(said & w for w in scene_words)
     data = arguments.get("data")
     sets_value = isinstance(data, dict) and bool(SETTING_KEYS & set(data))
     if service == "turn_on" and sets_value and (said & SETTING_WORDS or "%" in owner_text):
@@ -116,8 +160,11 @@ class SaidGuard:
     """The orchestrator's `ChangeGuard` for one conversation: device changes only, with
     the real device names from `list_devices` (cached; re-read for an unknown id)."""
 
-    def __init__(self, list_devices: Callable[..., Any] | None) -> None:
+    def __init__(
+        self, list_devices: Callable[..., Any] | None, negations: tuple[str, ...] = NEGATIONS
+    ) -> None:
         self.list_devices = list_devices
+        self.negations = negations
         self.names: dict[str, str] = {}
         self._lock = threading.Lock()
 
@@ -140,4 +187,4 @@ class SaidGuard:
             return False  # fails closed: only device changes can be checked
         if any(e not in self.names for e in _entities(arguments.get("entity_id")) if e != "all"):
             self._refresh()
-        return device_change_said(owner_text, arguments, self.names, earlier)
+        return device_change_said(owner_text, arguments, self.names, earlier, self.negations)
