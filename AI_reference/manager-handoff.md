@@ -4,7 +4,7 @@ Kept by the manager session ("Primary"). Updated whenever a task is assigned,
 reported, reviewed or merged. If the manager session is lost, a new session can
 pick up from this file plus `plan.md`, `decisions.md` and the newest devlog.
 
-Last updated: 2026-11-15, evening.
+Last updated: 2026-11-15, evening (resume section added for a possible pause in work).
 
 ## How the project is run
 
@@ -45,6 +45,89 @@ AI. A button opens a "bots" area (several bots, each with its own model,
 instructions and connectors) and a settings screen with connectors. This device
 only for now; satellites on other devices come later.
 
+## Resume here: work in flight (2026-11-15, evening)
+
+Written so work can restart cleanly if sessions stop (a usage limit is close). `main` is `f316d6f`.
+Branch heads below are the commits named at the time of writing; check `git log` before relying on one.
+
+**Reviewer's queue, in merge order**
+
+| # | Branch | Head | Note |
+| --- | --- | --- | --- |
+| 1 | `feat/timers-server` | `d37cc0a` | the head moved on from `b253796`, which had one blocking item (a false claim spoken when a reply ends with a question; a fix was in progress); the new head is not yet re-reviewed here |
+| 2 | `fix/timer-days` | `5fb66d3` | on top of timers |
+| 3 | `feat/autostart-window` | `139741a` | the window opens at login through one autostart entry; attach mode never starts a second brain |
+| 4 | `docs/handoff` | this branch | `decisions.md` and `README.md` changes only; the rest is routine |
+| 5 | `fix/style-mock` | `1cd618e` | |
+| 6 | `fix/narrow-topbar` | `fc9e972` | |
+| 7 | `fix/browser-turn-holder` | `c56b234` | the two browser follow-ups (frame cap, one bot at a time) |
+| 8 | `feat/browser-takeover` | `b4ee952` | the take-over: the owner drives the assistant's browser in a visible window |
+| 9 | `feat/browse-helper` | `a029186` | a `browse` helper so the main assistant can browse; Jack of all tasks is adding changes to the spoken-claim guard for memory (`earlier`, `always_guard`, `Tool.said_checked`) |
+| 10 | `feat/browser-ui-v05` | `85dddca` | |
+| 11 | `feat/calc-tools` | `1326899` | calculation tools |
+| 12 | `feat/memory-server` | `3b27083` | memory on the server; it cannot merge without the M1 no-change guard, which comes after the helper merges |
+
+**Known merge conflicts:** timers vs helper (5 files; merge timers first); take-over vs
+autostart-window (`app/shell.py`); take-over vs timers (`deps.py`); helper vs calc (`deps.py`).
+
+**Design only (no code):** `media-design.md` (media control through MPRIS). Owner defaults: a
+`wpctl` fallback capped at 0.6, no titles in v1, "stop" means pause.
+
+**In progress:** the Design expert on `feat/memory-ui`, against contract v0.6.
+
+**Waiting on the owner**
+- The visible check of the app window.
+- One read-only MPRIS introspection the next time the owner plays music (for the media design).
+- The real-light test (postponed).
+- Wake device control, after a few days of real-room use with telemetry.
+
+**After the merges:** the manager runs `sasha autostart on --yes` (the window entry).
+
+**Documentation held until merges** (to write when Primary says the branch merged; `decisions.md`
+changes are structural and go to the reviewer):
+- When `feat/browse-helper` merges, append to `decisions.md`, each with its reason:
+  - B4 wording: a bot never holds raw browser tools together with any connector that reads private
+    data or changes things. A bot with the direct browser has the browser only. Any other bot
+    browses only through the `browse` helper, whose context has the browser tools and nothing else.
+    Why: a web page can contain hidden instructions; keeping the browser in its own context means a
+    page can only affect a lookup.
+  - Web lookups go to the main assistant only, whenever the browser connector is on in Settings; no
+    per-bot switch yet. Why: one place to get right first.
+  - Wake-word turns get no browsing. Why: the room can't see the screen, so a voice turn can't show
+    what was read, and spoken input is the easiest to spoof (a television, visitors).
+  - P1 taint rule: every tool counts as changing unless marked read-only. In the same turn as a
+    successful lookup, no changing tool runs. While a looked-up turn is still in context, a device
+    change runs only if the owner's current message names the device and the action; anything else,
+    including a bare "yes", is refused. Why: the model's next question might be one a page planted;
+    "yes" doesn't say which device or action.
+  - Spoken lookup answers are capped at 500 characters and end with "From <site>." from the
+    server's own record; chat tabs show a "looked up" line instead. Why: spoken answers can't be
+    skimmed, and the source must always be heard and not be fakeable by a page.
+  - The helper's searches may use only the owner's current words, the task, and words from pages it
+    has read. Why: a page must not be able to make the helper search for things never asked about.
+- When `feat/browser-takeover` merges, append: the owner can drive the assistant's browser in a
+  visible window for up to 15 minutes; on hand-back, downloads, form data, logins and history are
+  wiped and only the search engine's cookies are kept. Why: the owner sometimes has to solve a
+  person-check or sign in; 15 minutes bounds it; the wipe means nothing typed stays for a bot to
+  see; the search-engine cookie is kept so the check stays solved.
+- When `feat/autostart-window` merges: append a `decisions.md` entry (the window opens at login
+  through one XDG autostart entry, at the owner's request; attach mode waits for the brain service
+  instead of starting its own, so two brains can never clash on one port); change the `team.md`
+  section "One allowed write outside the project" into an "Allowed writes outside the project"
+  list, keeping dates (each made only by a `sasha` command that the manager runs after the feature
+  is merged, never by a session directly; each generated file carries a marker, and `off` removes
+  only marked files): the systemd user unit links for the brain and the listener (2026-11-14); the
+  autostart entry for the window (`sasha autostart`, 2026-11-15); the application-menu entry
+  (`sasha app-menu`, allowed 2026-11-15 with the app shell, not yet installed); the memory folder
+  under the home Claude folder for the manager's notes. `team.md` is structural.
+- Private `User_reference/HOW_TO_RUN.md`: a "Start at login" part when the autostart branch merges
+  (`sasha autostart on` shows what it sets up; `sasha autostart on --yes` does it; from the next
+  login the brain and the wake listener start in the background and the window opens by itself,
+  showing a starting line for a few seconds, then Home; closing it keeps it closed until the next
+  login, the wake phrase, or `sasha window`; undo with `sasha autostart off` or turn the window part
+  off in the desktop's Startup Applications; while start-at-login is on, don't also run `sasha
+  window` or `sasha listen` in terminals).
+
 ## State of `main`
 
 - `main` is `f316d6f` (2026-11-15, evening; all pushed). Tests on `f316d6f`: 840 passed, 5 skipped,
@@ -59,8 +142,7 @@ only for now; satellites on other devices come later.
   queued or unstarted recording and sends no stray cancel; the style picker shows Glow for a value
   that is not a style. `chore/review-followups` (`36f5e01`, `main` `f316d6f`): private-name bench
   runs store no transcript; the tray test pins the fast path; `Bot.style` is typed `BotStyle`.
-- **In review:** only timers (`feat/timers-server` at `b253796`; the review has one blocking item
-  about a false claim spoken when the reply ends with a question; a fix is in progress).
+- **In review:** see "Resume here" above (the queue is now long; timers is first).
 - **Browser work resumed** (the Jack of all tasks session): `fix/browser-turn-holder` first, then
   the take-over, then the browse helper so the main assistant can browse.
 - **Not verified:** the app window has not been looked at on screen (the owner's visible check is
@@ -262,11 +344,11 @@ Build order set by the owner on 2026-11-14 (night). Our own design.
   earlier project of the owner's only; own code.
 - Postponed, conditional: Marathi–English support (Phase 2). The owner's condition: the base assistant must keep working properly. Marathi support is optional and may only be added if it doesn't slow the English path (latency and GPU placement measured before and after); otherwise it stays out.
 - Check the full voice loop and the wake word on a real microphone (checks are scheduled with the owner), and the owner's visible check of the app window.
-- Next, in this order: the day resolver, memory, the owner's visible check of the app, then wake device control after a few days of real-room telemetry.
+- Next, in this order: the day resolver, memory (server and UI in flight, see "Resume here"), the owner's visible check of the app, then wake device control after a few days of real-room telemetry.
 
 In order, unless the owner changes it:
 
-1. Timers, alarms and reminders (the Home card is merged; the server part is in review at `b253796`, not merged).
+1. Timers, alarms and reminders (the Home card is merged; the server part is first in the reviewer's queue, not merged).
 2. Memory ("remember that...").
 3. A morning brief. It needs calendar and mail, so the parked send-guard question is asked
    before the mail part.
@@ -292,7 +374,7 @@ visible sign, and how to turn it off.
 
 ## Pending doc follow-ups
 
-- None right now.
+- The held items under "Resume here" (decisions, `team.md`, private `HOW_TO_RUN.md`).
 
 ## Ideas from an earlier project
 
