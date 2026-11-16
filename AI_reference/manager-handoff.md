@@ -110,8 +110,13 @@ changes are structural and go to the reviewer):
 - When `feat/browser-takeover` merges, append: the owner can drive the assistant's browser in a
   visible window for up to 15 minutes; on hand-back, downloads, form data, logins and history are
   wiped and only the search engine's cookies are kept. Why: the owner sometimes has to solve a
-  person-check or sign in; 15 minutes bounds it; the wipe means nothing typed stays for a bot to
-  see; the search-engine cookie is kept so the check stays solved.
+  person-check; 15 minutes bounds it; the wipe means nothing typed stays for a bot to see; the
+  search-engine cookie is kept so the check stays solved. Add the owner decision of 2026-11-16: the
+  assistant's browser keeps no sign-ins (after a take-over everything is wiped except the search
+  engine's cookies). Why: a page can try to steer a bot, and a bot signed in to the owner's
+  accounts could act in them; the owner chose the recommended, simpler option over lasting
+  sign-ins. In the same change, update `plan.md` (the browser line that still says sign-in by
+  take-over) and drop the sign-in phase from this file.
 - When `feat/autostart-window` merges: append a `decisions.md` entry (the window opens at login
   through one XDG autostart entry, at the owner's request; attach mode waits for the brain service
   instead of starting its own, so two brains can never clash on one port); change the `team.md`
@@ -258,7 +263,9 @@ are touched by several branches; rebase the later one and re-lock.
 - **Next phase: take-over** (decided 2026-11-15): the owner solves the search engine's bot
   challenge personally, through a visible window; the brain is disconnected while the owner drives;
   hand-back by restart. Never automated, never worked around. Design review before code.
-- **Later phases:** acting with approvals, sign-in by take-over (low-value sites only), media.
+- **Later phases:** acting with approvals, media. No lasting sign-ins: the owner confirmed on
+  2026-11-16 that the assistant's browser keeps none (a take-over wipes everything except the search
+  engine's cookies).
 
 ## Face direction (2026-11-14)
 
@@ -346,8 +353,8 @@ Build order set by the owner on 2026-11-14 (night). Our own design.
 - **No "fun" features** (games, trivia, stories, a music visualiser).
 - The assistant's own browser: phase 1 (read-only, live view) is merged. Next: **take-over** (a
   visible window, the brain disconnected while the owner drives, hand-back by restart). It is being
-  designed and gets a design review before code. Then: acting with approvals, sign-in by take-over
-  for low-value sites only, media. Ideas from an
+  designed and gets a design review before code. Then: acting with approvals, media (no lasting
+  sign-ins, by the owner's decision of 2026-11-16). Ideas from an
   earlier project of the owner's only; own code.
 - Postponed, conditional: Marathi–English support (Phase 2). The owner's condition: the base assistant must keep working properly. Marathi support is optional and may only be added if it doesn't slow the English path (latency and GPU placement measured before and after); otherwise it stays out.
 - Check the full voice loop and the wake word on a real microphone (checks are scheduled with the owner), and the owner's visible check of the app window.
@@ -391,7 +398,6 @@ Ideas from an earlier project of the owner's: read-only, no copying (owner's dec
 
 - Docker install (sudo) for Home Assistant, then the HA account and `HA_TOKEN` in `.env`
   (postponed by the owner; device work comes later).
-- **Which sites the owner would sign the assistant in to** (for the later sign-in phase).
 - What "Grok-bot-like" should mean beyond "several bots with their own chats".
 - Which smart-display and TV devices to support.
 - Whether to keep eyes as a switch on the face (the default is without eyes).
