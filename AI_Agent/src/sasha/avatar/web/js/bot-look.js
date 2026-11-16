@@ -28,7 +28,7 @@ export function usesOf(bot, connectors) {
 // One short line on what the bot is for: the first sentence of its instructions.
 export function purposeOf(bot, assistantName, mainId = 'main') {
   if (bot.builtin && bot.id === mainId) return `${assistantName} is the one you talk to on the first screen. You can type to it here.`;
-  if (bot.builtin) return `Answers when you say the wake phrase. It uses what ${assistantName} uses unless you change it here.`;
+  if (bot.builtin) return `Answers when you say the wake phrase, and looks like ${assistantName}. It uses what ${assistantName} uses unless you change it here.`;
   const text = bot.system_prompt.replace(/\s+/g, ' ').trim();
   if (!text) return 'No instructions yet.';
   const first = text.split(/(?<=[.!?])\s/)[0];

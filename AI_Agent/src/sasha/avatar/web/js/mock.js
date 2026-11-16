@@ -24,7 +24,10 @@ export async function mockFetch(method, path, body) {
   if (kind === 'models') return { models: copy(data.models) };
   if (kind === 'bots') {
     const bot = data.bots.find((b) => b.id === id);
-    if (method === 'GET') return { bots: copy(data.bots) };
+    if (method === 'GET') { // like the server: the wake-word bot looks like the main one
+      const main = data.bots.find((b) => b.id === 'main');
+      return { bots: copy(data.bots).map((b) => (b.id === 'voice' && main.style ? { ...b, style: main.style } : b)) };
+    }
     if (method === 'POST') {
       if (!body.name) throw fail(400, 'A bot needs a name.');
       const made = { id: `b-${nextId++}`, system_prompt: '', connectors: [], style: 'glow', ...body, builtin: false };

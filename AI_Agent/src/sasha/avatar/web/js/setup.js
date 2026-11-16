@@ -100,7 +100,8 @@ export function initSetup({ health, lists, saved, deleted }) {
   function body() {
     const ids = s.use === 'web' && s.browser ? [s.browser.id] : s.use === 'own' ? s.own.filter((c) => s.own.length === 1 || s.picked.has(c.id)).map((c) => c.id) : [];
     const out = { model: s.model, connectors: ids };
-    if (s.styles && !(s.bot && s.bot.builtin)) out.style = s.style; // only to a server that knows the field
+    // only to a server that knows the field; the wake-word bot has no style of its own
+    if (s.styles && !(s.bot && s.bot.builtin && s.bot.id !== s.mainId)) out.style = s.style;
     if (!(s.bot && s.bot.builtin)) Object.assign(out, { name: s.name.trim(), system_prompt: s.prompt.trim() });
     return out;
   }
@@ -139,15 +140,16 @@ export function initSetup({ health, lists, saved, deleted }) {
     const error = s.error && h('p', { class: 'form-error', role: 'alert' }, s.error);
     const cancel = h('a', { class: 'btn quiet', href: '#bots' }, 'Cancel');
     if (s.bot) { // Change: everything on one page
-      clear(root).append(h('h1', {}, `Change ${s.bot.name}`),
+      clear(root).append(...[h('h1', {}, `Change ${s.bot.name}`),
         h('section', {}, h('h2', {}, 'What it is called and what it does'), nameBlock()),
         h('section', {}, h('h2', {}, 'What it may use'), ...usesBlock()),
-        s.styles && !s.bot.builtin && h('section', {}, h('h2', {}, 'How it breathes'), styleBlock()),
+        s.styles && (!s.bot.builtin || s.bot.id === s.mainId) && h('section', {}, h('h2', {}, 'How it breathes'),
+          s.bot.id === s.mainId && h('p', { class: 'lede' }, 'This is the orb on the first screen. The wake word answers in the same style.'), styleBlock()),
         error, h('div', { class: 'setup-foot' }, h('button', { class: 'btn primary big', type: 'button', onclick: save }, 'Save changes'), cancel),
         !s.bot.builtin && h('section', { class: 'danger-zone' },
           h('p', {}, s.sure ? `Delete ${s.bot.name}? Its instructions and its open chat are removed. This can’t be undone.` : 'Finished with this bot? You can delete it.'),
           h('button', { class: 'btn danger', type: 'button', onclick: remove }, s.sure ? `Yes, delete ${s.bot.name}` : 'Delete this bot'),
-          s.sure && h('button', { class: 'btn quiet', type: 'button', onclick: () => { s.sure = false; render(); } }, 'Keep it')));
+          s.sure && h('button', { class: 'btn quiet', type: 'button', onclick: () => { s.sure = false; render(); } }, 'Keep it'))].filter(Boolean)); // parts that don't apply to this bot are left out
       return;
     }
     const all = [
