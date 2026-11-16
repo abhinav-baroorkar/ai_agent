@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from sasha.browser.chrome import chrome_flags
 from sasha.browser.helper import BROWSE_TOOL, BrowseHelper, LookupFailed
 from sasha.browser.pages import PERSON_CHECK
@@ -129,3 +131,76 @@ def test_no_extensions_in_the_headless_chrome(tmp_path: Path) -> None:
         (root / "Default" / rel).mkdir(parents=True)
     clear_extensions(root)  # review S2
     assert not any((root / "Default" / rel).exists() for rel in folders)
+
+
+# --- review BT1: the timers' and memory's own lines survive a failed lookup -----------
+def _chain(settings: Settings, command: str, spoken: bool) -> ChainCheck:
+    from sasha.config_memory import MemoryConfig
+    from sasha.config_timers import TimersConfig
+    from sasha.memory.truth import MemoryTruth
+    from sasha.server.timers.truth import TimerTruth
+
+    lines = prompt_lines(settings)
+    return ChainCheck(
+        [
+            TimerTruth(TimersConfig(), command, spoken=spoken),
+            MemoryTruth(MemoryConfig(), [command], spoken, lambda _f, _n: None),
+            BrowseTruth(lines, command),
+        ]
+    )
+
+
+@pytest.mark.parametrize("spoken", [False, True])
+def test_t1_a_reminder_that_set_nothing_keeps_its_line(settings: Settings, spoken: bool) -> None:
+    from sasha.config_timers import TimersConfig
+
+    command = "Remind me at 5 pm to call the bank and look up the bank's opening hours"
+    chain = _chain(settings, command, spoken)
+    model = "I've set your reminder. The bank opens at 9."  # nothing was set, no page
+    _, final = chain.finish(model, _failed("person_check"))
+    cfg = TimersConfig()
+    assert final.startswith(PERSON_CHECK)
+    assert cfg.nothing_set in final or cfg.nothing_yet in final  # the timers' own line
+    assert "I've set" not in final and "opens at 9" not in final
+
+
+@pytest.mark.parametrize("spoken", [False, True])
+def test_t2_a_secret_keeps_memorys_line(settings: Settings, spoken: bool) -> None:
+    from sasha.config_memory import MemoryConfig
+
+    command = "Remember my PIN is 4821 and look up the bank's opening hours"
+    chain = _chain(settings, command, spoken)
+    calls = [{"name": "remember", "ok": False, "asks": "secret"}, *_failed("person_check")]
+    marked = f"{prompt_lines(settings).web_unchecked} Your PIN 4821 is noted."
+    _, final = chain.finish(marked, calls)
+    assert PERSON_CHECK in final and MemoryConfig().lines["secret"] in final
+    assert "4821" not in final  # the model's text never comes back after a replacement
+
+
+# --- review BT2: nothing before the lookup on a lookup request ------------------------
+def test_t5_an_answer_before_the_lookup_is_never_sent_first(
+    settings: Settings, tmp_path: Path
+) -> None:
+    tts = FakeTTS()
+    h = _harness(settings, tmp_path, tts)
+    h.llm("big-model").responses = [
+        resp("The latest Python is 3.12. Let me confirm on the web.",
+             [ToolCall(BROWSE_TOOL, {"task": "latest stable python version"})]),
+        resp(OLD_KNOWLEDGE),
+    ]  # fmt: skip
+    frames = _turn(h, 1)
+    shown = "".join(f["text"] for f in frames if isinstance(f, dict) and f["type"] == "reply_delta")
+    spoken = " ".join(text for text, _ in tts.spoken)
+    assert "3.12" not in shown and "3.12" not in spoken
+    assert PERSON_CHECK.split(":")[0] in shown
+
+
+def test_a_lookup_request_is_recognised(settings: Settings) -> None:
+    from sasha.server.browse_truth import asks_for_lookup
+
+    lines = prompt_lines(settings)
+    for said in ("Search the web for X", "look up the score", "is it raining online?",
+                 "check the web for news"):  # fmt: skip
+        assert asks_for_lookup(said, lines), said
+    assert not asks_for_lookup("turn on the light", lines)
+    assert not asks_for_lookup("researching is fun", lines)  # whole words only

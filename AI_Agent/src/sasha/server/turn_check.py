@@ -48,7 +48,11 @@ class ChainCheck:
         """(text still to send and speak, the final reply text)."""
         final = text
         for part in self.checks:
-            final = part.finish(final, tool_calls)[1]
+            chain = getattr(part, "finish_chain", None)
+            if chain is not None:  # it needs the model's own text apart (browse_truth.py)
+                final = chain(text, final, tool_calls)
+            else:
+                final = part.finish(final, tool_calls)[1]
         self.replaced = not final.startswith(text.rstrip())
         if self.holding:  # all of it, but never again what already went out
             sent = self.sent.rstrip()
