@@ -114,17 +114,27 @@ One role per session. Add or drop roles as the work needs.
 - If a session already wrote something outside the folder, it does not delete it. It
   tells Primary the path.
 
-### One allowed write outside the project: the start-at-login link (owner, 2026-11-14)
+### Allowed writes outside the project (owner)
 
-- The owner allowed a session to create the start-at-login entry for the assistant under
-  the home config folder (`~/.config/systemd/user/`).
-- Only this: symlinks to the unit files that live inside the project (`systemctl --user
-  link <file in the project>`, then `enable`). No other file, no edits to existing files,
-  nothing else under the home directory.
-- Only the session Primary names does it, only when Primary says the feature is reviewed and
-  merged, and it reports the exact paths created and how to undo them (`systemctl --user
-  disable --now ...`).
-- Everything else in the Stay-inside rule is unchanged.
+The owner has allowed exactly these writes outside the project folder. Except for the unit links
+and the memory folder (below), each is made only by a `sasha` command that the manager runs after
+the feature is merged, never by a session directly. Each file such a command generates carries a
+marker, and `off` removes only marked files. The unit links are symlinks (no marker inside), and
+the memory folder is not made by a `sasha` command.
+
+- The systemd user unit links for the brain and the listener (2026-11-14): symlinks to the unit
+  files that live inside the project, under the home config folder (`~/.config/systemd/user/`),
+  made with `systemctl --user link <file in the project>`, then `enable`. No other file, no edits to
+  existing files. Undo: `systemctl --user disable --now ...`.
+- The autostart entry for the window (2026-11-15): `~/.config/autostart/assistant-window.desktop`,
+  made by `sasha autostart on --yes` and removed by `sasha autostart off`.
+- The application-menu entry (allowed 2026-11-15 with the app shell; not yet installed):
+  `~/.local/share/applications/assistant-window.desktop` plus its icon reference, made by
+  `sasha app-menu on --yes` and removed by `sasha app-menu off`.
+- The memory folder under the home Claude folder, for the manager's notes (2026-11-14).
+
+The session or command reports the exact paths created and how to undo them. Everything else in
+the Stay-inside rule is unchanged.
 
 ## Ideas from an earlier project of the owner's: read-only, no copying
 
