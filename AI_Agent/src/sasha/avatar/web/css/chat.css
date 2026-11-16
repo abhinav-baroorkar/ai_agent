@@ -1,16 +1,5 @@
-/* Bot chats: a tab per open chat, a transcript, a composer. */
-.bots { display: flex; flex-direction: column; }
-.tabs { flex: none; display: flex; gap: 4px; padding: 10px 14px 0; border-bottom: 1px solid var(--line); overflow-x: auto; }
-.tabs:empty { display: none; }
-.tab { display: flex; align-items: center; border: 1px solid transparent; border-bottom: 0; border-radius: 10px 10px 0 0; color: var(--muted); }
-.tab[data-active="true"] { background: var(--surface); border-color: var(--line); color: var(--text); margin-bottom: -1px; }
-.tab button { background: none; border: 0; cursor: pointer; color: inherit; }
-.tab-open { display: flex; align-items: center; gap: .5em; padding: .5em .3em .5em .9em; white-space: nowrap; }
-.tab-open .busy { width: 7px; height: 7px; border-radius: 50%; background: var(--think); animation: pulse 1.2s infinite; }
-.tab-close { display: grid; place-items: center; width: 26px; height: 26px; margin-right: .3em; border-radius: 6px; }
-.tab-close:hover { background: var(--surface-2); }
-.tab-note { align-self: center; margin-left: auto; padding: .2rem .8rem; color: var(--warn); font-size: .87rem; white-space: nowrap; }
-
+/* A bot chat: who you are talking to, the conversation, a composer. */
+.chat-pane { display: flex; flex-direction: column; }
 .chats { flex: 1; min-height: 0; }
 .chat { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; background: var(--bg-2); }
 .chat-head { display: flex; align-items: center; gap: .7rem; padding: .65rem 1.2rem; background: var(--surface); border-bottom: 1px solid var(--line); }

@@ -8,13 +8,15 @@ const N = 2800;
 const BUCKETS = 7;
 
 export class Sphere {
-  constructor() {
+  // count: how many points; dot: how much larger to draw them (small orbs need both changed)
+  constructor(count = N, dot = 1) {
+    this.dot = dot;
     this.spin = 0;
     this.points = [];
     const golden = Math.PI * (3 - Math.sqrt(5));
-    for (let i = 0; i < N; i++) {
+    for (let i = 0; i < count; i++) {
       // evenly spread, then nudged so no lattice pattern shows
-      const y = Math.max(-1, Math.min(1, 1 - (2 * (i + 0.5)) / N + (Math.random() - 0.5) * 0.03));
+      const y = Math.max(-1, Math.min(1, 1 - (2 * (i + 0.5)) / count + (Math.random() - 0.5) * 0.03));
       const r = Math.sqrt(1 - y * y);
       const a = i * golden + (Math.random() - 0.5) * 0.25;
       // one point in six floats inside the shell and turns the other way: that is the depth
@@ -26,7 +28,8 @@ export class Sphere {
 
   // Draws around the origin. ctx is in real pixels; R is the radius.
   // shimmer: -1 for none, or 0..1 as a band of light crosses from top to bottom.
-  draw(ctx, R, mood, { shimmer = -1 } = {}) {
+  // halo: scales the glow around it (a small orb keeps it inside its own canvas).
+  draw(ctx, R, mood, { shimmer = -1, halo = 1 } = {}) {
     const { w, lvl, trail, t, color } = mood;
     const voice = lvl * (w.speaking + w.listening);
     this.spin += mood.dt * (0.16 + 1.5 * w.thinking + 0.25 * w.speaking);
@@ -34,7 +37,7 @@ export class Sphere {
 
     // light around and inside the sphere
     ctx.globalCompositeOperation = 'source-over';
-    glow(ctx, 0, 0, R * 2.1, color, 0.2 + 0.2 * voice);
+    glow(ctx, 0, 0, R * 2.1 * halo, color, 0.2 + 0.2 * voice);
     const coreR = R * (0.55 + 0.25 * w.listening + 0.3 * trail - 0.15 * w.thinking);
     let g = ctx.createRadialGradient(0, 0, 0, 0, 0, coreR);
     g.addColorStop(0, rgba(mix(color, WHITE, 0.6), 0.5 + 0.4 * voice + 0.2 * w.thinking));
@@ -103,7 +106,7 @@ export class Sphere {
     }
 
     ctx.globalCompositeOperation = 'lighter';
-    const dot = Math.max(0.7, u / 250);
+    const dot = Math.max(0.7, u / 250) * this.dot;
     for (let b = 0; b < BUCKETS; b++) {
       const d = (b + 0.5) / BUCKETS;
       const list = this.paths[b];
