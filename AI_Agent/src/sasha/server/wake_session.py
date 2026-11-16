@@ -14,7 +14,6 @@ Telemetry gets one line per check with labels and timings, never text.
 from __future__ import annotations
 
 import asyncio
-import functools
 import json
 import logging
 import time
@@ -34,8 +33,9 @@ from sasha.server.timers.hub import Hub
 from sasha.server.timers.ring import StopWindow
 from sasha.server.timers.tools import TIMER_TOOLS, add_timer_tools
 from sasha.server.voice import MIC_SAMPLE_RATE, VoiceStages
-from sasha.server.wake import WakeGate
+from sasha.server.wake import REJECTED_UNCONFIRMED, WakeGate
 from sasha.server.wake_confirm import ConfirmFlow, PlaybackClock
+from sasha.server.wake_evidence import hear
 from sasha.server.wake_policy import RateLimiter, WakeToolPolicy
 from sasha.server.wake_truth import TruthfulReply
 from sasha.server.ws import Conversation, Frame
@@ -273,14 +273,10 @@ class ListenerConversation(Conversation):
         # the armed follow-up (the command after the phrase alone): there the hint could
         # write the phrase into the command (review H1).
         hotwords = None if self.gate.armed else self.gate.matcher.phrase
-        try:
-            async with self.voice.stt_lock:  # waits while another socket transcribes
-                started = time.perf_counter()
-                heard = await asyncio.to_thread(
-                    functools.partial(self.stt.transcribe, hotwords=hotwords),
-                    audio,
-                    MIC_SAMPLE_RATE,
-                )
+        try:  # a doubtful wake is decoded again without the hint (false wakes, 2026-11-16)
+            heard, plain, started = await hear(
+                self.stt, self.voice.stt_lock, audio, MIC_SAMPLE_RATE, hotwords, self.gate
+            )
         except Exception as exc:
             log.error("Speech recognition failed: %s", type(exc).__name__)
             self._miss("stt_error", segment_bytes)
@@ -299,16 +295,21 @@ class ListenerConversation(Conversation):
             "stt_ms": round((done - started) * 1000, 1),  # decoding only
             "stt_wait_ms": round((started - queued) * 1000, 1),  # queued behind others
         }
-        await self._decide(heard, segment_bytes, stt_times)
+        await self._decide(heard, segment_bytes, stt_times, plain)
 
     async def _decide(
-        self, heard: Transcript, segment_bytes: int, stt_times: dict[str, float]
+        self,
+        heard: Transcript,
+        segment_bytes: int,
+        stt_times: dict[str, float],
+        plain: str | None = None,
     ) -> None:
         assert self.stt is not None
-        decision = self.gate.decide(heard.text, heard.confidence)
+        seconds = segment_bytes / BYTES_PER_S
+        decision = self.gate.decide(heard.text, heard.confidence, heard.words, seconds, plain)
         language = heard.language or self.language
         confidence = heard.confidence
-        del heard  # the transcript lives no longer than this decision
+        del heard, plain  # the transcripts live no longer than this decision
         timings: dict[str, Any] = {
             **stt_times,
             "stt_device": self.stt.model_version(),
@@ -316,6 +317,10 @@ class ListenerConversation(Conversation):
             # numbers only, never the text: how sure the decoder was, and the bar
             "confidence": None if confidence is None else round(confidence, 3),
             "min_confidence": self.gate.min_confidence,
+            "phrase_p": decision.phrase_p,  # the name's word probability (wake_evidence)
+            "rechecked": decision.rechecked or decision.outcome == REJECTED_UNCONFIRMED,
+            "min_command_confidence": self.gate.min_command_confidence,
+            "sure_command_confidence": self.gate.sure_command_confidence,
         }
         if not decision.heard:
             self._miss(decision.outcome, segment_bytes, timings)

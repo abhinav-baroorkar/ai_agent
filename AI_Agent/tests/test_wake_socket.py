@@ -330,8 +330,13 @@ def test_telemetry_has_labels_and_timings_only(
         "variant",
         "confidence",
         "min_confidence",
+        "phrase_p",  # the phrase's own word probability: a number or None, never text
+        "rechecked",
+        "min_command_confidence",
+        "sure_command_confidence",
     }
     assert isinstance(check["confidence"], float) and check["min_confidence"] > 0
+    assert check["phrase_p"] is None or isinstance(check["phrase_p"], float)
     assert name.lower() not in str(check).lower()  # numbers and labels, never the text
     assert stt.hotwords == [name]  # the decoder is told the wake phrase
 

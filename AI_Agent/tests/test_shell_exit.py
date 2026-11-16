@@ -113,6 +113,15 @@ class FakeSignal:
         self.slots.append(slot)
 
 
+class FakeTimer:
+    def __init__(self) -> None:
+        self.timeout = FakeSignal()
+        self.ms = 0
+
+    def start(self, ms: int) -> None:
+        self.ms = ms
+
+
 class FakeApp:
     def __init__(self) -> None:
         self.lastWindowClosed = FakeSignal()
@@ -127,15 +136,11 @@ class FakeApp:
 def test_a_signal_is_named_and_quits_cleanly(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    pytest.importorskip("PySide6.QtCore")
-    from PySide6.QtCore import QCoreApplication
-
-    QCoreApplication.instance() or QCoreApplication([])
     handlers: dict[int, Any] = {}
     monkeypatch.setattr(exit_note.signal, "signal", lambda s, h: handlers.__setitem__(s, h))
     notes, path = _notes(tmp_path)
     app = FakeApp()
-    notes.watch(app)
+    notes.watch(app, timer=FakeTimer)  # no Qt in the test process
     assert set(handlers) == {signal.SIGTERM, signal.SIGHUP, signal.SIGINT}
     handlers[signal.SIGTERM](signal.SIGTERM, None)
     text = path.read_text()

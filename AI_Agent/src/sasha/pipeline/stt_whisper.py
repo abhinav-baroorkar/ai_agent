@@ -26,7 +26,7 @@ from sasha.pipeline.model_cache import (
     ensure_project_hf_env,
     hf_cache_dir,
 )
-from sasha.pipeline.stt import Transcript
+from sasha.pipeline.stt import Transcript, Word
 
 log = logging.getLogger(__name__)
 
@@ -259,16 +259,16 @@ class FasterWhisperSTT:
         self, model: Any, samples: NDArray[np.float32], hotwords: str | None = None
     ) -> Transcript:
         forced = self.languages[0] if len(self.languages) == 1 else None
-        text, info, logprob = self._run(model, samples, forced, hotwords)
+        text, info, logprob, words = self._run(model, samples, forced, hotwords)
         language = info.language
         if language not in self.languages:
             # Whisper picked a language we don't support (e.g. Hindi for Marathi):
             # re-decode with the most likely supported one.
             probs = dict(info.all_language_probs or [])
             language = max(self.languages, key=lambda lang: probs.get(lang, 0.0))
-            text, info, logprob = self._run(model, samples, language, hotwords)
+            text, info, logprob, words = self._run(model, samples, language, hotwords)
         confidence = round(min(1.0, math.exp(logprob)), 3) if text else 0.0
-        return Transcript(text=text, language=language, confidence=confidence)
+        return Transcript(text=text, language=language, confidence=confidence, words=words)
 
     def _run(
         self,
@@ -276,11 +276,14 @@ class FasterWhisperSTT:
         samples: NDArray[np.float32],
         language: str | None,
         hotwords: str | None = None,
-    ) -> tuple[str, Any, float]:
+    ) -> tuple[str, Any, float, tuple[Word, ...]]:
         # `hotwords` favours those words in the decoder. For a wake segment it is the
         # wake phrase: alone and without context Whisper otherwise writes a short name
         # as almost anything (measured: 2026-11-16 synthetic run, wake-word-design.md).
-        extra = {"hotwords": hotwords} if hotwords else {}
+        # A wake segment also gets per-word probabilities, so the gate can ask whether
+        # the phrase itself was heard, not just the segment on average (false wakes,
+        # 2026-11-16). Segments are at most max_segment_s, so seeking is unchanged.
+        extra: dict[str, Any] = {"hotwords": hotwords, "word_timestamps": True} if hotwords else {}
         segments, info = model.transcribe(
             samples,
             language=language,
@@ -289,11 +292,15 @@ class FasterWhisperSTT:
             condition_on_previous_text=False,
             **extra,
         )
-        parts, weights, total = [], 0.0, 0.0
+        parts, weights, total, words = [], 0.0, 0.0, []
         for seg in segments:
             parts.append(seg.text.strip())
             n = max(1, len(seg.tokens))
             weights += n
             total += seg.avg_logprob * n
+            words += [
+                Word(w.word.strip(), round(float(w.probability), 3), w.start, w.end)
+                for w in getattr(seg, "words", None) or ()  # None without word_timestamps
+            ]
         text = " ".join(p for p in parts if p)
-        return text, info, (total / weights if weights else -math.inf)
+        return text, info, (total / weights if weights else -math.inf), tuple(words)

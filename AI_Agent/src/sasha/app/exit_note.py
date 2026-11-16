@@ -51,9 +51,13 @@ class ExitNotes:
         if self.fd >= 0:
             faulthandler.enable(self.fd, all_threads=True)
 
-    def watch(self, app: Any) -> None:
-        """Note a closed window and a stop signal (then quit cleanly). Qt imports here."""
-        from PySide6.QtCore import QTimer
+    def watch(self, app: Any, timer: Callable[[], Any] | None = None) -> None:
+        """Note a closed window and a stop signal (then quit cleanly). `timer` makes the
+        tick (a QTimer; Qt is imported only then)."""
+        if timer is None:
+            from PySide6.QtCore import QTimer
+
+            timer = QTimer
 
         def closed() -> None:
             if not self.stopping:  # a signal's quit closes the window too: said already
@@ -68,7 +72,7 @@ class ExitNotes:
 
         for name in SIGNALS:
             signal.signal(getattr(signal, name), stop)
-        tick = QTimer()  # kept on self: it lives as long as the notes
+        tick = timer()  # kept on self: it lives as long as the notes
         tick.timeout.connect(lambda: None)  # Python checks for signals between calls
         tick.start(TICK_MS)
         self._tick = tick
