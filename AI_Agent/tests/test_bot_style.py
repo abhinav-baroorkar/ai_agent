@@ -91,3 +91,26 @@ def test_state_files_without_a_style_or_with_a_bad_one_load_as_glow(h: Harness) 
     listed = bots(h.client())
     assert listed["main"]["style"] == "glow"
     assert listed["old-1"]["style"] == "glow" and listed["odd-1"]["style"] == "glow"
+
+
+def test_the_server_and_the_client_know_the_same_eight_styles(tmp_path: Path) -> None:
+    """The client draws faces/styles.js STYLE_IDS; the server accepts BOT_STYLES."""
+    import shutil
+    import subprocess
+
+    from tests.conftest import REPO_ROOT
+
+    if shutil.which("node") is None:
+        pytest.skip("Node is not installed")
+    source = REPO_ROOT / "AI_Agent/src/sasha/avatar/web/js/faces/styles.js"
+    module = tmp_path / "styles.mjs"  # Node reads a .js without package.json as CommonJS
+    module.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    script = (
+        "const m = await import('file://' + process.argv[1]);"
+        "console.log(JSON.stringify(m.STYLE_IDS));"
+    )
+    out = subprocess.run(
+        ["node", "--input-type=module", "-e", script, str(module)],
+        capture_output=True, text=True, timeout=30, check=True,
+    )  # fmt: skip
+    assert tuple(json.loads(out.stdout)) == BOT_STYLES
