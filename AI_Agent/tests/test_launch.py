@@ -12,6 +12,14 @@ from sasha.server.security import allowed_origins, is_loopback
 from sasha.server.voice import pcm_frames
 
 
+@pytest.fixture(autouse=True)
+def _chrome_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests are about the Chrome window: the fallback without the `app` extra."""
+    from sasha.app import launcher as app_launcher
+
+    monkeypatch.setattr(app_launcher, "available", lambda: False)
+
+
 def test_parser_has_serve_and_window() -> None:
     args = build_parser().parse_args(["serve", "--port", "9000"])
     assert args.command == "serve" and args.port == 9000 and args.host is None
@@ -266,3 +274,19 @@ def test_wait_until_up_gives_up_at_the_timeout(monkeypatch: pytest.MonkeyPatch) 
     lines: list[str] = []
     assert launch.wait_until_up("http://x", FakeProc(), 30, say=lines.append, clock=clock) is False  # type: ignore[arg-type]
     assert len(lines) == 2  # at 10 s and 20 s, then it stops at 30 s
+
+
+def test_window_chrome_flag_skips_the_app_shell(
+    settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sasha.app import launcher as app_launcher
+
+    monkeypatch.setattr(app_launcher, "available", lambda: True)
+    monkeypatch.setattr(app_launcher, "open_shell", lambda *a, **k: pytest.fail("shell used"))
+    monkeypatch.setattr(launch, "is_running", lambda url, timeout_s=1.5: True)
+    monkeypatch.setattr(launch.shutil, "which", lambda n: "/usr/bin/google-chrome")
+    monkeypatch.setattr(launch, "dead_proxy_port", lambda: 9)
+    spawned: list[list[str]] = []
+    s = _settings_in(settings, tmp_path)
+    assert launch.open_window(s, spawn=lambda cmd, **kw: spawned.append(cmd), chrome=True) == 0  # type: ignore[arg-type,func-returns-value]
+    assert spawned and spawned[0][0] == "/usr/bin/google-chrome"

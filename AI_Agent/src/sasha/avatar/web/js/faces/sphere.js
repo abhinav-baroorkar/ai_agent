@@ -5,16 +5,19 @@ import { rgba, mix } from './stage.js';
 import { WHITE, glow } from './parts.js';
 
 const N = 2800;
+const PLAIN = { spin: 1, halo: 1, core: 1, size: 1, move: () => null };
 const BUCKETS = 7;
 
 export class Sphere {
-  constructor() {
+  // count: how many points; dot: how much larger to draw them (small orbs need both changed)
+  constructor(count = N, dot = 1) {
+    this.dot = dot;
     this.spin = 0;
     this.points = [];
     const golden = Math.PI * (3 - Math.sqrt(5));
-    for (let i = 0; i < N; i++) {
+    for (let i = 0; i < count; i++) {
       // evenly spread, then nudged so no lattice pattern shows
-      const y = Math.max(-1, Math.min(1, 1 - (2 * (i + 0.5)) / N + (Math.random() - 0.5) * 0.03));
+      const y = Math.max(-1, Math.min(1, 1 - (2 * (i + 0.5)) / count + (Math.random() - 0.5) * 0.03));
       const r = Math.sqrt(1 - y * y);
       const a = i * golden + (Math.random() - 0.5) * 0.25;
       // one point in six floats inside the shell and turns the other way: that is the depth
@@ -26,16 +29,22 @@ export class Sphere {
 
   // Draws around the origin. ctx is in real pixels; R is the radius.
   // shimmer: -1 for none, or 0..1 as a band of light crosses from top to bottom.
-  draw(ctx, R, mood, { shimmer = -1 } = {}) {
+  // halo: scales the glow around it (a small orb keeps it inside its own canvas).
+  // style: a breathing style from styles.js (how the points move); none means the plain sphere.
+  draw(ctx, R, mood, { shimmer = -1, halo = 1, style = null } = {}) {
     const { w, lvl, trail, t, color } = mood;
     const voice = lvl * (w.speaking + w.listening);
-    this.spin += mood.dt * (0.16 + 1.5 * w.thinking + 0.25 * w.speaking);
+    const st = style || PLAIN;
+    this.spin += mood.dt * (0.16 * st.spin + 1.5 * w.thinking + 0.25 * w.speaking);
+    // the style's own motion quietens while it listens or thinks, so the state reads
+    const amp = 1 - 0.75 * w.thinking - 0.55 * w.listening;
+    const talk = lvl * w.speaking;
     const band = shimmer < 0 ? 9 : 1.3 - 2.6 * shimmer;
 
     // light around and inside the sphere
     ctx.globalCompositeOperation = 'source-over';
-    glow(ctx, 0, 0, R * 2.1, color, 0.2 + 0.2 * voice);
-    const coreR = R * (0.55 + 0.25 * w.listening + 0.3 * trail - 0.15 * w.thinking);
+    glow(ctx, 0, 0, R * 2.1 * halo * st.halo, color, 0.2 + 0.2 * voice);
+    const coreR = R * (0.55 + 0.25 * w.listening + 0.3 * trail - 0.15 * w.thinking) * st.core;
     let g = ctx.createRadialGradient(0, 0, 0, 0, 0, coreR);
     g.addColorStop(0, rgba(mix(color, WHITE, 0.6), 0.5 + 0.4 * voice + 0.2 * w.thinking));
     g.addColorStop(0.35, rgba(color, 0.22 + 0.25 * voice));
@@ -59,7 +68,7 @@ export class Sphere {
     const tilt = 0.36 + 0.07 * Math.sin(t * 0.31);
     const u = R / 0.7;
     const ct = Math.cos(tilt);
-    const st = Math.sin(tilt);
+    const stl = Math.sin(tilt);
     const open = w.listening * (0.3 + 0.55 * lvl);
     for (const b of this.paths) b.length = 0;
 
@@ -84,12 +93,15 @@ export class Sphere {
       }
       if (p.inner) r *= p.inner;
       x *= r; y *= r; z *= r;
+      const nudge = st.move(p, t, amp, talk);
+      let extra = 0;
+      if (nudge) { x += nudge[0]; y += nudge[1]; z += nudge[2]; extra = nudge[3]; }
       // spin about the vertical axis, then tip toward the viewer
       const x1 = p.inner ? x * ci + z * si : x * cs + z * sn;
       const z1 = p.inner ? -x * si + z * ci : -x * sn + z * cs;
       let xv = x1;
-      let yv = y * ct - z1 * st;
-      const zv = y * st + z1 * ct;
+      let yv = y * ct - z1 * stl;
+      const zv = y * stl + z1 * ct;
       if (open > 0.002 && zv > 0) {
         // listening: the near side opens like an iris, showing the bright core
         const k = 1 + open * zv * zv * 1.5;
@@ -98,12 +110,12 @@ export class Sphere {
       const persp = 1 / (1 - zv * 0.26);
       const d = (zv + 1.25) / 2.5;
       const lit = Math.max(0, 1 - Math.abs(y - band) * 5); // the shimmer band passing this point
-      const bucket = Math.min(BUCKETS - 1, Math.max(0, ((d + lit * 0.4) * BUCKETS) | 0));
-      this.paths[bucket].push(xv * R * persp, yv * R * persp, p.size * persp * (0.8 + 0.35 * Math.sin(t * 1.7 + p.ph * 5) + lit));
+      const bucket = Math.min(BUCKETS - 1, Math.max(0, ((d + lit * 0.4 + extra * 0.5) * BUCKETS) | 0));
+      this.paths[bucket].push(xv * R * persp, yv * R * persp, p.size * st.size * persp * (0.8 + 0.35 * Math.sin(t * 1.7 + p.ph * 5) + lit + Math.max(0, extra) * 0.6));
     }
 
     ctx.globalCompositeOperation = 'lighter';
-    const dot = Math.max(0.7, u / 250);
+    const dot = Math.max(0.7, u / 250) * this.dot;
     for (let b = 0; b < BUCKETS; b++) {
       const d = (b + 0.5) / BUCKETS;
       const list = this.paths[b];

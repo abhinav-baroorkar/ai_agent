@@ -14,6 +14,7 @@ Telemetry gets one line per check with labels and timings, never text.
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import logging
 import time
@@ -26,13 +27,14 @@ from starlette.websockets import WebSocket
 from sasha.bots import VOICE_ID
 from sasha.config import ReplyLines, WakeConfig
 from sasha.orchestrator import Assistant, Reply
+from sasha.prompting import prompt_lines
 from sasha.server.deps import ServerDeps
 from sasha.server.speaking import ListenerPresence
 from sasha.server.speech import Speaker
 from sasha.server.voice import MIC_SAMPLE_RATE, VoiceStages
 from sasha.server.wake import WakeGate, WakeMatcher
 from sasha.server.wake_confirm import ConfirmFlow, PlaybackClock
-from sasha.server.wake_policy import RateLimiter, WakeToolPolicy
+from sasha.server.wake_policy import CONTROL_TOOL, RateLimiter, WakeToolPolicy
 from sasha.server.wake_truth import TruthfulReply, wake_control_allowed
 from sasha.server.ws import Conversation, Frame
 from sasha.telemetry import TelemetryWriter
@@ -57,13 +59,15 @@ async def open_listener(
     for warning in warnings:
         log.warning("Bot %s: %s", bot.id, warning)
     wake_word, config = settings.assistant.wake_word, settings.profile.wake
-    # The wake turn's own prompt line: a hint; TruthfulReply is the guarantee.
-    assistant.system_prompt = f"{assistant.system_prompt.rstrip()}\n{config.prompt_note}"
     matcher = WakeMatcher(
-        wake_word.phrase, wake_word.variants, config.fillers, config.continuations
+        wake_word.phrase,
+        wake_word.variants,
+        config.fillers,
+        config.continuations,
+        wake_word.word_variants,
     )
     assert deps.wake_limiter is not None
-    return ListenerConversation(
+    conv = ListenerConversation(
         ws,
         assistant,
         voice,
@@ -80,6 +84,21 @@ async def open_listener(
         recheck_placement=deps.recheck_placement,
         speak=speak,
     )
+
+    def wake_prompt() -> str:
+        """What wake turns can really do now: the policy's view of the tools, without
+        device control unless it is allowed now; then the wake turn's own line (a hint;
+        TruthfulReply is the guarantee). Rebuilt every turn, so turning the opt-in on or
+        off takes effect at once, not at the next connection."""
+        control = conv.policy.device_control()
+        names = [n for n in conv.assistant.tools.names if n != CONTROL_TOOL or control]
+        prompt = deps.prompt_for(deps.bots.get(VOICE_ID), names, spoken=speak)
+        return f"{prompt}\n{config.prompt_note}"
+
+    conv.wake_prompt = wake_prompt
+    assistant.system_prompt = wake_prompt()
+    conv.times_word = prompt_lines(settings).times_word
+    return conv
 
 
 class ListenerConversation(Conversation):
@@ -105,6 +124,7 @@ class ListenerConversation(Conversation):
         self.presence = presence
         self.recheck_placement = recheck_placement
         self.paused = True  # fail closed until the listener says it is listening
+        self.wake_prompt: Callable[[], str] | None = None  # set by open_listener
         self.armed_timer: asyncio.TimerHandle | None = None
         self.turn_language = language
         self.truth: TruthfulReply | None = None  # set while a wake turn's reply streams
@@ -182,6 +202,8 @@ class ListenerConversation(Conversation):
             await super()._on_text_frame(raw)
 
     async def _ask(self, text: str, input_mode: str) -> Reply | None:
+        if self.wake_prompt is not None:
+            self.assistant.system_prompt = self.wake_prompt()  # never stale (see open_listener)
         lines = self.config.reply_lines
         line_set = lines.get(self.turn_language) or lines.get("en") or ReplyLines()
         truth = self.truth = (
@@ -263,22 +285,40 @@ class ListenerConversation(Conversation):
     # --- one segment -------------------------------------------------------------------
     async def _segment(self, audio: bytes) -> None:
         assert self.stt is not None
-        started = time.perf_counter()
+        queued = time.perf_counter()
         segment_bytes = len(audio)
+        # The phrase as a hint, without which a short phrase comes out as anything. Not on
+        # the armed follow-up (the command after the phrase alone): there the hint could
+        # write the phrase into the command (review H1).
+        hotwords = None if self.gate.armed else self.gate.matcher.phrase
         try:
-            async with self.voice.stt_lock:
-                heard = await asyncio.to_thread(self.stt.transcribe, audio, MIC_SAMPLE_RATE)
+            async with self.voice.stt_lock:  # waits while another socket transcribes
+                started = time.perf_counter()
+                heard = await asyncio.to_thread(
+                    functools.partial(self.stt.transcribe, hotwords=hotwords),
+                    audio,
+                    MIC_SAMPLE_RATE,
+                )
         except Exception as exc:
             log.error("Speech recognition failed: %s", type(exc).__name__)
             self._miss("stt_error", segment_bytes)
             return
         finally:
             del audio
-        stt_ms = (time.perf_counter() - started) * 1000
+        done = time.perf_counter()
         decision = self.gate.decide(heard.text, heard.confidence)
         language = heard.language or self.language
+        confidence = heard.confidence
         del heard  # the transcript lives no longer than this decision
-        timings = {"stt_ms": round(stt_ms, 1), "variant": decision.variant}
+        timings: dict[str, Any] = {
+            "stt_ms": round((done - started) * 1000, 1),  # decoding only
+            "stt_wait_ms": round((started - queued) * 1000, 1),  # queued behind others
+            "stt_device": self.stt.model_version(),
+            "variant": decision.variant,
+            # numbers only, never the text: how sure the decoder was, and the bar
+            "confidence": None if confidence is None else round(confidence, 3),
+            "min_confidence": self.gate.min_confidence,
+        }
         if not decision.heard:
             self._miss(decision.outcome, segment_bytes, timings)
             return
@@ -304,7 +344,8 @@ class ListenerConversation(Conversation):
         await self._turn(command, language, "wake")
 
     def _miss(self, outcome: str, segment_bytes: int, extra: dict[str, Any] | None = None) -> None:
-        self.emit({"type": "wake", "heard": False, "command": False})
+        # `reason` is the outcome label only (never text), so the listener can say why
+        self.emit({"type": "wake", "heard": False, "command": False, "reason": outcome})
         self._check(outcome, segment_bytes, extra or {})
 
     # --- armed window ---------------------------------------------------------------------

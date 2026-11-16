@@ -1,36 +1,60 @@
-/* Bot chats: a tab per open chat, a transcript, a composer. */
-.bots { display: flex; flex-direction: column; }
-.tabs { flex: none; display: flex; gap: 4px; padding: 10px 14px 0; border-bottom: 1px solid var(--line); overflow-x: auto; }
-.tabs:empty { display: none; }
-.tab { display: flex; align-items: center; border: 1px solid transparent; border-bottom: 0; border-radius: 10px 10px 0 0; color: var(--muted); }
-.tab[data-active="true"] { background: var(--surface); border-color: var(--line); color: var(--text); margin-bottom: -1px; }
-.tab button { background: none; border: 0; cursor: pointer; color: inherit; }
-.tab-open { display: flex; align-items: center; gap: .5em; padding: .5em .3em .5em .9em; white-space: nowrap; }
-.tab-open .busy { width: 7px; height: 7px; border-radius: 50%; background: var(--think); animation: pulse 1.2s infinite; }
-.tab-close { display: grid; place-items: center; width: 26px; height: 26px; margin-right: .3em; border-radius: 6px; }
-.tab-close:hover { background: var(--surface-2); }
-.tab-note { align-self: center; margin-left: auto; padding: .2rem .8rem; color: var(--warn); font-size: .87rem; white-space: nowrap; }
-
+/* A bot chat: who you are talking to, the conversation, a composer. */
+.chat-pane { display: flex; flex-direction: column; }
 .chats { flex: 1; min-height: 0; }
-.chat { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; background: var(--surface); }
-.chat-head { display: flex; align-items: center; gap: .8rem; padding: .7rem 1.2rem; border-bottom: 1px solid var(--line); }
+.chat { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr) auto; background: var(--bg-2); }
+.chat-head { display: flex; align-items: center; gap: .7rem; padding: .65rem 1.2rem; background: var(--surface); border-bottom: 1px solid var(--line); }
+.chat-head .who { display: grid; min-width: 0; line-height: 1.3; }
 .chat-head .title { font-weight: 600; }
-.chat-head .meta { font: .78rem var(--mono); color: var(--muted); }
+.chat-head .meta { font: .76rem var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-head .btn { flex: none; }
 
-.log { overflow-y: auto; padding: 1.4rem max(1.2rem, calc((100% - 46rem) / 2)); display: flex; flex-direction: column; gap: 1.1rem; }
-.log-empty { margin: auto; color: var(--muted); text-align: center; max-width: 28rem; }
-.msg { display: grid; gap: .35rem; line-height: 1.6; overflow-wrap: anywhere; }
-.msg .body { white-space: pre-wrap; }
-.msg.user { align-self: flex-end; max-width: 80%; padding: .55rem .9rem; background: var(--surface-2); border-radius: 14px 14px 4px 14px; }
-.msg.bot .from { font-size: .78rem; color: var(--lamp); font-weight: 600; }
-.msg.bot .chips { display: flex; flex-wrap: wrap; gap: .35rem; }
-.msg.bot .timing { font: .74rem var(--mono); color: #6c7a8b; }
-.msg.error { color: var(--bad); font-size: .92rem; }
-.typing { display: inline-flex; gap: 4px; padding: .4rem 0; }
-.typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--think); animation: pulse 1.2s infinite; }
+/* The conversation: one readable column, his messages on the right in the lamp's
+   colour, the bot's on the left with its initial, name and plain text. */
+.log { overflow-y: auto; padding: 1.6rem max(1.2rem, calc((100% - 44rem) / 2)) 1.2rem; display: flex; flex-direction: column; gap: 1.5rem; scroll-behavior: smooth; }
+.log-empty { margin: auto; display: grid; justify-items: center; gap: .45rem; max-width: 26rem; text-align: center; color: var(--muted); line-height: 1.55; }
+.log-empty strong { color: var(--text); font-size: 1.1rem; }
+.log-empty .hint { font: .76rem var(--mono); color: #6c7a8b; }
+.avatar.big { width: 52px; height: 52px; border-radius: 16px; font-size: 1.3rem; margin-bottom: .3rem; }
+
+.msg { line-height: 1.65; overflow-wrap: anywhere; font-size: .97rem; }
+.msg.user { align-self: flex-end; max-width: min(34rem, 82%); padding: .6rem 1rem; color: #fdf3e2;
+  background: color-mix(in srgb, var(--lamp) 17%, var(--surface-2)); border: 1px solid color-mix(in srgb, var(--lamp) 28%, transparent);
+  border-radius: 16px 16px 4px 16px; }
+.msg.user .body { white-space: pre-wrap; }
+.msg.bot { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: .8rem; align-items: start; }
+.msg.bot .col { display: grid; gap: .4rem; min-width: 0; }
+.msg.bot .from { font-size: .8rem; color: var(--lamp); font-weight: 600; line-height: 30px; height: 30px; margin-bottom: -.35rem; }
+.msg.bot .chips { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; }
+.msg.bot .chips:not(:empty)::before { content: "Used"; font-size: .74rem; color: #6c7a8b; margin-right: .1rem; }
+.msg.bot .chips:empty { display: none; }
+.msg.bot .timing { font: .72rem var(--mono); color: #6c7a8b; margin-top: .1rem; }
+.msg.error { margin-left: calc(30px + .8rem); padding: .5rem .8rem; color: var(--bad); font-size: .9rem; border-radius: var(--r);
+  background: color-mix(in srgb, var(--bad) 9%, transparent); border: 1px solid color-mix(in srgb, var(--bad) 28%, transparent); }
+
+/* The bot's formatted text */
+.msg.bot .body > * { margin: 0; }
+.msg.bot .body > * + * { margin-top: .7rem; }
+.msg.bot .body p { white-space: pre-line; }
+.msg.bot .body h3 { font-size: 1.08rem; font-weight: 600; margin-top: 1.1rem; }
+.msg.bot .body h4 { font-size: .98rem; font-weight: 600; color: var(--muted); margin-top: 1rem; }
+.msg.bot .body > :first-child { margin-top: 0; }
+.msg.bot .body ul, .msg.bot .body ol { padding-left: 1.4rem; display: grid; gap: .3rem; list-style: revert; }
+.msg.bot .body li::marker { color: var(--muted); }
+.msg.bot .body code { font-size: .88em; }
+.msg.bot .body pre { padding: .75rem .9rem; overflow-x: auto; background: #0a0f15; border: 1px solid var(--line); border-radius: var(--r); line-height: 1.5; }
+.msg.bot .body pre code { padding: 0; background: none; font-size: .86rem; white-space: pre; }
+.msg.bot .body .md-url { color: var(--muted); font-size: .9em; }
+
+.typing { display: inline-flex; gap: 5px; padding: .45rem 0; }
+.typing i { width: 7px; height: 7px; border-radius: 50%; background: var(--think); animation: pulse 1.2s infinite; }
 .typing i:nth-child(2) { animation-delay: .2s; }
 .typing i:nth-child(3) { animation-delay: .4s; }
 
-.composer { display: flex; gap: .5rem; align-items: flex-end; padding: .8rem max(1.2rem, calc((100% - 46rem) / 2)) 1.1rem; border-top: 1px solid var(--line); }
-.composer textarea { resize: none; min-height: 42px; max-height: 9rem; }
-.composer .btn { min-height: 42px; }
+/* The composer: one rounded field holding the text and its buttons */
+.composer { display: grid; gap: .35rem; padding: .5rem max(1.2rem, calc((100% - 44rem) / 2)) .8rem; }
+.composer .field { display: flex; align-items: flex-end; gap: .4rem; padding: .35rem .35rem .35rem .4rem; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; transition: border-color .15s; }
+.composer .field:focus-within { border-color: color-mix(in srgb, var(--lamp) 55%, var(--line)); }
+.composer textarea { resize: none; min-height: 38px; max-height: 9rem; padding: .5em .6em; background: none; border: 0; line-height: 1.5; }
+.composer textarea:focus-visible { outline: none; }
+.composer .btn { min-height: 38px; border-radius: 14px; }
+.composer .hint { padding-left: 1rem; font-size: .72rem; color: #6c7a8b; }

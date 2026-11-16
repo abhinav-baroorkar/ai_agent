@@ -26,6 +26,7 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 from sasha.orchestrator import Assistant, Reply, RequestFailed, TurnHooks
 from sasha.pipeline.llm import LLMCancelled, OllamaError
 from sasha.server.speech import Speaker
+from sasha.server.spoken import SpokenStream
 from sasha.server.voice import MIC_SAMPLE_RATE, VoiceStages, max_recording_bytes
 
 log = logging.getLogger(__name__)
@@ -65,6 +66,9 @@ class Conversation:
         self.speak = speak
         self.language = language  # for typed turns; voice turns use the transcript's
         self.speaker: Speaker | None = None
+        self.spoken: SpokenStream | None = None  # this turn's speakable text (speak=1)
+        self.times_word = "times"  # how "2*3" is said; the app sets it from prompt_lines
+        self.released = ""  # what this turn really showed and spoke (for the history)
         self.outbox: asyncio.Queue[Frame | None] = asyncio.Queue()
         self.stop = threading.Event()
         self.turn: asyncio.Task[None] | None = None
@@ -187,6 +191,20 @@ class Conversation:
         return Speaker(tts, language, self.voice.split, self.voice.tts_lock, self.emit, self.stop)
 
     def _on_delta(self, piece: str) -> None:  # on the event loop
+        if self.spoken is not None:  # speak=1: shown and spoken as speakable text
+            piece = self.spoken.feed(piece)
+            if not piece:
+                return
+        self._emit_delta(piece)
+
+    def flush_spoken(self) -> None:
+        """Release what the speakable-text stream still holds (before a confirm question,
+        the turn's earlier sentence must be spoken first)."""
+        if self.spoken is not None and (rest := self.spoken.finish()):
+            self._emit_delta(rest)
+
+    def _emit_delta(self, piece: str) -> None:
+        self.released += piece
         self.emit({"type": "reply_delta", "text": piece})
         if self.speaker is not None:
             self.speaker.feed(piece)
@@ -199,16 +217,28 @@ class Conversation:
         # wake confirmation may swap it mid-turn (server/wake_confirm.py), so the end of
         # the turn always uses the current one.
         self.speaker = self._make_speaker(language)
+        # speak=1 (Home, the listener): markdown becomes speakable text, also in the
+        # subtitles; bot chat tabs (speak=0) keep the model's text (server/spoken.py).
+        self.spoken = SpokenStream(self.times_word) if self.speak else None
+        self.released = ""
         spoken = False
         try:
             self.state("thinking")
             reply = await self._ask(text, input_mode)
             if reply is not None:
+                shown = reply.text
+                if self.spoken is not None:
+                    if rest := self.spoken.finish():
+                        self._emit_delta(rest)
+                    shown = self.spoken.text
+                # The history keeps what was shown and spoken (a held-back claim on a wake
+                # turn, the speakable text on speak=1), not the model's raw text.
+                self.assistant.replace_reply(shown)
                 calls = [{"name": c["name"], "ok": c["ok"]} for c in reply.tool_calls]
                 self.emit(
                     {
                         "type": "reply",
-                        "text": reply.text,
+                        "text": shown,
                         "tool_calls": calls,
                         "timing": _timing(reply),
                     }
@@ -216,6 +246,13 @@ class Conversation:
             if self.speaker is not None:
                 speaker = self.speaker
                 await (speaker.finish() if reply is not None else speaker.abort())
+            if reply is not None and self.stop.is_set():
+                # Stopped (or talked over) while it was still being spoken: the reply is
+                # in the history, but the model should know it wasn't all heard.
+                self.assistant.mark_interrupted()
+            elif reply is None and self.stop.is_set():
+                # Stopped while streaming: only what was released is remembered as said.
+                self.assistant.replace_reply(self.released, stopped=True)
             spoken = True
         except Exception as exc:  # never let one turn kill the connection
             log.error("Turn failed: %s", type(exc).__name__)

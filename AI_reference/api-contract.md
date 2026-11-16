@@ -23,7 +23,12 @@ per-device token; v0 has no auth because it only listens on localhost.
 | `POST /api/connectors/{id}/test` | `{ok, message}` connectivity check |
 
 `Bot` = `{id, name, model, system_prompt, connectors:[connector ids], builtin:bool,
-wake_device_control:bool}`.
+wake_device_control:bool, style}`.
+- `style` (v0.4.4): how the bot's orb breathes, one of `glow`, `ember`, `tide`, `gale`,
+  `storm`, `mist`, `bloom`, `stone`; default `glow` (also for bots saved before styles).
+  Settable on create and PATCH for user bots, and on PATCH for `main` (only its style:
+  its name and prompt stay locked). `voice` has no style of its own: it returns
+  `main`'s, and a PATCH with `style` answers 400. An unknown value answers 400.
 - Built-in `main`: its name and prompt come from `assistant.yaml`.
 - Built-in `voice`: used by wake-word turns. Same prompt as `main`; its name is the
   assistant's name plus " (wake word)". Its model and connectors default to `main`'s
@@ -98,8 +103,10 @@ Client → server (listener only):
 
 Server → client (listener only):
 - `{type:"wake", heard:bool, command:bool, armed_s?:number}`, after every segment:
-  - `heard:false, command:false`: not a wake (or dropped: busy, speaking, cool-down).
-    Nothing else about the segment is ever sent, logged or stored.
+  - `heard:false, command:false, reason`: not a wake (or dropped: busy, speaking,
+    cool-down). `reason` is the outcome label only (`rejected_no_name`,
+    `rejected_low_conf`, `dropped_busy`, …; v0.4.3), so the listener can say why.
+    Nothing else about the segment (no text) is ever sent, logged or stored.
   - `heard:true, command:true`: the name was followed by a command (or the segment
     filled an armed window); a normal spoken turn follows (`transcript` with the
     command only, `state`, `reply_delta`, `reply`, `tts_*`).
@@ -174,7 +181,7 @@ guard:{allowed:int, refused:{<category>:int}, background_refused:int}}`.
   allow), by category. `background_refused`: everything else refused, which is Chrome's
   own background traffic (update, account and similar calls), not anything the page did.
 
-Window token (v0.4.2): every `/api/browser*` route needs the header
+Window token (v0.4.5): every `/api/browser*` route needs the header
 `X-Window-Token: <token>` (401 `{error}` otherwise), and `/ws/browser` needs the
 subprotocols `["brain.v1", "token.<token>"]` (close 1008 otherwise; the server accepts
 with `brain.v1` only). The token is made by the brain at each start and reaches the
@@ -232,7 +239,10 @@ WebSocket `/ws/browser` (one viewer):
   the window only over `/ws/browser`. `agent` is `working` for the whole turn and pushed
   at once; `guard.refused` counts only the pages' own refusals, the rest is
   `background_refused`.
-- v0.4.2 (2026-11-15): the window token on `/api/browser*` (`X-Window-Token`) and
+- v0.4.3 (2026-11-16): `wake` misses carry `reason` (a label, never text). The wake
+  phrase is "hey" plus the name (assistant.yaml), not the name alone.
+- v0.4.4 (2026-11-16): `Bot.style` (the orb's breathing style), default `glow`.
+- v0.4.5 (2026-11-16): the window token on `/api/browser*` (`X-Window-Token`) and
   `/ws/browser` (subprotocols `brain.v1` and `token.<token>`).
 - Planned for v0.5 (not built yet): `POST /api/connectors` and
   `DELETE /api/connectors/{id}` to add and remove MCP connectors from Settings.

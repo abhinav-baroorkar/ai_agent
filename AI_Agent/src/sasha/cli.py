@@ -14,6 +14,7 @@ from sasha import __version__
 from sasha.config import Settings, load_settings
 from sasha.orchestrator import Assistant, Reply, RequestFailed
 from sasha.pipeline.llm import OllamaError, OllamaLLM
+from sasha.prompting import build_prompt, prompt_lines
 from sasha.telemetry import TelemetryWriter, snapshot_resources
 from sasha.tools import build_tools
 from sasha.tools.home_assistant import HomeAssistantClient
@@ -36,7 +37,12 @@ def make_assistant(settings: Settings, small: bool = False) -> tuple[Assistant, 
         enabled=settings.profile.telemetry.enabled,
         log_text=settings.profile.telemetry.log_text,
     )
-    return Assistant(settings, make_llm(settings, small), tools, telemetry), warnings
+    # Text only, so no spoken style; the prompt says what these tools can really do.
+    prompt = build_prompt(
+        settings.assistant.render_system_prompt(), tools.names, prompt_lines(settings)
+    )
+    llm = make_llm(settings, small)
+    return Assistant(settings, llm, tools, telemetry, system_prompt=prompt), warnings
 
 
 def format_timing(reply: Reply) -> str:
@@ -155,6 +161,10 @@ def build_parser() -> argparse.ArgumentParser:
         cmd = sub.add_parser(name, help=text)
         cmd.add_argument("--host", help="Loopback address to use (default from the profile)")
         cmd.add_argument("--port", type=int, help="Port (default from the profile)")
+        if name == "window":
+            cmd.add_argument(
+                "--chrome", action="store_true", help="Use the Chrome window, not the app shell"
+            )
     listen = sub.add_parser("listen", help="Wake word listener (microphone; foreground)")
     listen.add_argument(
         "--debug-dump-audio",
@@ -170,6 +180,9 @@ def build_parser() -> argparse.ArgumentParser:
     auto = sub.add_parser("autostart", help="Start brain + listener at login: on|off|show")
     auto.add_argument("action", choices=["on", "off", "show"])
     auto.add_argument("--yes", action="store_true", help="With `on`: really link and enable")
+    menu = sub.add_parser("app-menu", help="The assistant in the applications menu: on|off|show")
+    menu.add_argument("action", choices=["on", "off", "show"])
+    menu.add_argument("--yes", action="store_true", help="With `on`: really write the entry")
     return p
 
 
@@ -201,11 +214,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         from sasha.pipeline.model_cache import project_root
 
         return autostart(args.action, project_root(settings.paths.root), yes=args.yes)
+    if args.command == "app-menu":
+        from sasha.app.menu import app_menu
+        from sasha.pipeline.model_cache import project_root
+
+        return app_menu(args.action, settings, project_root(settings.paths.root), yes=args.yes)
     if args.command in ("serve", "window"):
         from sasha.server.launch import open_window, run_server  # FastAPI only when needed
 
-        run = run_server if args.command == "serve" else open_window
-        return run(settings, host=args.host, port=args.port)
+        if args.command == "window":
+            return open_window(settings, host=args.host, port=args.port, chrome=args.chrome)
+        return run_server(settings, host=args.host, port=args.port)
     assistant, warnings = make_assistant(settings, small=getattr(args, "small", False))
     for w in warnings:
         print(f"[warn] {w}")

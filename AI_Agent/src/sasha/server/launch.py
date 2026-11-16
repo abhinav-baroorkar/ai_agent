@@ -209,6 +209,7 @@ def open_window(
     host: str | None = None,
     port: int | None = None,
     spawn: Callable[..., subprocess.Popen[bytes]] = subprocess.Popen,
+    chrome: bool = False,  # `sasha window --chrome`: the Chrome window even with the shell
 ) -> int:
     cfg = settings.profile.server
     host, port = host or cfg.host, port or cfg.port
@@ -246,6 +247,14 @@ def open_window(
             server.terminate()
             return 1
 
+    from sasha.app import launcher  # the app shell, if the `app` extra is installed
+
+    if launcher.available() and not chrome:
+        how = launcher.open_shell(settings, port, proxy_port, spawn=spawn)
+        if how not in ("no_display", "no_session"):
+            print("The assistant's window is open." if how == "raised" else f"Opened {url}.")
+            return _wait_for(server)
+        print("No display or desktop session for the app window; trying the Chrome window.")
     profile_dir = settings.paths.data_dir / "chrome-profile"
     token = read_token(settings.paths.state_dir)
     if token is None:  # an older brain: the window works, its browser panel doesn't
@@ -272,6 +281,10 @@ def open_window(
         )
         print(f"Opened {url} in an app window.")
 
+    return _wait_for(server)
+
+
+def _wait_for(server: subprocess.Popen[bytes] | None) -> int:
     if server is None:
         return 0
     print("Server is running here; press Ctrl-C to stop it.")

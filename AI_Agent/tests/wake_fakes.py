@@ -32,6 +32,7 @@ class ScriptedSTT:
     def __init__(self) -> None:
         self.queue: list[tuple[str, float]] = []
         self.calls = 0
+        self.hotwords: list[str | None] = []
 
     def say(self, *texts: str, confidence: float = 0.9) -> None:
         self.queue += [(t, confidence) for t in texts]
@@ -39,8 +40,11 @@ class ScriptedSTT:
     def model_version(self) -> str:
         return "stt@scripted"
 
-    def transcribe(self, audio: bytes, sample_rate: int) -> Transcript:
+    def transcribe(
+        self, audio: bytes, sample_rate: int, *, hotwords: str | None = None
+    ) -> Transcript:
         self.calls += 1
+        self.hotwords.append(hotwords)
         text, confidence = self.queue.pop(0) if self.queue else ("", 0.0)
         return Transcript(text, "en", confidence)
 

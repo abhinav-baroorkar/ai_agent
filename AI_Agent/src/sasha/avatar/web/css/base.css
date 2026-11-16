@@ -146,6 +146,7 @@ dialog legend { padding: 0; margin-bottom: .2rem; }
 .check small { color: var(--muted); }
 .dialog-actions { display: flex; gap: .5rem; margin-top: 1rem; }
 .form-error { color: var(--bad); font-size: .9rem; }
+.form-note { padding: .6rem .8rem; font-size: .88rem; line-height: 1.5; border-radius: var(--r); background: color-mix(in srgb, var(--warn) 9%, transparent); border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent); }
 .file-warning { position: fixed; inset: auto 16px 16px; padding: 1rem; background: var(--surface); border: 1px solid var(--warn); border-radius: var(--r); z-index: 30; }
 
 @media (prefers-reduced-motion: reduce) {

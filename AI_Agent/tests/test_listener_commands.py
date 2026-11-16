@@ -216,3 +216,15 @@ def test_writer_closes_the_socket_when_a_send_fails() -> None:
         return ws.closed
 
     assert asyncio.run(main())
+
+
+def test_the_terminal_says_what_the_brain_decided_without_text() -> None:
+    from sasha.listener.messages import wake_line
+
+    heard = wake_line({"heard": True, "command": True})
+    assert heard == "[wake] heard the wake phrase and a command"
+    armed = wake_line({"heard": True, "command": False})
+    assert armed == "[wake] heard the wake phrase; say the command"
+    miss = {"heard": False, "command": False, "reason": "rejected_low_conf"}
+    assert wake_line(miss) == "[wake] not a wake: the wake phrase was unclear"
+    assert wake_line({"heard": False, "reason": "something_new"}).endswith("something_new")

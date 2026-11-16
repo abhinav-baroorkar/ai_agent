@@ -33,8 +33,6 @@ URL = re.compile(r"(?:https?|wss?)://[^\s\"'`)<>;]*")
 BARE_HOST = re.compile(r"(?<=[\"'`(=])//[A-Za-z0-9.-]+\.[A-Za-z]{2,}[^\s\"'`)<>]*")
 ALLOWED_URLS = {
     "http://www.w3.org/2000/svg",  # the SVG namespace, never fetched
-    "ws://127.0.0.1:*",  # the loopback WebSocket sources in the Content-Security-Policy
-    "ws://localhost:*",
 }
 
 

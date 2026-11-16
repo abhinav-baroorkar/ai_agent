@@ -31,6 +31,9 @@ voice-gpu = [
     "nvidia-cudnn-cu12>=9.1,<10; sys_platform == 'linux' and platform_machine == 'x86_64'",
 ]
 listener = ["jeepney>=0.8"]
+# The assistant's own window (app shell): Qt WebEngine through PySide6, LGPL-3.0.
+# About 673 MB installed. `uv sync --extra app`. Without it, `sasha window` uses Chrome.
+app = ["PySide6>=6.8"]
 
 [project.scripts]
 sasha = "sasha.cli:main"
@@ -80,5 +83,16 @@ ignore_missing_imports = true
 module = ["jeepney", "jeepney.*"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+# Optional `app` extra (review A3): mypy must pass with and without PySide6. Without it
+# the Qt classes are Any, so the shell's two Qt subclasses are allowed to subclass Any.
+module = ["PySide6", "PySide6.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["sasha.app.shell"]
+disallow_subclassing_any = false
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-rfE"  # every failure and error names itself in the short summary

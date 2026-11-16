@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from sasha.config import Settings
@@ -73,6 +73,7 @@ class Assistant:
         self.system_prompt = system_prompt or settings.assistant.render_system_prompt()
         self._history: list[Message] = []
         self.last_tool_calls: list[dict[str, Any]] = []
+        self.turn_kept = False  # the last turn is in the history (see replace_reply)
 
     @property
     def name(self) -> str:
@@ -80,6 +81,39 @@ class Assistant:
 
     def reset(self) -> None:
         self._history.clear()
+
+    # --- stopped turns ---------------------------------------------------------------
+    # A stopped turn (the Stop button, or the owner talking over the reply) stays in the
+    # history: the request, what was said of the reply (capped), and a short note only
+    # the model sees. So "continue" or "go on" picks it up. Telemetry only records that
+    # it was cancelled, never the text.
+    def _stopped_reply(self, partial: str) -> str:
+        cfg = self.settings.profile.llm
+        kept = partial.strip()[: cfg.interrupted_keep_chars]
+        return f"{kept} {cfg.interrupted_note}".strip()
+
+    def _keep_stopped(self, text: str, partial: str) -> None:
+        self._history += [
+            {"role": "user", "content": text},
+            {"role": "assistant", "content": self._stopped_reply(partial)},
+        ]
+        self.turn_kept = True
+
+    def replace_reply(self, said: str, stopped: bool = False) -> None:
+        """The history keeps what the person was really shown and told, not the model's
+        raw text: the socket's released text (a held-back false claim, markdown taken
+        out of speech). Only this turn's entry: nothing if the turn wasn't kept."""
+        if self.turn_kept and self._history and self._history[-1]["role"] == "assistant":
+            self._history[-1]["content"] = self._stopped_reply(said) if stopped else said
+
+    def mark_interrupted(self) -> None:
+        """The last reply was finished but its speech was cut: the model should know
+        the person may not have heard all of it."""
+        note = self.settings.profile.llm.interrupted_note
+        if self._history and self._history[-1]["role"] == "assistant":
+            last = self._history[-1]
+            if not str(last["content"]).endswith(note):
+                last["content"] = f"{str(last['content']).rstrip()} {note}"
 
     def _messages(self, text: str) -> list[Message]:
         recent = self._history[-2 * self.history_turns :]
@@ -93,6 +127,16 @@ class Assistant:
         self, text: str, hooks: TurnHooks | None = None, input_mode: str = "text"
     ) -> Reply:
         hooks = hooks or TurnHooks()
+        self.turn_kept = False  # is this turn in the history (for replace_reply)?
+        streamed: list[str] = []  # what reached the person so far, for a stopped turn
+        if hooks.on_delta is not None:
+            shown = hooks.on_delta
+
+            def on_delta(piece: str) -> None:
+                streamed.append(piece)
+                shown(piece)
+
+            hooks = replace(hooks, on_delta=on_delta)
         trace = self.telemetry.start(input_mode=input_mode)
         trace.models["llm"] = self.llm.model_version()
         trace.record_text("user", text)
@@ -105,6 +149,8 @@ class Assistant:
             reply = self._run(text, trace, calls_made, hooks)
         except BaseException as exc:  # includes Ctrl-C: still write the telemetry line
             trace.finish(success=False, error=f"{type(exc).__name__}: {exc}")
+            if isinstance(exc, LLMCancelled):  # stopped: keep it, so "continue" works
+                self._keep_stopped(text, "".join(streamed))
             if isinstance(exc, Exception):
                 raise RequestFailed(calls_made) from exc
             raise  # Ctrl-C, SystemExit: unchanged, so `except Exception` can't swallow them
@@ -117,6 +163,7 @@ class Assistant:
             {"role": "user", "content": text},
             {"role": "assistant", "content": reply.text},
         ]
+        self.turn_kept = True
         return reply
 
     def _ask(
