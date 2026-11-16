@@ -1,12 +1,14 @@
 // Taking over the assistant's browser (contract v0.5): the owner drives it himself
-// in a normal window to solve a person check or sign in, then hands it back. The
+// in a normal window to solve the search engine's person check, then hands it back. The
 // brain can't see that window, so this part only offers the switch, says what is
 // happening and counts down the time left. It appears only when the server's
 // browser state says which mode it is in.
 import { api } from './api.js';
 import { h, clear, icon } from './dom.js';
 
-const WHY = 'Solve a person check or sign in yourself. Everything you type is wiped when you hand back.';
+// Not an invitation to sign in: sign-ins are out of scope, and only the search engine's
+// cookies survive the hand-back (design §9.7, C3).
+const WHY = 'Solve the search engine’s person check yourself. Don’t sign in to accounts here: everything except that check is wiped when you hand back.';
 // The server's refusals, in plain words. Anything else is shown as it comes.
 const PLAIN = [
   [/off in Settings/i, 'The browser is off. Turn it on in Settings first.'],
