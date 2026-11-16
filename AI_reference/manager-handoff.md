@@ -47,17 +47,22 @@ only for now; satellites on other devices come later.
 
 ## State of `main`
 
-- `main` is `6a2c8f9` (2026-11-15, evening; all pushed). The last full count in the reviews was
-  775 passed on the bots-redesign merge; the count for `6a2c8f9` is not recorded here. API contract
-  is v0.4.4 (bots carry a breathing style). Merged since `5e89c34` (details in `devlog/2026-11-15.md`):
+- `main` is `f316d6f` (2026-11-15, evening; all pushed). Tests on `f316d6f`: 840 passed, 5 skipped,
+  2 deselected (the real-Chrome file). API contract is v0.4.4 (bots carry a breathing style). Merged since `5e89c34` (details in `devlog/2026-11-15.md`):
   Talk ends by itself; plain-text spoken replies and real-ability prompts; wake phrase "hey" plus
   the name with a speech-to-text hint; truthful wake answers; the app window (Qt WebEngine, optional
   `app` extra, Chrome window as fallback with `sasha window --chrome`, opened by the wake phrase);
   the "Your bots" page (Concept A); the persona offers only what its tools can do; eight breathing
-  styles per bot; spoken-text and address cleanups.
-- **In review:** timers (`feat/timers-server` at `b253796`; the latest review has one blocking item
-  about a false claim spoken when the reply ends with a question), `fix/voice-waiting` (finding
-  V1 is being fixed), `chore/review-followups` (`01c40b5`).
+  styles per bot; spoken-text and address cleanups. Also merged since `6a2c8f9`:
+  `fix/voice-waiting` (`fa72e69`, `main` `9cbe02f`): send-now while a previous answer is still
+  stopping sends the recording once the server is free; leaving Home, hiding or closing drops a
+  queued or unstarted recording and sends no stray cancel; the style picker shows Glow for a value
+  that is not a style. `chore/review-followups` (`36f5e01`, `main` `f316d6f`): private-name bench
+  runs store no transcript; the tray test pins the fast path; `Bot.style` is typed `BotStyle`.
+- **In review:** only timers (`feat/timers-server` at `b253796`; the review has one blocking item
+  about a false claim spoken when the reply ends with a question; a fix is in progress).
+- **Browser work resumed** (the Jack of all tasks session): `fix/browser-turn-holder` first, then
+  the take-over, then the browse helper so the main assistant can browse.
 - **Not verified:** the app window has not been looked at on screen (the owner's visible check is
   still to come); the wake word on a real microphone in the new window; timers with real voice.
 - **Memory:** the design is approved with conditions and is not built (see `decisions.md`).
@@ -113,8 +118,9 @@ only for now; satellites on other devices come later.
 | `feat/app-shell`, `fix/app-shell-hardening`, `fix/entrance-calm` | | the assistant's own window (Qt WebEngine, optional `app` extra), hardening, calmer entrance | merged and pushed (`895f8ff`, `0c440b7`, `06e5036`); not yet looked at on screen |
 | `feat/bots-redesign`, `fix/persona-abilities`, `feat/bot-styles`, `fix/style-lookup`, `feat/bot-style-field` | | "Your bots" page, abilities in the persona line, eight breathing styles, the style as a bot field (contract v0.4.4) | merged and pushed (`93d6b07`, `40cc959`, `860539b`, `214f41c`, `6a2c8f9`) |
 | `chore/bench-extra-soundalikes`, `chore/test-robustness` | | private sound-alike names for the bench; failing tests name themselves | merged and pushed (`15ad0c1`, `adaa220`) |
-| `fix/voice-waiting` | | voice waiting fix | in review; finding V1 is being fixed |
-| `chore/review-followups` | | review follow-ups | in review (`01c40b5`) |
+| `fix/voice-waiting` | | send-now while a previous answer is stopping; dropping a queued recording; style picker fallback | merged and pushed (`fa72e69`) |
+| `chore/review-followups` | | private-name bench stores no transcript; tray test pins the fast path; `Bot.style` typed | merged and pushed (`36f5e01`) |
+| `fix/browser-turn-holder`, take-over, browse helper | Jack of all tasks | the browser follow-ups, then the take-over, then the browse helper so the main assistant can browse | in progress, in that order |
 | `fix/wake-truthful-reply` | | truthful spoken replies for refused or failed device changes; gate for voice device control; clock tool | merged and pushed (`61aa277`); `fix/wake-request-phrases` (`d5c9c43`) added more request phrasings and a 42-phrase bench as a gate |
 | `feat/browser-core`, `feat/browser-wiring`, `feat/browser-live-view`, `feat/browser-ui`, `fix/browser-panel-followups`, `fix/browser-view-followups` | | the assistant's own browser, phase 1: core, tools, live view in the Bots screen, follow-ups | merged and pushed (`96636db`, `deda9ae`, `c462083`, `011b6f5`, `deb6b09`, `39af3f3`) |
 | `fix/listener-confirm-race`, `fix/listener-followups` | | the tray sign could disagree with the capture process | merged and pushed (`bda9732`, `4968ef5`) |
