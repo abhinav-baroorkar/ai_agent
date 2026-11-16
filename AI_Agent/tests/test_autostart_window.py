@@ -247,3 +247,43 @@ app.exec()
     assert r["first"] == ["STARTING", 0]
     assert r["late"] == ["LATE", 0]
     assert r["up"] == 1  # the page is in front once the brain answers
+
+
+def test_brain_up_never_follows_a_redirect() -> None:
+    """Review A1: exactly one request to one address; a 3xx is "not up"."""
+    hits = {"other": 0}
+
+    class Other(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            hits["other"] += 1
+            body = b'{"ok": true}'
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args: Any) -> None:
+            pass
+
+    other = http.server.HTTPServer(("127.0.0.1", 0), Other)
+    target = f"http://127.0.0.1:{other.server_address[1]}/elsewhere"
+
+    class Redirect(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(302)
+            self.send_header("Location", target)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def log_message(self, *args: Any) -> None:
+            pass
+
+    brain = http.server.HTTPServer(("127.0.0.1", 0), Redirect)
+    for server in (other, brain):
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        assert not brain_up(brain.server_address[1])
+        assert hits["other"] == 0  # the other server never got the request
+    finally:
+        brain.shutdown()
+        other.shutdown()

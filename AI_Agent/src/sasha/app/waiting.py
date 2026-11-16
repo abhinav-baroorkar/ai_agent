@@ -19,7 +19,16 @@ ATTACH_WAIT_S = 60.0
 POLL_S = 0.5
 SLOW_POLL_S = 5.0  # after the wait is over
 
-_no_proxy = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Exactly one request to one address: a 3xx is "not up", never followed (A1)."""
+
+    def redirect_request(self, *args: object, **kwargs: object) -> None:
+        return None
+
+
+# No proxy whatever the environment, and no redirects: a 3xx then raises HTTPError
+_no_proxy = urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect())
 
 
 def brain_up(port: int, timeout_s: float = 0.5) -> bool:
