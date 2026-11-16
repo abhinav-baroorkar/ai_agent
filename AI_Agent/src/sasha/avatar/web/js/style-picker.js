@@ -9,6 +9,7 @@ const STATES = [['idle', 'Resting'], ['listening', 'Listening'], ['thinking', 'T
 
 // color: [r, g, b]; value: the style id now chosen; onPick(id) when he picks another.
 export function stylePicker({ color, value, onPick }) {
+  value = STYLE_IDS.includes(value) ? value : 'glow'; // a stored value that isn't a style shows as Glow, everywhere
   let state = 'idle';
   const big = miniOrb(color, 150, { style: value, state });
   const name = h('b', {}, styleOf(value).name);

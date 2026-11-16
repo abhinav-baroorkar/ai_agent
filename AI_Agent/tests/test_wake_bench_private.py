@@ -63,7 +63,8 @@ def test_a_private_name_is_never_printed_or_saved(
     else:
         monkeypatch.setenv(b.PRIVATE_ENV, SENTINEL)
     stt = FakeSTT()
-    stt.texts = [f"I told {SENTINEL} about it.", f"Hey {SENTINEL.upper()}, turn on the light."]
+    near = SENTINEL[:-1] + "ah"  # a near-spelling: redaction alone would miss it
+    stt.texts = [f"I told {SENTINEL} about it.", f"Hey {near}, turn on the light."]
     monkeypatch.setattr(b, "load", lambda quick, voices: (s, stt, FakeTTS(), {"v1": None}))
     monkeypatch.setattr(b, "synth", lambda tts, phon, voice, speed: phon)
     monkeypatch.setattr(b, "segments", lambda x, gain, snr, rng: [b"\0\0"])
@@ -71,10 +72,12 @@ def test_a_private_name_is_never_printed_or_saved(
     assert b.main() == 0
     out = capsys.readouterr().out
     saved = next((tmp_path / "results").glob("wake_synthetic-extra-*.json")).read_text()
-    assert SENTINEL.lower() not in out.lower() and SENTINEL.lower() not in saved.lower()
+    for leak in (SENTINEL.lower(), near.lower()):
+        assert leak not in out.lower() and leak not in saved.lower()
     rows = json.loads(saved)
-    assert len(rows) == 4 and all(r["name_written"] for r in rows)  # the fake always writes it
-    assert "<extra-1>" in rows[0]["text"] and "name_written=True" in out
+    assert len(rows) == 4
+    assert all("text" not in r for r in rows)  # no transcript at all, not even redacted
+    assert "name_written=True" in out
 
 
 def test_the_name_cannot_come_from_the_command_line(monkeypatch: pytest.MonkeyPatch) -> None:

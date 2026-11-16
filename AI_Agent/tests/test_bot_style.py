@@ -114,3 +114,23 @@ def test_the_server_and_the_client_know_the_same_eight_styles(tmp_path: Path) ->
         capture_output=True, text=True, timeout=30, check=True,
     )  # fmt: skip
     assert tuple(json.loads(out.stdout)) == BOT_STYLES
+
+
+def test_bot_style_is_typed_as_the_style_list() -> None:
+    """Review nit: the dumped type is exact, not a plain string."""
+    from sasha.bots import Bot, BotStyle
+
+    assert Bot.model_fields["style"].annotation == BotStyle
+    schema = Bot.model_json_schema()["properties"]["style"]
+    assert tuple(schema["enum"]) == BOT_STYLES and schema["default"] == "glow"
+    loaded = Bot.model_validate(
+        {
+            "id": "x",
+            "name": "X",
+            "model": "m",
+            "system_prompt": "",
+            "connectors": [],
+            "style": "neon",
+        }
+    )
+    assert loaded.style == "glow"  # the before-validator still keeps an odd file loading
