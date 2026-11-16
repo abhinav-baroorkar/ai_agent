@@ -88,6 +88,7 @@ WINDOW = {
     "no_display": "not opened (no display)",
     "no_session": "not opened (no desktop session)",
     "unavailable": "not opened (the app extra isn't installed)",
+    "browser": "opened as the browser window (the app window couldn't start)",
 }
 
 

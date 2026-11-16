@@ -257,6 +257,18 @@ def bring_up(app: Any, shell: Shell, wake: bool, notice: str) -> None:
         QTimer.singleShot(400, check)
 
 
+QUIET_AFTER_MS = 5000  # start-up output goes to the start log (app/start_check.py)
+
+
+def _quiet_after_start() -> None:
+    """Once the window is up, later output no longer lands in the start log."""
+    from PySide6.QtCore import QTimer
+
+    from sasha.app.start_check import quiet_stderr
+
+    QTimer.singleShot(QUIET_AFTER_MS, quiet_stderr)
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="sasha.app.shell")
     p.add_argument("--port", type=int, required=True)
@@ -309,6 +321,7 @@ def main(argv: list[str] | None = None) -> int:
         load_when_up(shell, wait, a.late_notice, lambda: start_url(a.port, a.start_path, token()))
     single.serve(app, lambda command: bring_up(app, shell, command == "wake", a.notice))
     shell.window.show()
+    _quiet_after_start()
     if a.wake:
         bring_up(app, shell, True, a.notice)
     code = int(app.exec())

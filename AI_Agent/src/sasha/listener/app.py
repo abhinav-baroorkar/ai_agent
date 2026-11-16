@@ -112,7 +112,11 @@ def window_opener(settings: Settings, allowed: Callable[[], bool]) -> WindowOpen
         from sasha.server.launch import dead_proxy_port
 
         port = settings.profile.server.port
-        return launcher.open_shell(settings, port, dead_proxy_port(), wake=True, as_unit=True)
+        proxy = dead_proxy_port()
+        how = launcher.open_shell(settings, port, proxy, wake=True, as_unit=True)
+        if how == "failed":  # no window came up: the browser window, and say why
+            return browser_instead(settings, port, proxy)
+        return how
 
     def is_open() -> bool:
         try:
@@ -121,6 +125,21 @@ def window_opener(settings: Settings, allowed: Callable[[], bool]) -> WindowOpen
             return False
 
     return WindowOpener(settings.profile.window, allowed, open_window, is_open)
+
+
+def browser_instead(settings: Settings, port: int, proxy: int) -> str:
+    """The app shell didn't come up on a wake: open the Chrome window instead, and tell
+    the owner why in a desktop notification (the listener's terminal gets a line too)."""
+    import subprocess
+
+    from sasha.app import start_check
+    from sasha.app.single import notify
+    from sasha.server.launch import _open_chrome, server_url
+
+    reason = start_check.failure_reason(start_check.first_lines(start_check.log_path(settings)))
+    _open_chrome(server_url(settings.profile.server.host, port), settings, proxy, subprocess.Popen)
+    notify(start_check.failure_message(reason))
+    return "browser"
 
 
 def run_listen(settings: Settings, options: ListenOptions) -> int:

@@ -105,7 +105,8 @@ def test_the_launcher_raises_an_open_window_or_starts_one(
     monkeypatch.setenv("DISPLAY", ":0")
     raised = launcher.open_shell(settings, 8765, 9, wake=True, spawn=spawn, ask=lambda p, c: True)
     assert raised == "raised" and spawned == []
-    got = launcher.open_shell(settings, 8765, 9, spawn=spawn, ask=lambda p, c: False)
+    up = lambda p, c: c == "ping"  # noqa: E731  (the new window answers the start check)
+    got = launcher.open_shell(settings, 8765, 9, spawn=spawn, ask=up)
     assert got == "started" and spawned[0][1]["start_new_session"] is True
     cmd = spawned[0][0]
     assert cmd[1:3] == ["-m", "sasha.app.shell"] and "--wake" not in cmd
@@ -113,7 +114,7 @@ def test_the_launcher_raises_an_open_window_or_starts_one(
     assert settings.assistant.name in cmd[cmd.index("--notice") + 1]  # from assistant.yaml
     monkeypatch.setattr(launcher.shutil, "which", lambda n: "/usr/bin/systemd-run")
     launcher.open_shell(
-        settings, 8765, 9, wake=True, as_unit=True, spawn=spawn, ask=lambda p, c: False
+        settings, 8765, 9, wake=True, as_unit=True, spawn=spawn, ask=up, unit_alive=lambda: True
     )
     unit = spawned[1][0]
     assert unit[:3] == ["systemd-run", "--user", f"--unit={single.DESKTOP_ID}"]

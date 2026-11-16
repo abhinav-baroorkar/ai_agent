@@ -142,7 +142,20 @@ def run_doctor(settings: Settings) -> int:
         except Exception as exc:
             ok = False
             print(f"[fail] Home Assistant at {secrets.ha_url}: {exc}")
+    print(app_window_line())
     return 0 if ok else 1
+
+
+def app_window_line() -> str:
+    """`sasha doctor`: can the assistant's own window start? (A warning only.)"""
+    from sasha.app.launcher import available
+    from sasha.app.start_check import APT_HINT, cursor_library_present
+
+    if not available():
+        return "[info] App window: not installed (the Chrome window is used); uv sync --extra app"
+    if not cursor_library_present():
+        return f"[warn] App window: a system package is missing: libxcb-cursor0  -> run: {APT_HINT}"
+    return "[ok]   App window: ready"
 
 
 def build_parser() -> argparse.ArgumentParser:
