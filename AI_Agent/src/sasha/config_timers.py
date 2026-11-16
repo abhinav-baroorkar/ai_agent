@@ -119,6 +119,7 @@ class TimersConfig(BaseModel):
             "set_timer.not_said": "For how long?",
             "set_reminder.not_said": "When should I remind you?",
             "bad_day": "For which day?",
+            "next_weekday": "This {weekday} or the one after?",
             "past": "That time has passed. For what time?",
             "ambiguous_item": "Which one?",
             "unknown": "Which one?",

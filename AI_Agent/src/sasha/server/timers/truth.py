@@ -30,6 +30,7 @@ from collections.abc import Callable
 from typing import Any
 
 from sasha.config_timers import TimersConfig
+from sasha.server.timers.resolve import WEEKDAYS
 
 CHANGING_TOOLS = ("set_timer", "set_alarm", "set_reminder", "cancel_timer", "snooze_timer")
 NEGATION_REACH = 2  # a negation counts only this close before the claim word
@@ -190,9 +191,16 @@ class TimerTruth:
         return piece
 
     def question(self, tool: str, reason: str) -> str:
-        """The server's own question for a tool's ask ("" for none)."""
+        """The server's own question for a tool's ask ("" for none). A reason may carry a
+        weekday ("next_weekday:friday"), filled into the line; never free text."""
+        reason, _, weekday = reason.partition(":")
         lines = self.cfg.ask_lines
-        return lines.get(f"{tool}.{reason}", lines.get(reason, self.cfg.ask_generic))
+        line = lines.get(f"{tool}.{reason}", lines.get(reason, self.cfg.ask_generic))
+        if "{weekday}" not in line:
+            return line
+        if weekday not in WEEKDAYS:
+            return self.cfg.ask_generic
+        return line.format(weekday=weekday.capitalize())
 
     def _line(self, text: str) -> str:
         if self.cancelling:  # "turn off the alarm": nothing was changed

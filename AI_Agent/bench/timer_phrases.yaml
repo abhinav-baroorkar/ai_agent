@@ -120,6 +120,10 @@ cases:
   # Requests that often get "Anything else?" at the end.
   - {say: "Set an alarm for 7 am, thanks.", kind: alarm, want: ["2031-03-27 07:00"]}
   - {say: "Remind me to call mom at 5 pm.", kind: reminder, want: ["2031-03-27 17:00"]}
+  # fix/timer-days: dates in words, and "next <weekday>" within 2 days asks (owner rule).
+  - {say: "Set an alarm for April 5th at 7 am.", kind: alarm, want: ["2031-04-05 07:00"]}
+  - {say: "Remind me next Friday at 9 am to call the bank.", kind: reminder, want: [ask]}
+  - {say: "Remind me next Monday at 9 am to call the bank.", kind: reminder, want: ["2031-03-31 09:00"]}
 
 # Fixed replies judged without the model (Q1, Q2, the status line): `spoken` is what a
 # spoken window turn must say: `keep` (the reply), `line` (starts with the server's
