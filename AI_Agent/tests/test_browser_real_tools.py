@@ -26,6 +26,9 @@ PAGES = {
         <a href="http://127.0.0.1:8765/api/health">Brain</a> <button>Do something</button>""",
     "/next": "<title>Second</title><h1>Page two</h1><p>Pune is in Maharashtra.</p>",
     "/other": "<title>Other</title><p>Another tab.</p>",
+    # a bot challenge like DuckDuckGo's: no result links, only the engine's own
+    "/challenge": """<title>Check</title><a href="/">Search home</a>
+        <p>Please confirm you are a person.</p><button>Submit</button>""",
     # a results page like DuckDuckGo's HTML one: links go through /l/?uddg=<real address>
     "/search": """<title>Results</title>
         <a href="/l/?uddg=https%3A%2F%2Ftest.invalid%2Fnext&rut=1">First result</a>
@@ -102,6 +105,9 @@ def test_tools_on_real_chrome(tmp_path: Path) -> None:
             with pytest.raises(ToolError, match="isn't allowed"):  # refused at the final hop
                 await tool(lambda: conv.click(pick["Local"]))
             assert bridge.backstop.counts.clicks == clicks_before + 2
+            conv.search_template = "https://test.invalid/challenge?q={q}"
+            with pytest.raises(ToolError, match="asking the owner to confirm a person"):
+                await tool(lambda: conv.search("pune facts"))
             assert service.proxy is not None and service.proxy.stats.allowed == 0
         finally:
             await bridge.stop()

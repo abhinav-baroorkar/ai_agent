@@ -13,16 +13,21 @@ import contextlib
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urljoin, urlsplit
 
 from sasha.browser.backstop import LogOnlyBackstop
 from sasha.browser.cdp import CDPError, CDPPipe
 from sasha.browser.chrome import Chrome, new_page
 from sasha.browser.reader import PageView, clean, read_tree
-from sasha.browser.redirects import unwrap
+from sasha.browser.redirects import looks_like_results, site_of, unwrap
 
 LOAD_TIMEOUT_S = 20.0
-MAX_PAGE_HOSTS = 4096  # hosts remembered per browser run, for the live view's counts
+NOT_RESULTS = (
+    "No results, or the search engine is asking the owner to confirm a person is "
+    "searching: ask the owner to take over the browser; don't try anything else."
+)
+MAX_PAGE_HOSTS = 4096  # hosts remembered per run; refusals of hosts first seen after
+# the cap count as background (harmless: it only shifts the live view's counts)
 MAX_DESTINATIONS = 150  # links whose destination is looked up per read
 MAX_TABS = 3
 TabHook = Callable[[CDPPipe, str], Awaitable[None]]  # tests serve pages via Fetch
@@ -39,6 +44,8 @@ class Tab:
     loaded: asyncio.Event
     view: PageView | None = None
     destinations: dict[int, str] = field(default_factory=dict)  # link number -> real URL
+    unwrapped_links: int = 0  # links unwrapped from the engine's result redirect
+    offsite_links: int = 0  # links leading off the engine's site
 
 
 def domain_of(url: str) -> str:
@@ -145,6 +152,7 @@ class BrowserTabs:
             tree = await self._call("Accessibility.getFullAXTree", None, tab)
             nodes = tree.get("nodes", [])
             first = read_tree(nodes, title=str(title or ""))
+            tab.unwrapped_links = tab.offsite_links = 0
             by_node = await self._destinations(tab, first, str(here or ""))
             tab.view = read_tree(nodes, title=str(title or ""), destinations=by_node)
             tab.destinations = {
@@ -195,7 +203,21 @@ class BrowserTabs:
                 target = unwrap(str(href), base, self.engine_host)
                 if urlsplit(target).scheme in ("http", "https"):
                     found[node_id] = target
+                    if target != urljoin(base, str(href)):
+                        tab.unwrapped_links += 1
+                    site = site_of(urlsplit(target).hostname or "")
+                    if self.engine_host and site != site_of(self.engine_host):
+                        tab.offsite_links += 1
         return found
+
+    async def search_results(self, url: str) -> dict[str, Any]:
+        """Open a results page built by `search_url`; refuse one with no result links
+        (a bot challenge, so far): the model is told, and never reads that page."""
+        result = await self.navigate(url)
+        tab = await self.tab()
+        if not looks_like_results(self.engine_host, tab.unwrapped_links, tab.offsite_links):
+            raise PageError(NOT_RESULTS)
+        return result
 
     async def _href(self, tab: Tab, backend_node_id: int) -> str:
         try:

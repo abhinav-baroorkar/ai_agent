@@ -24,6 +24,7 @@ from sasha.browser.cdp import CDPError, CDPPipe
 log = logging.getLogger(__name__)
 
 MIN_INTERVAL_S = 0.2  # at most about 5 frames a second
+RESTART_INTERVAL_S = 0.5  # at most two screencast restarts a second (navigation loops)
 MAX_FRAME_BYTES = 512 * 1024
 MAX_WIDTH = 1280
 QUALITY = 60
@@ -55,6 +56,8 @@ class Screencast:
         self.chrome_acks: list[int] = []  # Chrome frames to acknowledge after the window
         self.last_sent = 0.0
         self.sent = self.dropped = self.restarts = 0
+        self._restart_pending = self._ack_pending = False
+        self._last_restart = 0.0
         self._tasks: set[asyncio.Task[None]] = set()
 
     async def start(self) -> None:
@@ -80,12 +83,22 @@ class Screencast:
         frame = params.get("frame") or {}
         if self.session is None or params.get("_session") != self.session or frame.get("parentId"):
             return
-        self.restarts += 1
+        if self._restart_pending:  # coalesced: one pending restart at a time (review W2)
+            return
+        self._restart_pending = True
         self._spawn(self._restart())
 
     async def _restart(self) -> None:
-        with contextlib.suppress(CDPError):
-            await self._start_cast()
+        try:
+            wait = self._last_restart + RESTART_INTERVAL_S - time.monotonic()
+            if wait > 0:  # at most one restart per RESTART_INTERVAL_S
+                await asyncio.sleep(wait)
+            self._last_restart = time.monotonic()
+            self.restarts += 1
+            with contextlib.suppress(CDPError):
+                await self._start_cast()
+        finally:
+            self._restart_pending = False
 
     async def stop(self) -> None:
         self.pipe.off("Page.screencastFrame", self._on_frame)
@@ -114,11 +127,15 @@ class Screencast:
     async def _frame(self, params: dict[str, Any]) -> None:
         chrome_id = int(params.get("sessionId", 0))
         data = str(params.get("data", ""))
-        if self.in_flight is not None or not is_jpeg(data):
+        too_soon = time.monotonic() - self.last_sent < MIN_INTERVAL_S  # whatever restarts did
+        if self.in_flight is not None or too_soon or not is_jpeg(data):
             self.dropped += 1
             self.chrome_acks.append(chrome_id)
-            if self.in_flight is None:  # a bad frame: ask for the next one at once
-                await self._ack_chrome()
+            if self.in_flight is None and not self._ack_pending:
+                # ask for the next frame once the interval has passed (not at once, which
+                # would spin), or now for a bad frame outside it
+                self._ack_pending = True
+                self._spawn(self._ack_after(self.last_sent + MIN_INTERVAL_S - time.monotonic()))
             return
         meta = params.get("metadata") or {}
         self.seq += 1
@@ -146,6 +163,14 @@ class Screencast:
         if self.in_flight == seq:
             self.in_flight = None
         await self._ack_chrome()
+
+    async def _ack_after(self, wait: float) -> None:
+        try:
+            if wait > 0:
+                await asyncio.sleep(wait)
+            await self._ack_chrome()
+        finally:
+            self._ack_pending = False
 
     async def _ack_chrome(self) -> None:
         acks, self.chrome_acks = self.chrome_acks, []
