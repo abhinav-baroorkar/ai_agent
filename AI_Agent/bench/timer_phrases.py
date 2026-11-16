@@ -38,6 +38,7 @@ from typing import Any
 import yaml
 
 from sasha.config import Settings, load_settings
+from sasha.config_timers import TimersConfig
 from sasha.conversation import current_turn
 from sasha.orchestrator import Assistant, RequestFailed
 from sasha.pipeline.llm import OllamaLLM
@@ -109,12 +110,7 @@ def run_case(
         seconds = time.perf_counter() - started
         items = list(service.items.values())
     got = [datetime.fromtimestamp(i.due, ZONE) for i in items]
-    # What the typed path's TimerTruth would say to this last reply (server/timers/truth.py).
     command = str(case.get("then") or case["say"])
-    last = [{"name": c["tool"], "ok": "result" in c} for c in calls[split:]]
-    cfg = settings.profile.timers
-    made = any(c["name"] in CHANGING_TOOLS and c["ok"] for c in last)
-    line = TimerTruth(cfg, command, spoken=False).finish(reply, last)[1] != reply
     return {
         "say": case["say"] + (f" / {case['then']}" if case.get("then") else ""),
         "now": datetime.fromtimestamp(now, ZONE).strftime("%a %H:%M"),
@@ -127,27 +123,41 @@ def run_case(
         ],
         "reply": reply,
         "verdict": verdict(case, items, got, calls, reply),
-        "server_line": line,  # the server added "Nothing was set."
-        "claims": claims_timer(reply, cfg),
-        "made": made,
-        "uncaught_claim": uncaught(claims_timer(reply, cfg), made, line, reply),
+        "split": split,
+        **judge(settings.profile.timers, command, calls[split:], reply),
         "seconds": round(seconds, 2),
     }
 
 
-def uncaught(claims: bool, made: bool, line: bool, reply: str) -> bool:
+def judge(
+    cfg: TimersConfig, command: str, calls: list[dict[str, Any]], reply: str
+) -> dict[str, Any]:
+    """What the server's TimerTruth (server/timers/truth.py) does with the last turn's
+    reply: on a typed chat (the reply shown) and on a spoken window turn (what is said)."""
+    last = [{"name": c["tool"], "ok": "result" in c, "asks": c.get("asked", "")} for c in calls]
+    shown = TimerTruth(cfg, command, spoken=False).finish(reply, last)[1]
+    held = TimerTruth(cfg, command, spoken=True)
+    held.feed(reply)
+    tail, final = held.finish(reply, last)
+    added = shown[len(reply.rstrip()) :] if shown != reply else ""
+    made = any(c["name"] in CHANGING_TOOLS and c["ok"] for c in last)
+    claims = claims_timer(reply, cfg)
+    return {
+        "server_line": shown != reply,  # the server added its line or question
+        "server_question": "?" in added,  # ...and what it added asks ("Morning or evening?")
+        "shown": shown,
+        "spoken": tail if held.holding else final,
+        "claims": claims,
+        "made": made,
+        "uncaught_claim": uncaught(cfg, claims, made, shown != reply, reply),
+    }
+
+
+def uncaught(cfg: TimersConfig, claims: bool, made: bool, line: bool, reply: str) -> bool:
     """A false claim the server let through (target 0): it claims a change, none was
-    made, no line was added, and it isn't a question back, which the server rightly
-    leaves alone ("I'll set it for 3. AM or PM?"): the server's own test, asks_back."""
-    return claims and not made and not line and not asks_back(reply)
-
-
-def rescored(row: dict[str, Any]) -> bool:
-    if "claims" in row:
-        return uncaught(row["claims"], row["made"], row["server_line"], row["reply"])
-    # Files from before `claims`/`made` were kept: their uncaught_claim was exactly
-    # claims and not made and not line, so only the question-back test is added.
-    return bool(row["uncaught_claim"]) and not asks_back(row["reply"])
+    made, the server added nothing, and it isn't a question back, which the server
+    rightly leaves alone ("I'll set it for 3. AM or PM?"): the server's own asks_back."""
+    return claims and not made and not line and not asks_back(reply, cfg)
 
 
 def verdict(
@@ -200,27 +210,36 @@ def summarize(rows: list[dict[str, Any]], head: dict[str, Any]) -> dict[str, Any
         "silent_wrong": counts["wrong"],
         # The typed path's own line (truth.py): how often it fired, and false claims it missed.
         "server_line": sum(r["server_line"] for r in rows),
+        "server_question": sum(r.get("server_question", False) for r in rows),
         "uncaught_claims": claims,
         "pass": counts["wrong"] == 0 and claims == 0,
         "meets_target": counts["wrong"] == 0 and good / len(rows) >= OK_SHARE,
     }
 
 
-def rescore(path: Path) -> None:
-    """Score a saved results file again (no model, no GPU); writes `<name>-rescored.json`."""
+def rescore(path: Path, cfg: TimersConfig) -> None:
+    """Judge a saved results file again with today's TimerTruth (no model, no GPU), and
+    write `<name>-rescored.json`. Prints each row where the server adds something."""
     data = json.loads(path.read_text(encoding="utf-8"))
     rows = data["rows"]
+    approx = 0
     for row in rows:
-        row["uncaught_claim"] = rescored(row)
+        before = bool(row.get("server_line"))
+        two_turn = " / " in row["say"]
+        split = row.get("split")
+        if split is None and two_turn:
+            approx += 1  # older files: the turns' calls weren't split; all are judged
+        command = row["say"].split(" / ")[-1]
+        row.update(judge(cfg, command, row["calls"][split or 0 :], row["reply"]))
+        if row["server_line"] or before:
+            mark = "Q" if row["server_question"] else ("L" if row["server_line"] else "-")
+            print(f"[{row['run']}] {mark} {row['say']}")
+            print(f"      shown:  {row['shown']!r}\n      spoken: {row['spoken']!r}")
     keep = ("model", "profile", "cases", "runs")
-    summary = summarize(rows, {k: data["summary"][k] for k in keep} | {"rescored": path.name})
+    head = {k: data["summary"][k] for k in keep} | {"rescored": path.name}
+    summary = summarize(rows, head) | {"two_turn_rows_judged_whole": approx}
     out = path.with_name(f"{path.stem}-rescored.json")
     out.write_text(json.dumps({"summary": summary, "rows": rows}, indent=2, default=str))
-    # For reading by eye: a "?" inside a reply that doesn't end with one gets the line.
-    for row in rows:
-        if "?" in row["reply"] and not asks_back(row["reply"]):
-            line = "line" if row["server_line"] else "no line"
-            print(f"[{row['run']}] {row['say']}: ({line}) {row['reply']!r}")
     print(json.dumps(summary, indent=2))
     print(f"Rescored: {out}")
 
@@ -236,11 +255,11 @@ def main() -> None:
     p.add_argument("--out", type=Path, default=None)
     p.add_argument("--rescore", type=Path, default=None, help="Score a saved results file")
     args = p.parse_args()
+    settings = load_settings(profile=args.profile, load_env_file=False)  # no secrets needed
     if args.rescore:
-        rescore(args.rescore)
+        rescore(args.rescore, settings.profile.timers)
         return
 
-    settings = load_settings(profile=args.profile, load_env_file=False)  # no secrets needed
     data = yaml.safe_load(args.cases.read_text(encoding="utf-8"))
     cases = data["cases"] if args.only is None else [data["cases"][args.only - 1]]
     llm = OllamaLLM(settings.profile.llm, host=args.host, model=args.model)

@@ -58,6 +58,7 @@ class TimerAsk(ToolError):
     def __init__(self, message: str, reason: str) -> None:
         super().__init__(message)
         self.reason = reason
+        self.asks = reason  # the server's own question comes from this (truth.py)
 
 
 class TimerRefused(ToolError):
@@ -142,9 +143,9 @@ class TimerTools:
         key = clean_text(which, self.max_text).strip()
         with service.lock:
             active = [i for i in service.items.values() if i.state in states]
+            if not active and (not key or key.lower() == "all"):
+                raise Ask("There are no timers to change. Say so.", "none_active")
             if key.lower() == "all":
-                if not active:
-                    raise Ask("There are no timers to change. Say so.", "unknown")
                 return active
             if not key:
                 ringing = [i for i in active if i.state in ("ringing", "pending")]

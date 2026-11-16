@@ -198,9 +198,10 @@ def test_window_turn_never_speaks_the_false_claim(settings: Settings, tmp_path: 
         ws.receive_json()
         ws.send_json({"type": "text", "text": "Set an alarm for 7 am tomorrow."})
         got = frames(ws, "state", "idle")
-    line = h.settings.profile.timers.nothing_set
+    cfg = h.settings.profile.timers
+    line = f"{cfg.nothing_set} {cfg.ask_generic}"  # the line, then the server's question
     assert reply_of(got) == line
-    assert [text for text, _ in tts.spoken] == [line]  # the claim was never spoken
+    assert " ".join(text for text, _ in tts.spoken) == line  # the claim was never spoken
 
 
 def test_a_real_timer_change_stands(settings: Settings, tmp_path: Path) -> None:

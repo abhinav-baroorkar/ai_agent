@@ -9,7 +9,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from sasha.config import Settings
-from sasha.conversation import current_turn, finish_turn, new_turn
+from sasha.conversation import asks_back, current_turn, finish_turn, new_turn
 from sasha.pipeline.llm import LLM, LLMCancelled, LLMResponse, Message, StreamingLLM
 from sasha.telemetry import RequestTrace, TelemetryWriter
 from sasha.tools import ToolRegistry
@@ -148,7 +148,10 @@ class Assistant:
         self.last_tool_calls = calls_made
         owner_said = (*(m["content"] for m in self._history if m["role"] == "user"), text)
         replies = [m["content"] for m in self._history if m["role"] == "assistant"]
-        asked = bool(replies) and str(replies[-1]).strip().endswith("?")  # only the fact
+        last = str(replies[-1]) if replies else ""
+        # Only the fact. A question whose speech was cut isn't counted: the answer is
+        # read alone and asks again (the safe failure, by design).
+        asked = asks_back(last) and not last.endswith(self.settings.profile.llm.interrupted_note)
         since = None if self._last_turn_end is None else self.clock() - self._last_turn_end
         turn = new_turn(owner_said, input_mode, asked, since)
         token = current_turn.set(turn)  # for tools (B1; the timers' said-check)
@@ -210,7 +213,10 @@ class Assistant:
                 with trace.stage(f"tool:{call.name}") as meta:
                     result = self.tools.call(call.name, call.arguments)
                     meta["ok"] = result.ok
-                calls_made.append({"name": call.name, "arguments": call.arguments, "ok": result.ok})
+                made = {"name": call.name, "arguments": call.arguments, "ok": result.ok}
+                if result.asks:
+                    made["asks"] = result.asks  # a reason label only (truth.py)
+                calls_made.append(made)
                 if hooks.on_tool:
                     hooks.on_tool(call.name, result.ok)
                 content = wrap_untrusted(call.name, result.content)

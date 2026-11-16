@@ -48,6 +48,12 @@ def new_turn(
     )
 
 
+def asks_back(text: str) -> bool:
+    """A reply that asks the person something: a "?" anywhere in it ("Morning or
+    evening? Let me know."). The timers' truth check and `previous_reply_asked` share it."""
+    return "?" in text
+
+
 # Which bot a conversation's tools are being built for (set by `make_assistant`), so a
 # connector can tell whose conversation it serves (the browser live view's holder_bot).
 building_for_bot: contextvars.ContextVar[str | None] = contextvars.ContextVar(

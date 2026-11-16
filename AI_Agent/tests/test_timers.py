@@ -309,6 +309,15 @@ def test_cancel_by_ambiguous_label_asks(tmp_path: Path) -> None:
     assert err.value.reason == "ambiguous_item"
 
 
+@pytest.mark.parametrize("which", ["", "all"])
+def test_cancel_with_nothing_active_says_so(tmp_path: Path, which: str) -> None:
+    """ "Turn off the alarm" with none: nothing to change, not "which one?"."""
+    service, _, _ = make_service(tmp_path)
+    with pytest.raises(TimerAsk) as err:
+        handler(service, "cancel_timer")(which=which)
+    assert err.value.reason == "none_active"
+
+
 # --- privacy -----------------------------------------------------------------------------------
 
 

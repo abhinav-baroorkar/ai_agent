@@ -80,11 +80,22 @@ def test_run_case_scores_the_server_line(settings: Any, tmp_path: Path) -> None:
 
 def test_a_question_back_is_no_uncaught_claim() -> None:
     """The server leaves a question back alone, so the bench must not count it either."""
+    from sasha.config_timers import TimersConfig
+
+    cfg = TimersConfig()
     asking = "I'll set an alarm for 3 o'clock. Is that AM or PM?"
-    assert not BENCH.uncaught(True, False, False, asking)
-    assert BENCH.uncaught(True, False, False, "Alarm set for 3.")
-    assert not BENCH.uncaught(True, True, False, "Alarm set for 3.")  # made
-    assert not BENCH.uncaught(True, False, True, "Alarm set for 3.")  # the line was added
-    old = {"uncaught_claim": True, "server_line": False, "reply": asking}  # an older file
-    assert not BENCH.rescored(old)
-    assert BENCH.rescored({**old, "reply": "Alarm set for 3."})
+    assert not BENCH.uncaught(cfg, True, False, False, asking)
+    assert BENCH.uncaught(cfg, True, False, False, "Alarm set for 3.")
+    assert BENCH.uncaught(cfg, True, False, False, "Morning? I've set the alarm for 3.")
+    assert not BENCH.uncaught(cfg, True, True, False, "Alarm set for 3.")  # made
+    assert not BENCH.uncaught(cfg, True, False, True, "Alarm set for 3.")  # the line was added
+
+
+def test_judge_sees_the_tools_ask() -> None:
+    from sasha.config_timers import TimersConfig
+
+    cfg = TimersConfig()
+    calls = [{"tool": "set_alarm", "args": {"hour": 7}, "asked": "ambiguous_period"}]
+    got = BENCH.judge(cfg, "Wake me up at 7.", calls, "I need to know: 7 AM or 7 PM.")
+    assert got["server_question"] and got["spoken"] == "Morning or evening?"
+    assert got["shown"].endswith("Morning or evening?")

@@ -83,12 +83,15 @@ def test_asks_for_timer(command: str, asks: bool) -> None:
 
 @pytest.mark.parametrize(("command", "reply"), REVIEW_ROWS)
 def test_review_rows_get_the_line(command: str, reply: str) -> None:
-    """The reviewer's probes with no tool call: each one gets "Nothing was set."."""
+    """The reviewer's probes with no tool call: each one gets "Nothing was set."; spoken,
+    the server's line replaces the reply, with its question unless it was a cancel."""
     cfg = TimersConfig()
     assert TimerTruth(cfg, command, spoken=False).finish(reply, [])[1].endswith(cfg.nothing_set)
     held = TimerTruth(cfg, command, spoken=True)
     held.feed(reply)
-    assert held.finish(reply, []) == (cfg.nothing_set, cfg.nothing_set)  # never spoken
+    cancel = command.startswith(("snooze", "turn off"))
+    said = cfg.nothing_set if cancel else f"{cfg.nothing_set} {cfg.ask_generic}"
+    assert held.finish(reply, []) == (said, said)  # the model's text is never spoken
 
 
 def test_a_timer_request_always_gets_the_line_unless_made_or_asked_back() -> None:
@@ -140,8 +143,9 @@ def test_spoken_false_claims_are_held_and_replaced(
         ws.receive_json()
         ws.send_json({"type": "text", "text": "Set an alarm for 7 am."})
         got = frames(ws, "state", "idle")
-    line = h.settings.profile.timers.nothing_set
-    assert reply_of(got) == line and [text for text, _ in tts.spoken] == [line]
+    cfg = h.settings.profile.timers
+    line = f"{cfg.nothing_set} {cfg.ask_generic}"
+    assert reply_of(got) == line and " ".join(text for text, _ in tts.spoken) == line
 
 
 def test_the_remembered_reply_is_what_was_said(settings: Settings, tmp_path: Path) -> None:

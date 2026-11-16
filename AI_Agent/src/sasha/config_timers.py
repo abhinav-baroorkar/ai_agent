@@ -104,6 +104,35 @@ class TimersConfig(BaseModel):
     voice_prefix: str = "Voice reminder: "
     # Typed and window turns: a reply claiming a timer change no tool made (truth.py).
     nothing_set: str = "Nothing was set."
+    # When a timer tool asked the person back this turn, the server asks its own fixed
+    # question for the reason (the tool's ask label; "tool.reason" wins over "reason"):
+    # replacing a held spoken reply, or after a typed one that doesn't ask. Empty: no
+    # question ("none_active": there is nothing to change, the line says so).
+    ask_lines: dict[str, str] = Field(
+        default_factory=lambda: {
+            "ambiguous_period": "Morning or evening?",
+            "missing_time": "For what time?",
+            "set_timer.missing_time": "For how long?",
+            "not_said": "For what time?",
+            "set_timer.not_said": "For how long?",
+            "set_reminder.not_said": "When should I remind you?",
+            "bad_day": "For which day?",
+            "past": "That time has passed. For what time?",
+            "ambiguous_item": "Which one?",
+            "unknown": "Which one?",
+            "missing_text": "What should the reminder say?",
+            "bad_value": "What time should it be?",
+            "none_active": "",
+        }
+    )  # fmt: skip
+    # An ask with no line above, and a held spoken request reply the server replaces
+    # with no tool having asked: "Nothing was set. What time should it be?".
+    ask_generic: str = "What time should it be?"
+    # ...but not after a stop or cancel request ("turn off the alarm"): the line alone.
+    cancel_words: list[str] = Field(
+        default_factory=lambda: ["cancel", "stop", "off", "delete", "remove", "dismiss",
+                                 "clear", "snooze"]
+    )  # fmt: skip
     claim_words: list[str] = Field(
         default_factory=lambda: ["set", "created", "scheduled", "cancelled", "canceled",
                                  "snoozed", "started", "stopped", "added", "removed",
