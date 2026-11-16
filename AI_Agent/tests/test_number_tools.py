@@ -69,6 +69,12 @@ CONFIG = Path(__file__).resolve().parents[1] / "config"
         ("cbrt(1073741824)", "1024", False),
         ("50% + 50%", "1", False),
         ("9^0.5", "3", False),
+        # review N1b: + and - are exact at any width
+        ("(1e34+1)-1e34", "1", False),
+        ("1e40+1-1e40", "1", False),
+        ("1e90+1-1e90", "1", False),
+        ("1e90+1", "1e+90", True),
+        ("2/3*3", "2", True),  # a lossy division: never called exact (N1b)
     ],
 )
 def test_calculate(expression: str, result: str, approximate: bool) -> None:
@@ -129,8 +135,6 @@ def test_trig_exactness_follows_niven() -> None:
         ("", "Nothing"),
         ("1e99999", "Number too large"),
         # review N1, N2
-        ("(1e34+1)-1e34", "loses too many digits"),
-        ("1e40+1-1e40", "loses too many digits"),
         ("12345678901234567890123456789012345-12345678901234567890123456789012340", "34 digits"),
         ("1/3*3-1", "loses too many digits"),
         ("1e-9999/1e9999", "too small"),
@@ -152,6 +156,9 @@ def test_the_limits_and_no_eval() -> None:
     source = Path(calc_module.__file__).read_text()
     for banned in (r"(?<![\w.])eval\(", r"(?<![\w.])exec\(", r"import ast", r"(?<![\w.])compile\("):
         assert not re.search(banned, source), banned
+    start = time.perf_counter()
+    assert calculate("1e9999 - 1e-9999")["approximate"]  # the widest exact sum
+    assert time.perf_counter() - start < 0.05
     start = time.perf_counter()
     for _ in range(200):
         calculate("((1.000001^9999 + sqrt(2)) * 3.3 / 7) ^ 3")

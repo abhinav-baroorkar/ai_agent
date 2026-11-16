@@ -13,6 +13,7 @@ where the arithmetic is (34 significant digits inside), then shown with up to 15
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import (
     Context,
@@ -28,13 +29,15 @@ from decimal import (
 )
 from typing import Any
 
+from sasha.tools.calc_show import SHOW_DIGITS, say_number, short, show
 from sasha.tools.calc_trig import TrigError, trig
+
+__all__ = ["CalcError", "calculate", "say_number", "short", "show"]
 
 MAX_CHARS = 300
 MAX_TOKENS = 150
 MAX_DEPTH = 30
 MAX_EXPONENT = 10_000
-SHOW_DIGITS = 15
 PRECISION = 34  # digits inside; a number written with more is refused (review N1)
 CHECK_PRECISION = 80  # the same sum again: if the shown digits differ, it's refused
 _TRAPS = [Overflow, DivisionByZero, InvalidOperation, Underflow, Subnormal]  # N2
@@ -223,26 +226,56 @@ def _cbrt(x: Decimal) -> Decimal:
     return root
 
 
+FLOAT, HARD, SOFT = 0, 1, 2  # approx[...]: a float step; a lossy step; a power or root
+MAX_EXACT_DIGITS = 20_100  # + and - at full width: the exponent range spans this
+
+
+def _tracked(approx: list[bool], kind: int, step: Callable[[], Decimal]) -> Decimal:
+    """Run one step, noting whether it rounded (review N1b). SOFT: a power or root,
+    whose exact results (9^0.5) are flagged too; HARD: any other lossy step."""
+    ctx = getcontext()
+    before = ctx.flags[Inexact]
+    ctx.flags[Inexact] = False
+    try:
+        return step()
+    finally:
+        now = bool(ctx.flags[Inexact])
+        if now:
+            approx[kind] = True
+        ctx.flags[Inexact] = before or now
+
+
+def _exact_sum(left: Decimal, right: Decimal, minus: bool) -> Decimal:
+    """+ and - without rounding (review N1b: 1e90 + 1 keeps its 1)."""
+    ctx = getcontext()
+    low = min(left.as_tuple().exponent, right.as_tuple().exponent, 0)
+    high = max(left.adjusted(), right.adjusted(), 0)
+    assert isinstance(low, int)
+    with localcontext(ctx) as wide:
+        wide.prec = max(ctx.prec, min(high - low + 2, MAX_EXACT_DIGITS))
+        return left - right if minus else left + right
+
+
 def _call(name: str, x: Decimal, approx: list[bool]) -> Decimal:
     if name in ("sin", "cos", "tan"):
         try:
             value, inexact = trig(name, x)
         except TrigError as e:
             raise CalcError(str(e)) from None
-        approx[0] = approx[0] or inexact
+        approx[FLOAT] = approx[FLOAT] or inexact
         return value
     if name == "sqrt":
         if x < 0:
             raise CalcError("No real square root of a negative number")
-        return x.sqrt()
+        return _tracked(approx, SOFT, x.sqrt)
     if name == "cbrt":
-        return _cbrt(x)
+        return _tracked(approx, SOFT, lambda: _cbrt(x))
     if name in ("ln", "log"):
         if x <= 0:
             raise CalcError(f"{name} needs a positive number")
-        return x.ln() if name == "ln" else x.log10()
+        return _tracked(approx, HARD, x.ln if name == "ln" else x.log10)
     if name == "exp":
-        return x.exp()
+        return _tracked(approx, HARD, x.exp)
     if name == "abs":
         return abs(x)
     rounding = {"round": "ROUND_HALF_UP", "floor": "ROUND_FLOOR", "ceil": "ROUND_CEILING"}
@@ -258,70 +291,30 @@ def _eval(node: Node, approx: list[bool]) -> Decimal:
     if node.kind == "neg":
         return -_eval(node.args[0], approx)
     if node.kind == "pct":
-        return _eval(node.args[0], approx) / 100
+        inner = _eval(node.args[0], approx)
+        return _tracked(approx, HARD, lambda: inner / 100)
     if node.kind == "call":
         return _call(node.op, _eval(node.args[0], approx), approx)
     left_node, right_node = node.args
     left = _eval(left_node, approx)
     if node.op in "+-" and right_node.kind == "pct" and left_node.kind != "pct":  # 150+10%
-        share = left * _eval(right_node, approx)
-        return left + share if node.op == "+" else left - share
+        rate = _eval(right_node, approx)
+        share = _tracked(approx, HARD, lambda: left * rate)
+        return _exact_sum(left, share, node.op == "-")
     right = _eval(right_node, approx)
-    if node.op == "+":
-        return left + right
-    if node.op == "-":
-        return left - right
+    if node.op in "+-":
+        return _exact_sum(left, right, node.op == "-")
     if node.op == "*":
-        return left * right
+        return _tracked(approx, HARD, lambda: left * right)
     if node.op == "/":
-        return left / right
+        return _tracked(approx, HARD, lambda: left / right)
     if abs(right) > MAX_EXPONENT:
         raise CalcError(f"The power is too large (at most {MAX_EXPONENT})")
     if left == 0 and right < 0:
         raise CalcError("Zero can't be raised to a negative power")
     if left < 0 and right != right.to_integral_value():
         raise CalcError("No real result for a negative number to a fractional power")
-    return left**right
-
-
-def show(value: Decimal) -> tuple[str, bool]:
-    """The value as text, and whether that text is rounded."""
-    if value.is_zero():
-        return "0", False
-    if value == value.to_integral_value() and value.adjusted() < 34:
-        whole = value.quantize(Decimal(1), context=Context(prec=40))
-        return format(whole, "f"), False  # a whole number within the precision: exact
-    shown = value.normalize(Context(prec=SHOW_DIGITS))
-    rounded = shown != value
-    exponent = shown.adjusted()
-    if -7 <= exponent < 21:
-        text = format(shown, "f")
-        if "." in text:
-            text = text.rstrip("0").rstrip(".")
-        return text, rounded
-    digits, _, exp = format(shown, "e").partition("e")
-    return f"{digits}e{int(exp):+d}", rounded
-
-
-SPOKEN_DIGITS = 6  # an approximate answer is said with this many significant digits
-
-
-def short(text: str) -> str:
-    """An approximate number for speech: 6 significant digits ("about 37.7778")."""
-    value = Decimal(text).normalize(Context(prec=SPOKEN_DIGITS))
-    if abs(value.adjusted()) >= SHOW_DIGITS:  # 1.26765 times 10 to the power of 30
-        digits, _, exp = format(value, "e").partition("e")
-        return f"{digits}e{int(exp):+d}"
-    return show(value)[0]
-
-
-def say_number(text: str) -> str:
-    """A shown number in words a voice reads well: "minus 3", "2 times 10 to the
-    power of 30"."""
-    sign = "minus " if text.startswith("-") else ""
-    digits, _, exp = text.lstrip("-").partition("e")
-    tail = f" times 10 to the power of {say_number(str(int(exp)))}" if exp else ""
-    return f"{sign}{digits}{tail}"
+    return _tracked(approx, SOFT, lambda: left**right)
 
 
 def spoken(node: Node) -> str:
@@ -345,10 +338,10 @@ def spoken(node: Node) -> str:
     return f"{spoken(left)} {OP_WORDS[node.op]} {spoken(right)}"
 
 
-def _run(node: Node, prec: int) -> tuple[Decimal, bool, bool]:
-    """(value, inexact, approximate from a float step) at this precision."""
-    approx = [False]
-    with localcontext(_context(prec)) as ctx:
+def _run(node: Node, prec: int) -> tuple[Decimal, list[bool]]:
+    """(value, [float step, lossy step, rounded power or root]) at this precision."""
+    approx = [False, False, False]
+    with localcontext(_context(prec)):
         try:
             value = _eval(node, approx)
         except Overflow:
@@ -359,11 +352,12 @@ def _run(node: Node, prec: int) -> tuple[Decimal, bool, bool]:
             raise CalcError("Division by zero") from None
         except InvalidOperation:
             raise CalcError("That has no real result") from None
-        return value, bool(ctx.flags[Inexact]), approx[0]
+        return value, approx
 
 
 def _short_exact(value: Decimal) -> bool:
-    """Few enough digits that an inexact-flagged step (9^0.5) really was exact."""
+    """Few enough digits that a rounded-flagged power or root (9^0.5) really was exact.
+    Only for powers and roots (review N1b); any other lossy step stays approximate."""
     return len(value.normalize(Context(prec=200)).as_tuple().digits) <= PRECISION
 
 
@@ -372,13 +366,13 @@ def calculate(expression: str) -> dict[str, Any]:
     rounding inside lost digits (1e40 + 1 - 1e40): refused. Approximate when any step
     was inexact (unless the result is short enough to be exact) or the text is cut."""
     node = parse(str(expression))
-    value, _, approx = _run(node, PRECISION)
-    check, check_inexact, _ = _run(node, CHECK_PRECISION)
+    value, approx = _run(node, PRECISION)
+    check, check_approx = _run(node, CHECK_PRECISION)
     result, rounded = show(value)
     if show(check)[0] != result:
         raise CalcError("That loses too many digits to answer exactly")
-    # the 80-digit run decides inexactness (the 34-digit one is at least as lossy)
-    approximate = rounded or approx or (check_inexact and not _short_exact(check))
+    soft = check_approx[SOFT] and not _short_exact(check)
+    approximate = rounded or approx[FLOAT] or approx[HARD] or check_approx[HARD] or soft
     long_whole = not approximate and len(result.lstrip("-")) > SHOW_DIGITS
     about = "about " if approximate or long_whole else ""
     said = short(result) if about else result
