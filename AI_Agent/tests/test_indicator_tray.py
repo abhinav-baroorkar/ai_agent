@@ -205,18 +205,46 @@ def _wait(condition: Any, seconds: float = 1.0) -> bool:
     return False
 
 
-def test_host_lost_calls_on_lost_within_one_frame() -> None:
+LOST_PROMPTLY_S = 0.5  # 25 poll periods: generous under load, far below any slow path
+
+
+def test_host_lost_calls_on_lost_promptly(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The mic is killed promptly because the tray's vanish signal is handled right in
+    the poll loop (`SniItem.handle` returns False, then `_note(False)` calls on_lost).
+    Pinned by mechanism as well as by time: the periodic re-check (`check_shown`, every
+    RECHECK_S) is pushed out of reach, so only the signal path can call on_lost here,
+    and on_lost must run on the tray's own thread with no re-check in between."""
+    import sasha.listener.indicator.tray as tray_module
+    from sasha.listener.indicator.sni import SniItem
+
+    monkeypatch.setattr(tray_module, "RECHECK_S", 3600.0)  # the slow path can't fire
+    checks: list[float] = []
+    real_check = SniItem.check_shown
+
+    def counted_check(self: SniItem) -> bool:
+        checks.append(time.monotonic())
+        return real_check(self)
+
+    monkeypatch.setattr(SniItem, "check_shown", counted_check)
     bus = FakeBus()
-    lost: list[float] = []
+    lost: list[tuple[float, str]] = []
     tray = TrayIndicator(lambda: bus, WHO)
-    tray.start(lambda: None, lambda: lost.append(time.monotonic()))
+    tray.start(
+        lambda: None, lambda: lost.append((time.monotonic(), threading.current_thread().name))
+    )
     try:
         assert _wait(tray.available)
         tray.set_state("waiting")
         gone = time.monotonic()
         bus.tray_vanishes()
         assert _wait(lambda: bool(lost))
-        assert lost[0] - gone < 0.02  # one 20 ms audio frame
+        when, thread = lost[0]
+        # "at once": on the tray thread's next look (POLL_S, 20 ms), not on some later
+        # check. The bound allows for a loaded machine; the mechanism checks below are
+        # what rule out a slow path.
+        assert gone <= when < gone + LOST_PROMPTLY_S
+        assert thread == "tray-indicator"  # the poll thread itself, not a later caller
+        assert not [c for c in checks if gone <= c <= when]  # no re-check in between
         assert tray.available() is False
         assert len(lost) == 1  # said once, not on every poll
     finally:

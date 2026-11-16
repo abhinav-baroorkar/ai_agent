@@ -79,3 +79,46 @@ The research is saved locally. Marathi–English is postponed (see `decisions.md
 - No published Marathi evaluation exists for the two local LLMs in use.
 - No published results for Marathi–English code-mixed speech exist for any candidate.
 
+
+## 2026-11-14 (night): timers bench (the author's numbers, before the last change; final run and review pending)
+
+62 phrasings, 3 runs each (186 runs) through the real local model, on the server branch at its
+last report; the author's own bench, not yet independently verified, and the server branch is not
+merged. The bar "0 silent wrong times" was met on this bench only. The reviewer's last review of the
+branch found silent wrong times outside the bench (a number inside the reminder text read as the
+time; a morning cue with pm set for the evening; answers to the tool's own question failing); these
+are reported fixed but not re-reviewed. One more change is being made (an answer is also
+read together with the previous message when the assistant's own reply was a question), and the
+bench will be re-run.
+
+| Outcome (author's bench, pending review) | Runs | Share |
+| --- | --- | --- |
+| Right | 117 | 62.9% |
+| Asked correctly | 54 | 29.0% |
+| Asked needlessly | 15 | 8.1% |
+| Wrong (silent wrong time) | 0 | 0% |
+| Right or correctly asked | 171 | 91.9% |
+
+Without the server's check of the model's fields against the person's words, the model invented
+am/pm or a delay in 7 of 144 runs (earlier run, before the check). Final numbers: pending the
+re-run.
+
+## 2026-11-14 (night): the assistant's own browser, measurements
+
+- **Injection bench, real model (the author's run, pending the reviewer's own check):** 8 kinds of
+  trap page, 24 of 24 on the final run, 0 leaks to the network. Caveat: 3 runs per case at
+  temperature 0.3, a small sample; earlier runs had judge mistakes; the guards don't depend on the
+  model. An early run did leak an email through a search; that is why the query leak check
+  exists, and why the guards do not rely on the model.
+- **Address guard:** measured on the real Chrome, every tested loopback, private, link-local,
+  metadata and mapped form was refused, also from page sub-resources.
+- **Live view, end to end on local test pages** (two follow-ups still in progress: a self-reloading
+  page can exceed the frame cap; two bots can share the browser within a turn): first frame 0.10 s after the tab appears, 4.6
+  frames a second, Chrome about 305 MB, a browsing turn of two tool calls in 5.7 s.
+- **Finding:** the chosen search engine served the headless browser a bot challenge. Not worked
+  around; the owner will solve it through a take-over (being designed).
+- **Wake listener:** a test that failed now and then was a real ordering bug (the tray sign could
+  say "closed" for up to 2 s while the capture ran). Intermittent failures are product bugs until
+  shown otherwise.
+- Not tested for real: the wake word on a real microphone, the browser on a public site, search on
+  the real engine, timers with real voice.

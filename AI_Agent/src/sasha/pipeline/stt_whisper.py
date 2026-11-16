@@ -195,7 +195,9 @@ class FasterWhisperSTT:
             self.device, self.compute_type = device, compute  # the main model is unchanged
         return self._cpu_model
 
-    def transcribe(self, audio: AudioChunk, sample_rate: int) -> Transcript:
+    def transcribe(
+        self, audio: AudioChunk, sample_rate: int, *, hotwords: str | None = None
+    ) -> Transcript:
         if sample_rate != SAMPLE_RATE:
             raise ValueError(f"STT expects {SAMPLE_RATE} Hz audio, got {sample_rate}")
         samples = pcm16_to_float(audio)
@@ -207,13 +209,17 @@ class FasterWhisperSTT:
         if samples.size < SAMPLE_RATE // 10:  # under 100 ms: nothing worth decoding
             return Transcript(text="", language=self.languages[0], confidence=0.0)
         with self._state_lock:
-            return self._transcribe_with_fallback(samples)
+            return self._transcribe_with_fallback(samples, hotwords)
 
-    def _transcribe_with_fallback(self, samples: NDArray[np.float32]) -> Transcript:
+    def _transcribe_with_fallback(
+        self, samples: NDArray[np.float32], hotwords: str | None = None
+    ) -> Transcript:
         if self._loaded_on == "cpu" or self._gpu_disabled:
-            return self._decode_on_cpu(samples, fallback=self._loaded_on != "cpu")
+            return self._decode_on_cpu(
+                samples, fallback=self._loaded_on != "cpu", hotwords=hotwords
+            )
         try:
-            result = self._decode(self._model, samples)
+            result = self._decode(self._model, samples, hotwords)
         except Exception as e:
             if not is_device_error(e):
                 log.error("STT failed on cuda (%s)", safe_reason(e))
@@ -233,42 +239,55 @@ class FasterWhisperSTT:
                     self._gpu_failures,
                     GPU_STRIKES,
                 )
-            return self._decode_on_cpu(samples, fallback=True)
+            return self._decode_on_cpu(samples, fallback=True, hotwords=hotwords)
         self._gpu_failures = 0
         self._used = f"cuda:{self.compute_type}"
         return result
 
-    def _decode_on_cpu(self, samples: NDArray[np.float32], fallback: bool) -> Transcript:
+    def _decode_on_cpu(
+        self, samples: NDArray[np.float32], fallback: bool, hotwords: str | None = None
+    ) -> Transcript:
         try:
-            result = self._decode(self._cpu(), samples)
+            result = self._decode(self._cpu(), samples, hotwords)
         except Exception as e:
             log.error("STT failed on cpu (%s)", safe_reason(e))
             raise TranscriptionError(f"STT failed ({type(e).__name__})") from None
         self._used = "cpu:int8:fallback" if fallback else f"cpu:{self.compute_type}"
         return result
 
-    def _decode(self, model: Any, samples: NDArray[np.float32]) -> Transcript:
+    def _decode(
+        self, model: Any, samples: NDArray[np.float32], hotwords: str | None = None
+    ) -> Transcript:
         forced = self.languages[0] if len(self.languages) == 1 else None
-        text, info, logprob = self._run(model, samples, forced)
+        text, info, logprob = self._run(model, samples, forced, hotwords)
         language = info.language
         if language not in self.languages:
             # Whisper picked a language we don't support (e.g. Hindi for Marathi):
             # re-decode with the most likely supported one.
             probs = dict(info.all_language_probs or [])
             language = max(self.languages, key=lambda lang: probs.get(lang, 0.0))
-            text, info, logprob = self._run(model, samples, language)
+            text, info, logprob = self._run(model, samples, language, hotwords)
         confidence = round(min(1.0, math.exp(logprob)), 3) if text else 0.0
         return Transcript(text=text, language=language, confidence=confidence)
 
     def _run(
-        self, model: Any, samples: NDArray[np.float32], language: str | None
+        self,
+        model: Any,
+        samples: NDArray[np.float32],
+        language: str | None,
+        hotwords: str | None = None,
     ) -> tuple[str, Any, float]:
+        # `hotwords` favours those words in the decoder. For a wake segment it is the
+        # wake phrase: alone and without context Whisper otherwise writes a short name
+        # as almost anything (measured: 2026-11-16 synthetic run, wake-word-design.md).
+        extra = {"hotwords": hotwords} if hotwords else {}
         segments, info = model.transcribe(
             samples,
             language=language,
             beam_size=self.config.beam_size,
             vad_filter=self.config.vad_filter,
             condition_on_previous_text=False,
+            **extra,
         )
         parts, weights, total = [], 0.0, 0.0
         for seg in segments:

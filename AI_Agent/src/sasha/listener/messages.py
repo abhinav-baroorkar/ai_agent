@@ -59,6 +59,8 @@ async def handle_message(lst: Listener, message: str | bytes) -> None:
         lst.confirm.close()
     elif kind == "armed_expired":
         log.info("Armed window ended")
+        if lst.window is not None:
+            lst.window.on_armed_expired()  # the phrase alone, then nothing: a false wake
         lst._changed()
     elif kind in ("pause_capture", "resume_capture"):
         lst.server_paused = kind == "pause_capture"
@@ -76,15 +78,71 @@ async def handle_message(lst: Listener, message: str | bytes) -> None:
         log.warning("Brain error: %s", str(msg.get("message", ""))[:200])
 
 
+WINDOW = {
+    "raised": "brought to the front",
+    "started": "opened",
+    "already_up": "already up",
+    "limit": "not raised (limit)",
+    "paused": "not raised (paused after false wakes)",
+    "locked": "not opened (screen locked)",
+    "no_display": "not opened (no display)",
+    "no_session": "not opened (no desktop session)",
+    "unavailable": "not opened (the app extra isn't installed)",
+}
+
+
+_WINDOW_TASKS: set[asyncio.Task[None]] = set()  # kept referenced until they finish
+
+
+async def _window(lst: Listener, command: bool) -> None:
+    opener = lst.window
+    if opener is None or not opener.config.open_on_wake:
+        return
+    action = await asyncio.to_thread(opener.on_wake, command)
+    print(f"[wake] window {WINDOW.get(action, action)}", flush=True)
+    if action in ("raised", "started"):
+        asyncio.get_running_loop().call_later(opener.config.closed_quickly_s, opener.check_closed)
+
+
+# What the brain decided, in plain words, for the `sasha listen` terminal. Labels only:
+# the brain never sends what was said, and nothing here is stored.
+WHY = {
+    "rejected_no_name": "the wake phrase wasn't heard",
+    "rejected_low_conf": "the wake phrase was unclear",
+    "rejected_mid_sentence": "the wake phrase wasn't at the start",
+    "rejected_possessive": "the name was talked about",
+    "rejected_continuation": "the name was talked about",
+    "dropped_busy": "busy answering",
+    "dropped_speaking": "it was speaking",
+    "cooldown_drop": "it had just answered",
+    "dropped_paused": "listening is paused",
+    "stt_error": "speech recognition failed",
+}
+
+
+def wake_line(msg: dict[str, Any]) -> str:
+    if msg.get("heard"):
+        if msg.get("command"):
+            return "[wake] heard the wake phrase and a command"
+        return "[wake] heard the wake phrase; say the command"
+    reason = str(msg.get("reason") or "")
+    return f"[wake] not a wake: {WHY.get(reason, reason or 'unknown')}"
+
+
 async def _on_wake(lst: Listener, msg: dict[str, Any]) -> None:
+    print(wake_line(msg), flush=True)
     if not msg.get("heard"):
         return  # a miss: no sound, nothing kept
-    if msg.get("command"):
+    command = bool(msg.get("command"))
+    if command:
         lst.busy = True
-        lst._changed()  # the mic closes while the brain answers
-        await _earcon(lst, "wake")
-    else:
-        await _earcon(lst, "armed")
+        lst._changed()  # the mic closes while the brain answers, before anything else
+    # The window comes up in the background: its socket and spawn never hold the
+    # microphone open or delay the sound (review A1).
+    task = asyncio.get_running_loop().create_task(_window(lst, command))
+    _WINDOW_TASKS.add(task)
+    task.add_done_callback(_WINDOW_TASKS.discard)
+    await _earcon(lst, "wake" if command else "armed")
 
 
 async def _earcon(lst: Listener, kind: EarconKind) -> None:

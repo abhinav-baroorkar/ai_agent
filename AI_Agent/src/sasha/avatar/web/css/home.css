@@ -20,20 +20,23 @@
 
 /* ---------- Subtitles ---------- */
 .subtitles {
-  width: min(46rem, 100%); min-height: 6.6rem;
-  display: flex; flex-direction: column; justify-content: flex-start; gap: .3rem;
-  text-align: center; padding-bottom: 1rem;
+  width: min(46rem, 100%); min-width: 0; min-height: 6.6rem; padding: 0 1rem 1rem;
+  display: flex; flex-direction: column; justify-content: flex-start; gap: .3rem; text-align: center;
 }
-.heard { color: var(--muted); font-size: 1rem; line-height: 1.6; min-height: 1.6em; }
+/* with the timers card showing, stay in the space between it and the same margin on the right */
+.home:has(.timers:not([hidden]):not([data-empty="true"])) .subtitles {
+  max-width: calc(100vw - 2 * (min(17.5rem, 27vw) + max(20px, 2.5vw) + .75rem));
+}
+.heard { color: var(--muted); font-size: 1rem; line-height: 1.6; min-height: 1.6em; overflow-wrap: anywhere; }
 .heard:not(:empty)::before { content: "“"; }
 .heard:not(:empty)::after { content: "”"; }
 .heard.partial { opacity: .65; }
+/* home.js gives this block at most three lines' worth of text, ending with the newest
+   words; the height limit is only a backstop */
 .said {
   font-size: clamp(1.15rem, 2.3vh, 1.6rem); line-height: 1.55; font-weight: 500;
-  max-height: 4.65em; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end;
+  max-height: 4.65em; overflow: hidden; overflow-wrap: anywhere; text-wrap: balance;
 }
-/* Long answers: the newest three lines stay, older text fades out at the top. */
-.said.long { -webkit-mask-image: linear-gradient(transparent, #000 55%); mask-image: linear-gradient(transparent, #000 55%); }
 .said[data-stopped]::after { content: "  (stopped)"; color: var(--muted); font-size: .8em; font-weight: 400; }
 .notice { align-self: center; max-width: 38rem; padding: .5rem .9rem; border-radius: var(--r); color: var(--warn); font-size: .9rem; line-height: 1.5;
   background: color-mix(in srgb, var(--warn) 9%, transparent); border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent); }
@@ -75,6 +78,14 @@
 .mic .ico { width: 1.35em; height: 1.35em; }
 .mic:hover { background: #f8d7a6; }
 .mic[data-blocked="true"] { background: var(--surface-2); color: var(--warn); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 50%, transparent); }
+/* While listening: a thin bar along the bottom of the button follows the microphone
+   level, and during the closing silence it drains away so the stop is no surprise. */
+.mic { position: relative; overflow: hidden; }
+.mic-meter { position: absolute; inset: auto 0 0 0; height: 4px; opacity: 0; background: rgb(6 36 29 / .18); }
+.mic-meter span { display: block; height: 100%; width: calc(var(--mic-level, 0) * 100%); background: #06241d; transition: width .06s linear; }
+.mic[aria-pressed="true"] .mic-meter { opacity: 1; }
+.mic[data-phase="finishing"] .mic-meter span { width: calc((1 - var(--mic-closing, 0)) * 100%); background: #7a4b00; }
+.mic[data-phase="finishing"] { background: color-mix(in srgb, var(--listen) 65%, var(--lamp)); }
 .mic[aria-pressed="true"] { background: var(--listen); box-shadow: 0 0 0 6px color-mix(in srgb, var(--listen) 22%, transparent); }
 .say { display: flex; gap: .4rem; flex: 0 1 26rem; min-width: 12rem; }
 .say input { height: 42px; border-radius: 99px; padding-inline: 1.1em; background: rgb(17 24 34 / .8); }
@@ -83,4 +94,5 @@
 .voice-hint { margin-top: .7rem; text-align: center; color: var(--muted); font-size: .85rem; }
 
 @media (max-height: 560px) { .subtitles { min-height: 4.4rem; } .said { max-height: 3.1em; } }
+@media (max-width: 900px) { .home:has(.timers:not([hidden]):not([data-empty="true"])) .subtitles { max-width: none; } }
 @media (max-width: 900px) { .readout { display: none; } .base { grid-template-columns: 1fr; } .dock { grid-column: 1; } }

@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from unittest.mock import ANY as ANY_REASON
 
 import pytest
 from starlette.websockets import WebSocketDisconnect
@@ -99,7 +100,12 @@ def test_armed_window_expires_and_drops(settings: Settings, tmp_path: Path, name
         assert ws.receive_json() == {"type": "armed_expired"}
         ws.send_json({"type": "audio_stop"})  # buffer was cleared: nothing to check
         segment(ws)  # fresh segment, no name: a miss
-        assert ws.receive_json() == {"type": "wake", "heard": False, "command": False}
+        assert ws.receive_json() == {
+            "type": "wake",
+            "heard": False,
+            "command": False,
+            "reason": ANY_REASON,
+        }
     assert stt.calls == 2  # name, then the fresh segment; the cut one never transcribed
     assert h.llm("big-model").seen == []
     outcomes = [r["outcome"] for r in telemetry_lines(h) if r.get("kind") == "wake_check"]
@@ -140,7 +146,7 @@ def test_miss_is_dropped_structurally(
         ws.send_json({"type": "audio_stop"})  # no open segment: the buffer is empty
         ws.send_json({"type": "cancel"})
         ws.send_json({"type": "listener_stats", "gate_drops": 3})
-    assert first == [{"type": "wake", "heard": False, "command": False}] * 2
+    assert first == [{"type": "wake", "heard": False, "command": False, "reason": ANY_REASON}] * 2
     assert calls == [] and h.llm("big-model").seen == [] and stt.calls == 2
     assert SENTINEL not in caplog.text
     eventually(lambda: any(r["kind"] == "wake_gate" for r in telemetry_lines(h)))
@@ -175,7 +181,12 @@ def test_cooldown_drops_before_transcribing(settings: Settings, tmp_path: Path, 
         segment(ws)
         turn_frames(ws)
         segment(ws)
-        assert ws.receive_json() == {"type": "wake", "heard": False, "command": False}
+        assert ws.receive_json() == {
+            "type": "wake",
+            "heard": False,
+            "command": False,
+            "reason": ANY_REASON,
+        }
     assert stt.calls == 1  # the second segment was never transcribed
 
 
@@ -193,7 +204,7 @@ def test_busy_drops_before_transcribing(settings: Settings, tmp_path: Path, name
         dropped = frames(ws, "wake")
         llm.hold = False
         turn_frames(ws)
-    assert dropped[-1] == {"type": "wake", "heard": False, "command": False}
+    assert dropped[-1] == {"type": "wake", "heard": False, "command": False, "reason": ANY_REASON}
     assert stt.calls == 1
 
 
@@ -280,7 +291,12 @@ def test_speaking_anywhere_pauses_the_listener(
         home.send_json({"type": "text", "text": "tell me something"})
         assert listener.receive_json() == {"type": "pause_capture", "reason": "speaking"}
         segment(listener)
-        assert listener.receive_json() == {"type": "wake", "heard": False, "command": False}
+        assert listener.receive_json() == {
+            "type": "wake",
+            "heard": False,
+            "command": False,
+            "reason": ANY_REASON,
+        }
         tts.release.set()
         turn_frames(home)
         assert listener.receive_json() == {"type": "resume_capture"}
@@ -309,8 +325,48 @@ def test_telemetry_has_labels_and_timings_only(
         "outcome",
         "segment_ms",
         "stt_ms",
+        "stt_wait_ms",
+        "stt_device",
         "variant",
+        "confidence",
+        "min_confidence",
     }
+    assert isinstance(check["confidence"], float) and check["min_confidence"] > 0
+    assert name.lower() not in str(check).lower()  # numbers and labels, never the text
+    assert stt.hotwords == [name]  # the decoder is told the wake phrase
+
+
+def test_the_armed_follow_up_is_decoded_without_the_hint(
+    settings: Settings, tmp_path: Path, name: str
+) -> None:
+    """Review H1: after the phrase alone, the command is decoded with no hint."""
+    h, stt = make(settings, tmp_path)
+    stt.say(name)  # the phrase alone: arms
+    stt.say("lights on")  # the command, in the armed window
+    with h.client().websocket_connect(LISTENER) as ws:
+        listen(ws)
+        segment(ws)
+        assert ws.receive_json()["command"] is False
+        segment(ws)
+        assert ws.receive_json() == {"type": "wake", "heard": True, "command": True}
+        turn_frames(ws)
+    assert stt.hotwords == [name, None]
+
+
+def test_a_miss_says_why_with_a_label_only(settings: Settings, tmp_path: Path, name: str) -> None:
+    h, stt = make(settings, tmp_path)
+    stt.say("what a nice day", confidence=0.9)
+    stt.say(name, confidence=0.1)
+    with h.client().websocket_connect(LISTENER) as ws:
+        listen(ws)
+        segment(ws)
+        assert ws.receive_json()["reason"] == "rejected_no_name"
+        segment(ws)
+        assert ws.receive_json()["reason"] == "rejected_low_conf"
+    low = next(r for r in telemetry_lines(h) if r.get("outcome") == "rejected_low_conf")
+    assert (
+        low["confidence"] == 0.1 and low["min_confidence"] == settings.profile.wake.min_confidence
+    )
 
 
 def test_window_turn_still_works_with_a_listener_connected(

@@ -112,6 +112,7 @@ class ConfirmFlow:
         stt = conv.stt
         assert stt is not None  # checked in ask()
         window = conv.config.confirm_window_s
+        conv.flush_spoken()  # the speakable text held back so far goes to speech first
         current = conv.speaker
         if current is not None:
             # W1: what the turn said before the tool call must end first, so the

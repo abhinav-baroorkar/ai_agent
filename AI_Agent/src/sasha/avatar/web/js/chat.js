@@ -2,6 +2,14 @@
 import { h, icon, setText } from './dom.js';
 import { Conversation } from './socket.js';
 import { initial } from './clean.js';
+import { renderMarkdown } from './md.js';
+import { VoiceInput, voiceSupported } from './voice-input.js';
+import { cssColor } from './bot-look.js';
+import { miniOrb, wakeOrbs, setOrb } from './faces/mini-orb.js';
+
+const HINT = 'Enter sends. Shift+Enter starts a new line.';
+// a refusal that means this server will never take voice on a chat: stop offering it
+const VOICE_REFUSED = /not available|not allowed|not supported|unsupported/i;
 
 function chip(tool) {
   return h('span', { class: `chip ${tool.ok ? 'ok' : 'bad'}`, title: tool.ok ? 'Tool ran' : 'Tool failed' },
@@ -9,16 +17,17 @@ function chip(tool) {
 }
 
 export class ChatView {
-  constructor(bot, { onBusy, onEdit, onBrowser }) {
+  // look: { color: [r,g,b], uses: {text, kind}, purpose } (how this bot is shown; see bot-look.js)
+  constructor(bot, look, { health, onEdit, onClose }) {
     this.bot = bot;
-    this.onBusy = onBusy;
     this.busy = false;
     this.pending = null; // the assistant message being streamed
     this.conv = new Conversation(bot.id);
 
     this.title = h('span', { class: 'title' });
-    this.meta = h('span', { class: 'meta' });
-    this.avatar = h('span', { class: 'avatar', 'aria-hidden': 'true' });
+    this.purpose = h('span', { class: 'purpose' });
+    this.usesTag = h('span', { class: 'uses' });
+    this.orb = h('span', { class: 'orb-slot' });
     this.offline = h('span', { class: 'pill', dataset: { tone: 'offline' }, hidden: true }, 'Offline');
     this.log = h('div', { class: 'log', role: 'log', 'aria-live': 'polite', tabIndex: 0 });
     this.input = h('textarea', { rows: 1, 'aria-label': 'Message', maxLength: 8000,
@@ -27,23 +36,38 @@ export class ChatView {
     this.sendBtn = h('button', { class: 'btn primary', type: 'submit' }, 'Send');
     this.stopBtn = h('button', { class: 'btn danger', type: 'button', hidden: true,
       onclick: () => this.conv.cancel() }, icon('stop'), 'Stop');
+    this.hint = h('p', { class: 'hint' }, HINT);
     this.refused = false;
-    // shows or hides the live view of the assistant's browser beside this chat
-    this.browserBtn = h('button', { class: 'btn small quiet', type: 'button', 'aria-pressed': 'false',
-      onclick: () => onBrowser(this.bot) }, 'Browser');
+    // Speak a message instead of typing it; the reply still comes as text.
+    this.micBtn = h('button', { class: 'btn mic-chat', type: 'button', 'aria-pressed': 'false', 'aria-label': 'Speak a message',
+      hidden: !voiceSupported(health) || ChatView.voiceOff, onclick: () => (this.voice.on ? this.voice.send() : this.voice.start()) }, icon('mic'));
+    this.voice = new VoiceInput({
+      conv: this.conv, owner: `chat:${bot.id}`,
+      isVisible: () => !this.el.hidden && location.hash === '#chat',
+      onChange: (v) => {
+        if (v.recording) this.showState('listening');
+        else if (this.orbState === 'listening') this.showState('idle');
+        this.micBtn.setAttribute('aria-pressed', String(v.on));
+        this.micBtn.dataset.phase = v.phase;
+        this.hint.textContent = v.starting ? 'Starting the microphone…' : v.phase === 'finishing' ? 'Finishing…'
+          : v.recording ? 'Listening. It sends when you stop speaking; click the microphone to send now.' : HINT;
+      },
+      onNotice: (text) => this.add(h('div', { class: 'msg error', role: 'status' }, text)),
+    });
 
-    this.el = h('section', { class: 'chat', role: 'tabpanel' },
-      h('header', { class: 'chat-head' }, this.avatar,
-        h('div', {}, this.title, h('div', {}, this.meta)),
+    this.el = h('section', { class: 'chat' },
+      h('header', { class: 'chat-head' }, this.orb,
+        h('div', { class: 'who' }, h('span', { class: 'title' }, this.title, this.usesTag), this.purpose),
         h('span', { class: 'grow' }), this.offline,
-        this.browserBtn,
+        h('button', { class: 'btn small quiet', type: 'button', onclick: () => onEdit(this.bot) }, 'Change'),
         h('button', { class: 'btn small quiet', type: 'button', onclick: () => this.restart() }, 'Clear chat'),
-        h('button', { class: 'btn small', type: 'button', onclick: () => onEdit(this.bot) }, 'Edit bot')),
+        h('button', { class: 'btn small quiet', type: 'button', onclick: () => onClose(this.bot) }, 'Close chat')),
       this.log,
       h('form', { class: 'composer', onsubmit: (ev) => { ev.preventDefault(); this.submit(); } },
-        this.input, this.stopBtn, this.sendBtn));
+        h('div', { class: 'field' }, this.input, this.micBtn, this.stopBtn, this.sendBtn),
+        this.hint));
 
-    this.update(bot);
+    this.update(bot, look);
     this.showEmpty();
     this.conv
       .on('online', () => this.setOnline(true))
@@ -53,21 +77,45 @@ export class ChatView {
         this.offline.hidden = true;
         this.add(h('div', { class: 'msg error', role: 'alert' }, m.message));
       })
-      .on('state', (m) => this.setBusy(m.state !== 'idle'))
+      .on('state', (m) => {
+        this.setBusy(m.state !== 'idle' && m.state !== 'listening');
+        this.showState(m.state === 'speaking' || m.state === 'thinking' ? m.state : this.voice.recording ? 'listening' : m.state);
+      })
+      .on('reply_delta', () => this.showState('speaking')) // the reply is arriving: it is talking
+      .on('transcript', (m) => { if (m.final && String(m.text ?? '').trim()) this.addMine(String(m.text)); })
       .on('tool', (m) => this.reply().chips.append(chip(m)))
-      .on('reply_delta', (m) => { const r = this.reply(); r.text += String(m.text ?? ''); this.paint(r); })
+      .on('reply_delta', (m) => { const r = this.reply(); r.text += String(m.text ?? ''); this.paintSoon(r); })
       .on('reply', (m) => this.finish(m))
-      .on('error', (m) => { this.add(h('div', { class: 'msg error', role: 'alert' }, String(m.message ?? 'Something went wrong.'))); this.pending = null; });
+      .on('error', (m) => {
+        const text = String(m.message ?? 'Something went wrong.');
+        if (this.voice.on) {
+          this.voice.cancel();
+          if (VOICE_REFUSED.test(text)) { // hide the button everywhere rather than offer one that fails
+            ChatView.voiceOff = true;
+            document.querySelectorAll('.mic-chat').forEach((b) => { b.hidden = true; });
+          }
+        }
+        this.add(h('div', { class: 'msg error', role: 'alert' }, text));
+        this.pending = null;
+      });
     this.setOnline(false);
   }
 
-  update(bot) {
+  update(bot, look = this.look) {
     this.bot = bot;
+    this.look = look;
     this.title.textContent = bot.name;
-    this.avatar.textContent = initial(bot.name);
-    const n = bot.connectors.length;
-    this.meta.textContent = `${bot.model} · ${n === 0 ? 'no connectors' : n === 1 ? '1 connector' : `${n} connectors`}`;
+    this.purpose.textContent = look.purpose;
+    this.usesTag.textContent = look.uses.text;
+    this.usesTag.dataset.kind = look.uses.kind;
+    this.el.style.setProperty('--hue', cssColor(look.color));
+    if (this.orbKey !== `${look.color}:${look.style}`) {
+      this.orbKey = `${look.color}:${look.style}`;
+      this.orb.replaceChildren(miniOrb(look.color, 44, { style: look.style, state: this.orbState || 'idle' }));
+    }
     this.input.placeholder = `Message ${bot.name}`;
+    wakeOrbs();
+    if (this.log.querySelector('.log-empty')) this.showEmpty();
   }
 
   setOnline(on) {
@@ -82,16 +130,22 @@ export class ChatView {
     if (!busy && this.pending) {
       // Stopped or dropped before a final reply: keep what arrived.
       if (!this.pending.text && !this.pending.chips.childElementCount) this.pending.el.remove();
-      else this.pending.dots.replaceWith(h('span', { class: 'timing' }, 'Stopped'));
+      else {
+        this.pending.dots.replaceWith(h('span', { class: 'timing' }, 'Stopped'));
+        this.paint(this.pending); // whatever arrived, drawn in full
+      }
       this.pending = null;
     }
     this.busy = busy;
     this.stopBtn.hidden = !busy;
-    this.onBusy(this);
   }
 
   showEmpty() {
-    this.log.replaceChildren(h('p', { class: 'log-empty' }, 'Nothing here yet. Say what you need.'));
+    this.log.replaceChildren(h('div', { class: 'log-empty' },
+      miniOrb(this.look.color, 84, { style: this.look.style }),
+      h('strong', {}, this.bot.name),
+      h('p', {}, this.look.purpose),
+      h('p', { class: 'hint' }, `${this.look.uses.text}. Runs on ${this.bot.model}, on this computer.`)));
   }
 
   add(node) {
@@ -108,14 +162,27 @@ export class ChatView {
     const body = h('div', { class: 'body' });
     const chips = h('div', { class: 'chips' });
     const dots = h('span', { class: 'typing', 'aria-label': 'Thinking' }, h('i'), h('i'), h('i'));
-    const el = h('div', { class: 'msg bot' }, h('span', { class: 'from' }, this.bot.name), chips, body, dots);
-    this.pending = { el, body, chips, dots, text: '' };
+    const col = h('div', { class: 'col' }, h('span', { class: 'from' }, this.bot.name), chips, body, dots);
+    const el = h('div', { class: 'msg bot' }, h('span', { class: 'avatar', 'aria-hidden': 'true' }, initial(this.bot.name)), col);
+    this.pending = { el, col, body, chips, dots, text: '', frame: 0 };
     this.add(el);
     return this.pending;
   }
 
+  // While a reply streams, draw it at most once per animation frame, with the latest text.
+  paintSoon(r) {
+    if (r.frame) return;
+    r.frame = requestAnimationFrame(() => {
+      r.frame = 0;
+      this.paint(r);
+    });
+  }
+
+  // The bot's text gets its simple formatting (md.js builds nodes; nothing is parsed as HTML).
   paint(r) {
-    setText(r.body, r.text);
+    cancelAnimationFrame(r.frame);
+    r.frame = 0;
+    r.body.replaceChildren(renderMarkdown(r.text));
     this.log.scrollTop = this.log.scrollHeight;
   }
 
@@ -126,7 +193,7 @@ export class ChatView {
     r.dots.remove();
     if (m.timing && m.timing.total_ms != null) {
       const speed = m.timing.tokens_per_s ? ` · ${Math.round(m.timing.tokens_per_s)} tokens/s` : '';
-      r.el.append(h('span', { class: 'timing' }, `${(m.timing.total_ms / 1000).toFixed(1)} s${speed}`));
+      r.col.append(h('span', { class: 'timing' }, `${(m.timing.total_ms / 1000).toFixed(1)} s${speed}`));
     }
     this.paint(r);
     this.pending = null;
@@ -139,16 +206,30 @@ export class ChatView {
     if (!this.conv.online) return;
     // If an answer is still running it is stopped first; the message goes out once the server is idle.
     this.conv.whenIdle(() => {
-      const body = h('div', { class: 'body' });
-      setText(body, text);
-      this.add(h('div', { class: 'msg user' }, body));
+      this.addMine(text);
       this.conv.sendText(text);
     });
     this.input.value = '';
     this.grow();
   }
 
+  // The orb in the header shows what the bot is doing, as the big one on Home does.
+  showState(state) {
+    const next = ['idle', 'listening', 'thinking', 'speaking'].includes(state) ? state : 'idle';
+    if (next === this.orbState) return;
+    this.orbState = next;
+    const canvas = this.orb.firstChild;
+    if (canvas) setOrb(canvas, { state: next });
+  }
+
+  addMine(text) {
+    const body = h('div', { class: 'body' });
+    setText(body, text);
+    this.add(h('div', { class: 'msg user' }, body));
+  }
+
   restart() {
+    this.voice.cancel();
     this.conv.reset();
     this.conv.waiting = null;
     this.pending = null;
@@ -162,7 +243,10 @@ export class ChatView {
   }
 
   close() {
+    this.voice.cancel();
     this.conv.close();
     this.el.remove();
   }
 }
+
+ChatView.voiceOff = false; // set once a server refuses voice on a chat

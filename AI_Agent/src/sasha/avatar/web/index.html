@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' ws://127.0.0.1:* ws://localhost:*; img-src 'self' data:; style-src 'self'; style-src-attr 'unsafe-inline'; base-uri 'none'; form-action 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self'; style-src-attr 'unsafe-inline'; base-uri 'none'; form-action 'self'">
 <title>Assistant</title>
 <link rel="icon" href="assets/icon.svg">
 <link rel="stylesheet" href="css/base.css">
@@ -12,6 +12,7 @@
 <link rel="stylesheet" href="css/chat.css">
 <link rel="stylesheet" href="css/timers.css">
 <link rel="stylesheet" href="css/browser.css">
+<link rel="stylesheet" href="css/bots.css">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -61,7 +62,7 @@
     </div>
     <nav class="home-nav" aria-label="Sections">
       <button id="history-open" class="btn quiet" type="button" aria-expanded="false" aria-controls="history"><svg class="ico"><use href="#i-list"/></svg>History</button>
-      <a class="btn" href="#bots"><svg class="ico"><use href="#i-chat"/></svg>Bots and chats</a>
+      <a class="btn only-narrow" href="#bots">Your bots</a>
       <a class="btn quiet" href="#settings"><svg class="ico"><use href="#i-plug"/></svg>Settings</a>
     </nav>
   </header>
@@ -74,6 +75,12 @@
     <p id="timers-error" class="form-error" role="status" hidden></p>
     <button id="mock-ring" class="btn small quiet" type="button" hidden>Mock: make one ring</button>
   </section>
+
+  <a id="home-bots" class="bots-entry" href="#bots" hidden>
+    <span id="home-bot-orbs" class="stack" aria-hidden="true"></span>
+    <span class="words"><b>Your bots</b><small id="home-bot-count">Helpers for single jobs</small></span>
+    <svg class="ico arrow" aria-hidden="true"><use href="#i-back"/></svg>
+  </a>
 
   <div class="stage">
     <div id="face" class="face" data-state="idle" role="img" aria-label="Assistant">
@@ -93,6 +100,7 @@
   <footer class="dock">
     <button id="mic" class="mic" type="button" aria-pressed="false" hidden>
       <svg class="ico"><use href="#i-mic"/></svg><span id="mic-label">Talk</span>
+      <span id="mic-meter" class="mic-meter" aria-hidden="true"><span></span></span>
     </button>
     <form id="say-form" class="say" autocomplete="off">
       <label class="sr" for="say-text">Type a message</label>
@@ -116,23 +124,23 @@
 </main>
 
 <div id="work" class="view work" hidden>
-  <aside class="rail">
-    <a class="rail-home" href="#home"><svg class="ico"><use href="#i-back"/></svg>
-      <svg id="mini-face" class="mini-face" data-state="idle" viewBox="0 0 64 64" aria-hidden="true"><circle class="mf-glow" cx="32" cy="32" r="30"/><circle class="mf-body" cx="32" cy="32" r="19"/><circle class="mf-core" cx="32" cy="32" r="8"/></svg><span>Back to <span data-assistant-name>the face</span></span></a>
-    <nav aria-label="Workspace">
-      <a class="rail-link" href="#bots" data-nav="bots"><svg class="ico"><use href="#i-chat"/></svg>Bots</a>
-      <a class="rail-link" href="#settings" data-nav="settings"><svg class="ico"><use href="#i-plug"/></svg>Settings</a>
-    </nav>
-    <div id="bot-list" class="bot-list" hidden>
-      <h2 class="eyebrow">Your bots</h2>
-      <ul id="bot-items"></ul>
-      <button id="new-bot" class="btn wide" type="button"><svg class="ico"><use href="#i-plus"/></svg>New bot</button>
-    </div>
-    <p class="rail-foot">Everything here runs on this computer.</p>
-  </aside>
+  <header class="work-top">
+    <a class="back-home" href="#home"><span id="mini-face" class="back-orb" data-state="idle"></span><span>Back to <span data-assistant-name>the assistant</span></span></a>
+    <a id="to-bots" class="btn quiet" href="#bots"><svg class="ico"><use href="#i-back"/></svg>Your bots</a>
+    <span class="grow"></span>
+    <a id="to-settings" class="btn quiet" href="#settings"><svg class="ico"><use href="#i-plug"/></svg>Settings</a>
+  </header>
 
-  <section id="bots" class="pane bots" aria-label="Bot chats" hidden>
-    <div id="tabs" class="tabs" role="tablist" aria-label="Open chats"></div>
+  <section id="bots" class="pane bots-page" aria-labelledby="bots-title" hidden>
+    <h1 id="bots-title">Your bots</h1>
+    <p class="lede">A bot is a helper with one job. You give it instructions and choose what it may use. <span data-assistant-name>The assistant</span> stays your main assistant; bots are for the things you do again and again.</p>
+    <div id="bots-note" class="bots-note" role="status" hidden></div>
+    <div id="bot-cards" class="bot-cards"></div>
+  </section>
+
+  <section id="setup" class="pane setup" aria-label="Set up a bot" hidden></section>
+
+  <section id="chat" class="pane chat-pane" aria-label="Chat with a bot" hidden>
     <div class="bots-body">
       <div id="chats" class="chats"></div>
       <aside id="browser-panel" class="browser" aria-labelledby="browser-title" hidden>
@@ -144,7 +152,6 @@
           <span class="grow"></span>
           <span id="browser-agent" class="pill" data-tone="off" hidden></span>
           <button id="browser-stop" class="btn small danger" type="button" disabled><svg class="ico"><use href="#i-stop"/></svg>Stop browser</button>
-          <button id="browser-close" class="btn icon quiet" type="button" aria-label="Hide the browser panel"><svg class="ico"><use href="#i-x"/></svg></button>
         </header>
         <div id="browser-address" class="browser-address" hidden>
           <span class="eyebrow">Site</span><bdi id="browser-site" class="browser-site" dir="ltr"></bdi>
@@ -169,41 +176,18 @@
         </select>
       </aside>
     </div>
-    <div id="bots-empty" class="empty" hidden>
-      <h1>Pick a bot to start a chat</h1>
-      <p>Each bot has its own model, instructions and connectors. You can keep several chats open and switch between them.</p>
-    </div>
   </section>
 
   <section id="settings" class="pane settings" aria-label="Settings" hidden>
     <h1>Settings</h1>
     <h2 class="eyebrow">Main assistant</h2>
     <dl id="assistant-facts" class="facts"></dl>
-    <h2 class="eyebrow">Connectors</h2>
-    <p class="lede">Connectors let the assistant and your bots act outside the chat. Each bot only gets the connectors you tick for it.</p>
+    <h2 class="eyebrow">What the assistant and your bots can use</h2>
+    <p class="lede">These let the assistant and your bots do things outside the chat: the web, your home. A bot only gets the ones you choose for it.</p>
     <div id="connector-grid" class="cards"></div>
   </section>
 </div>
 
-<dialog id="bot-dialog" aria-labelledby="bot-dialog-title">
-  <form id="bot-form" method="dialog" autocomplete="off">
-    <h2 id="bot-dialog-title">New bot</h2>
-    <label for="bot-name">Name</label>
-    <input id="bot-name" type="text" required maxlength="40" placeholder="Recipe helper">
-    <label for="bot-model">Model</label>
-    <select id="bot-model" required></select>
-    <label for="bot-prompt">Instructions</label>
-    <textarea id="bot-prompt" rows="5" placeholder="What this bot is for and how it should answer."></textarea>
-    <fieldset id="bot-connectors"><legend>Connectors it may use</legend></fieldset>
-    <p id="bot-error" class="form-error" role="alert" hidden></p>
-    <div class="dialog-actions">
-      <button id="bot-delete" class="btn danger" type="button" hidden>Delete bot</button>
-      <span class="grow"></span>
-      <button id="bot-cancel" class="btn quiet" type="button">Cancel</button>
-      <button id="bot-save" class="btn primary" type="submit">Create bot</button>
-    </div>
-  </form>
-</dialog>
 
 <p id="file-warning" class="file-warning" hidden>This page can't run straight from a file. From this folder run <code>python3 -m http.server 8799</code>, then open <code>localhost:8799/?mock=1</code> in the browser.</p>
 <script src="js/file-warning.js"></script>

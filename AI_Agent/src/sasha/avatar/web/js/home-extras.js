@@ -85,6 +85,33 @@ export function initHistory(name) {
   };
 }
 
+// What Home shows of a spoken answer: plain words (formatting marks dropped, this is
+// not a renderer), and for a long answer only its end, starting at a sentence or at
+// least a word, so the lines never begin in the middle of something.
+export function spokenTail(text, budget) {
+  const clean = String(text)
+    .replace(/```[\s\S]*?(```|$)/g, ' ')
+    .replace(/^\s{0,6}(#{1,6}|[-*+]|\d{1,4}[.)])\s+/gm, '')
+    .replace(/\*\*|__|`/g, '')
+    .replace(/(^|[\s(])[*_](?=\S)/g, '$1')
+    .replace(/(\S)[*_](?=[\s.,;:!?)]|$)/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (clean.length <= budget) return clean;
+  const sentences = clean.split(/(?<=[.!?:\u0964])\s+/);
+  let tail = '';
+  for (let i = sentences.length - 1; i >= 0; i--) {
+    const longer = tail ? `${sentences[i]} ${tail}` : sentences[i];
+    if (tail && longer.length > budget) break;
+    tail = longer;
+  }
+  if (tail.length > budget) { // one very long sentence: keep its end, from a whole word
+    const cut = tail.slice(tail.length - budget);
+    tail = cut.slice(cut.indexOf(' ') + 1);
+  }
+  return `… ${tail}`;
+}
+
 // Calls back with true when the browser has the microphone blocked for this page.
 export async function watchMicPermission(onChange) {
   try {

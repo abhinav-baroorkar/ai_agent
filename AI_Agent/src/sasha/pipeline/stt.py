@@ -18,4 +18,8 @@ class Transcript:
 class SpeechToText(Protocol):
     def model_version(self) -> str: ...
 
-    def transcribe(self, audio: AudioChunk, sample_rate: int) -> Transcript: ...
+    def transcribe(
+        self, audio: AudioChunk, sample_rate: int, *, hotwords: str | None = None
+    ) -> Transcript:
+        """`hotwords`: words to favour while decoding (the wake word, for wake segments)."""
+        ...
