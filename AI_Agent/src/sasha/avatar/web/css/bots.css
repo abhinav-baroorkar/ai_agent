@@ -18,10 +18,10 @@
 .only-narrow { display: none; }
 
 /* ---------- The "Your bots" page ---------- */
-.bots-page { overflow-y: auto; padding: 4px max(28px, 4vw) 40px; display: grid; gap: 1.1rem; align-content: start; }
+.bots-page { overflow-y: auto; padding: 4px max(28px, 4vw) 40px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.1rem; align-content: start; }
 .bots-page h1 { font-size: 1.7rem; }
 .bots-page .lede { margin-top: -.6rem; }
-.bot-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+.bot-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); gap: 16px; }
 .bot-card { display: grid; gap: .7rem; align-content: start; padding: 1.15rem 1.25rem 1.05rem; background: rgb(22 31 43 / .85); border: 1px solid var(--line); border-radius: 18px; }
 .bot-card.main { border-color: color-mix(in srgb, var(--lamp) 45%, var(--line)); }
 .bot-card.new { border-style: dashed; background: none; }
@@ -34,20 +34,21 @@
 .starts { display: grid; gap: .4rem; }
 .starts button { display: flex; align-items: center; gap: .6rem; padding: .5rem .8rem; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); font-size: .92rem; cursor: pointer; text-align: left; }
 .starts button:hover { border-color: color-mix(in srgb, var(--lamp) 50%, var(--line)); }
-.uses { display: inline-flex; align-items: center; padding: .1em .7em; border-radius: 99px; font-size: .78rem; color: var(--muted); background: var(--surface-2); border: 1px solid var(--line); white-space: nowrap; }
+.uses { display: inline-flex; align-items: center; padding: .1em .7em; border-radius: 99px; font-size: .78rem; color: var(--muted); background: var(--surface-2); border: 1px solid var(--line); max-width: 100%; }
 .uses[data-kind="web"] { color: var(--listen); border-color: color-mix(in srgb, var(--listen) 40%, var(--line)); }
 .uses[data-kind="own"] { color: var(--lamp); border-color: color-mix(in srgb, var(--lamp) 40%, var(--line)); }
 .bots-note { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; padding: .8rem 1rem; border-radius: 14px; line-height: 1.5;
   background: color-mix(in srgb, var(--warn) 9%, transparent); border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent); }
 
 /* ---------- Setting a bot up ---------- */
-.setup { overflow-y: auto; padding: 4px max(28px, 4vw) 28px; display: grid; gap: 1.2rem; align-content: start; }
+/* minmax(0, 1fr): a narrow window must not let a wide row stretch the page sideways */
+.setup { overflow-y: auto; padding: 4px max(28px, 4vw) 28px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.2rem; align-content: start; }
 .setup h1 { font-size: 1.6rem; }
 .setup .lede { margin-top: -.7rem; }
-.steps { display: flex; align-items: center; gap: .6rem; color: var(--muted); font-size: .86rem; }
+.steps { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; color: var(--muted); font-size: .86rem; }
 .steps b { color: var(--lamp); font-weight: 600; }
 .steps i { width: 26px; height: 1px; background: var(--line); }
-.choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 16px; }
+.choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr)); gap: 16px; }
 .choice { display: grid; gap: .6rem; align-content: start; padding: 1.2rem; text-align: left; cursor: pointer; border-radius: 18px; background: rgb(22 31 43 / .85); border: 1px solid var(--line); }
 .choice h3 { margin: 0; font-size: 1.08rem; }
 .choice p { color: var(--muted); font-size: .9rem; line-height: 1.5; }
