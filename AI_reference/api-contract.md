@@ -1,4 +1,4 @@
-# Brain API contract v0.4 (server, UI and listener all build against this)
+# Brain API contract v0.5.1 (server, UI and listener all build against this)
 
 Owner of this file: Primary. Staff SDE copies it to `AI_reference/api-contract.md`
 in the server branch. To change it, ask Primary; don't change it on your own.
@@ -247,6 +247,42 @@ guard:{allowed:int, refused:{<category>:int}, background_refused:int}}`.
   allow), by category. `background_refused`: everything else refused, which is Chrome's
   own background traffic (update, account and similar calls), not anything the page did.
 
+Window token (v0.4.5): every `/api/browser*` route needs the header
+`X-Window-Token: <token>` (401 `{error}` otherwise), and `/ws/browser` needs the
+subprotocols `["brain.v1", "token.<token>"]` (close 1008 otherwise; the server accepts
+with `brain.v1` only). The token is made by the brain at each start and reaches the
+window only through `sasha window`, as the address fragment `#t=<token>`. The UI reads
+it, keeps it in memory, and strips it from the address with `history.replaceState`. A
+window opened another way (or reloaded) has no token, and its browser panel is refused.
+The other routes and `/ws` don't need it yet.
+
+Take-over (v0.5): the owner drives the assistant's browser himself, as a normal visible
+Chrome window on its own profile, with no DevTools connection (the brain can't see what
+he types or views). Routes, behind the token like the other `/api/browser*` ones; no
+body or a JSON body:
+
+| Method + path | Returns / does |
+| --- | --- |
+| `POST /api/browser/take_over` | `{ok:true}` and the switch starts; 409 `{error}` when the browser is off in Settings, there is no screen, Chrome is missing, or a take-over is already on |
+| `POST /api/browser/hand_back` | `{ok:true}`; the window closes and the assistant's browser comes back (also when he simply closes the window, or after 15 minutes) |
+| `POST /api/browser/stop_turn` | `{ok:true}`; "Stop it now" while a take-over waits for a running turn |
+
+`BrowserState` gains `mode`: `assistant` (normal), `waiting` (asked, a turn is finishing),
+`switching`, `owner` (his window is open), or `restoring` (the clean-up after his window
+didn't finish; bots stay refused and it retries every few seconds; a new take-over is
+refused meanwhile); `restore_problem` (string or null: after 3 failed clean-ups, why, in
+plain words, such as "The browser profile is still in use"); `owner_until` (ISO time,
+while `owner`);
+and `owner_refused` (`{category:int}`, addresses his window tried that the guard refused,
+counted apart from the page's own). `POST /api/browser/stop` during a take-over hands
+back. While `mode` is not `assistant`, every bot's browser step answers "The owner is
+using the browser right now, or it is being cleaned up after; try again after it's
+handed back". After hand-back only the search engine's cookies are kept; his history,
+tabs, downloads, form entries and every site's own storage (local storage, IndexedDB,
+service workers) are forgotten, and any setting or extension he changed is undone, also
+after a brain crash mid take-over (the next start finishes the clean-up). Downloads are
+blocked in his window.
+
 WebSocket `/ws/browser` (one viewer):
 - Same Host and Origin checks as `/ws`, and an `Origin` header is required (the
   window's own); a socket from a non-loopback peer or without `Origin` is closed with
@@ -347,9 +383,13 @@ web lookup holds the browser (suggested text: "In use by <name> (web lookup)");
 - v0.4.3 (2026-11-15): `wake` misses carry `reason` (a label, never text). The wake
   phrase is "hey" plus the name (assistant.yaml), not the name alone.
 - v0.4.4 (2026-11-15): `Bot.style` (the orb's breathing style), default `glow`.
+- v0.4.5 (2026-11-15): the window token on `/api/browser*` (`X-Window-Token`) and
+  `/ws/browser` (subprotocols `brain.v1` and `token.<token>`).
+- v0.5 (2026-11-15): take-over: `POST /api/browser/take_over`, `/hand_back`,
+  `/stop_turn`; `BrowserState.mode`, `owner_until`, `owner_refused`.
 - v0.5.1 (2026-11-15): web lookups: `browse` in the browser connector's `tools`;
   `reply.sites`; on `speak=1` the answer after a `browse` is capped at 500 characters
   and ends with "From <site>." unless it named it; `holder_bot.via`; the UI's "looked
   up" line and bot form wording.
-- Planned for v0.5 (not built yet): `POST /api/connectors` and
+- Planned for v0.6 (not built yet): `POST /api/connectors` and
   `DELETE /api/connectors/{id}` to add and remove MCP connectors from Settings.

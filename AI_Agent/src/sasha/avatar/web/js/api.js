@@ -6,6 +6,16 @@ const mock = MOCK ? await import('./mock.js') : null;
 
 const TIMEOUT_MS = 8000;
 
+// The brain's per-launch token (take-over design 9.1, C4). `sasha window` opens the
+// window at #t=<token>; it is kept in memory only and stripped from the address at
+// once, so it stays out of the history and out of a copied or reloaded URL.
+const TOKEN = (() => {
+  const t = new URLSearchParams(location.hash.slice(1)).get('t') || '';
+  if (location.hash) history.replaceState(null, '', location.pathname + location.search);
+  return /^[0-9a-f]{64}$/.test(t) ? t : '';
+})();
+export const HAS_TOKEN = TOKEN !== '';
+
 export async function api(method, path, body) {
   if (mock) return mock.mockFetch(method, path, body);
   const ctl = new AbortController();
@@ -14,7 +24,10 @@ export async function api(method, path, body) {
     const res = await fetch(path, {
       method,
       signal: ctl.signal,
-      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      headers: {
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+        ...(TOKEN ? { 'X-Window-Token': TOKEN } : {}),
+      },
       body: body ? JSON.stringify(body) : undefined,
     });
     const data = await res.json().catch(() => ({}));
@@ -33,7 +46,8 @@ export async function api(method, path, body) {
 export function openBrowserSocket() {
   if (mock) return new mock.MockBrowserSocket();
   const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
-  return new WebSocket(`${scheme}://${location.host}/ws/browser`);
+  const protocols = TOKEN ? ['brain.v1', `token.${TOKEN}`] : ['brain.v1'];
+  return new WebSocket(`${scheme}://${location.host}/ws/browser`, protocols);
 }
 
 // speak: ask the server to also send speech for this conversation (Home only).

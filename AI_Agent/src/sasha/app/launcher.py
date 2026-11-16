@@ -62,6 +62,9 @@ def shell_command(
         notice,
         "--icon",
         str(ICON),
+        # the shell reads the brain's per-launch token itself (a path, never the token)
+        "--state-dir",
+        str(settings.paths.state_dir),
     ]
     if attach:  # never starts a brain: shows "starting…" until the service is up
         cmd += [

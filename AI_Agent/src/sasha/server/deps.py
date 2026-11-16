@@ -41,6 +41,7 @@ from sasha.server.warmup import (
     share_label,
     warm_up_llm,
 )
+from sasha.server.window_token import WindowToken
 from sasha.state import JsonStore
 from sasha.telemetry import TelemetryWriter
 from sasha.tools.clock import CLOCK_TOOL, clock_tool
@@ -64,6 +65,7 @@ class ServerDeps:
     presence: ListenerPresence = field(default_factory=ListenerPresence)
     wake_limiter: RateLimiter | None = None
     recheck_placement: Callable[[], None] = lambda: None
+    window_token: WindowToken = field(default_factory=WindowToken)  # per launch (9.1, C4)
     timers: TimerService | None = None  # None: no timer tools, routes or frames
 
     def __post_init__(self) -> None:
