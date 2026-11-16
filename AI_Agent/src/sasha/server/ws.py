@@ -294,6 +294,7 @@ class Conversation(TimerSocket):  # the timer side: server/timers/socket.py
             on_tool=lambda name, ok: self.emit_threadsafe({"type": "tool", "name": name, "ok": ok}),
             should_stop=self.stop.is_set,
         )
+        self.turn_replaced = False
         truth = self.timer_truth = self._turn_check(text)
         try:
             reply = await asyncio.to_thread(self.assistant.handle_text, text, hooks, input_mode)
@@ -305,6 +306,7 @@ class Conversation(TimerSocket):  # the timer side: server/timers/socket.py
             self.timer_truth = None
         if truth is not None:  # no claimed timer change without a tool that made it
             tail, reply.text = truth.finish(reply.text, reply.tool_calls)
+            self.turn_replaced = truth.replaced  # the wake reply then keeps it (R3)
             if tail:
                 self._on_delta(tail)
         return reply

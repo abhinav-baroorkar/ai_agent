@@ -22,6 +22,7 @@ class ChainCheck:
         self.checks = checks
         self.holding = any(c.holding for c in checks)
         self.held = ""
+        self.replaced = False  # a part replaced the model's text (the turn's own truth)
 
     def feed(self, piece: str) -> str:
         """Streamed model text in (worker thread); the part to send and speak now out."""
@@ -35,6 +36,9 @@ class ChainCheck:
         final = text
         for part in self.checks:
             final = part.finish(final, tool_calls)[1]
+        self.replaced = not final.startswith(text.rstrip())
         if self.holding:
             return final, final
+        if self.replaced:  # text it didn't hold was already sent: never a slice (R2);
+            return "", final  # the history keeps the replacement (the socket's shown text)
         return (final[len(text.rstrip()) :] if final != text else ""), final

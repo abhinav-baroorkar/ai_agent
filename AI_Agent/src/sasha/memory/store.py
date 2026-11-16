@@ -140,9 +140,13 @@ class MemoryStore:
             return note
 
     def keep(self, note_id: str) -> Note:
-        """The owner keeps a voice-made note: active, and it may be said aloud (M1, M2)."""
+        """The owner keeps a voice-made note: active, and it may be said aloud (M1, M2).
+        Only a waiting note: a stale click on a private note must not make it readable
+        on wake turns (S2)."""
         with self.lock:
             note = self.get(note_id)
+            if note.status != "pending":
+                raise MemoryError("Only a waiting note can be kept.", "not_pending")
             note.status, note.say_aloud = "active", True
             self._save("kept")
             return note
@@ -196,10 +200,11 @@ class MemoryStore:
         items = [{"id": n.id, "text": n.text} for n in gone]
         return {"count": len(gone), "items": items, "turns": turns}
 
-    def clear(self) -> int:
-        """Forget everything: the file is rewritten empty, not hidden."""
+    def clear(self) -> list[Note]:
+        """Forget everything: the file is rewritten empty, not hidden. Returns exactly
+        the notes removed (read under the lock)."""
         with self.lock:
-            count = len(self.notes)
+            gone = list(self.notes.values())
             self.notes.clear()
-            self._save("forgotten:everything", count)
-            return count
+            self._save("forgotten:everything", len(gone))
+            return gone

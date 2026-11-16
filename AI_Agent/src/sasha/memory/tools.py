@@ -58,14 +58,12 @@ class MemoryTools:
         return turn
 
     def _owner_text(self, turn: TurnContext) -> str:
-        """This turn's words, plus the previous message when the reply before asked and
-        it was a remember request (the asked-back pair, as in the timers' S1)."""
-        msgs = turn.user_messages
-        fresh = turn.since_previous_s is None or turn.since_previous_s <= self.cfg.answer_window_s
-        paired = len(msgs) > 1 and turn.previous_reply_asked and fresh
-        if paired and check.asks_to_remember(msgs[-2], self.cfg):
-            return f"{msgs[-2]}\n{msgs[-1]}"
-        return msgs[-1]
+        """This turn's words, with the asked-back pair (check.owner_pair, which the
+        turn's truth check reads too)."""
+        pair = check.owner_pair(
+            turn.user_messages, turn.previous_reply_asked, turn.since_previous_s, self.cfg
+        )
+        return "\n".join(pair)
 
     def _refuse(self, reason: str, message: str) -> MemoryAsk:
         self.store.refused(reason)
@@ -101,7 +99,8 @@ class MemoryTools:
         self.made.append((saved.id, len(turn.user_messages), turn.turn_id))
         if saved.status == "pending":  # M1: never in a prompt until the owner keeps it
             return {"saved": "for the owner to check on screen", "status": "pending"}
-        return {"saved": saved.text, "status": "active"}
+        # S3: the server shows what was really kept ("Noted: ...").
+        return {"saved": saved.text, "status": "active", "report": {"noted": saved.text}}
 
     def _mine(self, turn: TurnContext) -> Note | None:
         """The note this conversation made last, if within the last turns."""
@@ -127,14 +126,18 @@ class MemoryTools:
         turn = self._turn()
         owner = turn.user_messages[-1]
         wake = _source(turn) == "wake"
+        # R1: only a plain yes in the very next message, to the server's own question,
+        # and only for the same everything=true call; anything else drops the question.
+        asked_at, self.confirm_at = self.confirm_at, None
         confirming = (
-            self.confirm_at is not None
-            and len(turn.user_messages) == self.confirm_at + 1
+            asked_at is not None
+            and everything is True
+            and len(turn.user_messages) == asked_at + 1
             and check.says_yes(owner, self.cfg)
         )
         if not confirming and not check.asks_to_forget(owner, self.cfg):
             raise self._refuse("not_asked", "The owner didn't ask to forget anything.")
-        if everything is True or confirming:
+        if everything is True:
             return self._everything(turn, owner, wake, confirming)
         if minutes not in (None, "", 0):
             return self._minutes(minutes, owner, wake)
@@ -144,9 +147,11 @@ class MemoryTools:
             if note is None:
                 raise self._refuse("which_note", "Which note? Ask (list_memories).")
             notes = [note]
-        elif key in self.store.notes:
-            notes = [self.store.notes[key]]
         else:
+            # R6: the note is named by the owner's own words this turn, never by the
+            # model alone (an id or a word the owner didn't say is asked back).
+            if not check.content_words(key, self.cfg) or check.unsaid_words(key, owner, self.cfg):
+                raise self._refuse("which_note", "Name the note with the owner's own words.")
             notes = self._by_words(key)
             if len(notes) != 1:
                 raise self._refuse("which_note", "Not exactly one note matches. Ask which.")
@@ -170,8 +175,9 @@ class MemoryTools:
         turns = sum(report["turns"].values())
         if not report["count"] and not turns:
             raise self._refuse("no_notes", "Nothing was said or noted in that window.")
-        return {"forgot": report["count"], "notes": [i["text"] for i in report["items"]],
-                "turns": turns}  # fmt: skip
+        # W1: counts only, so a forgotten note's text can't come back through the reply.
+        counts = {"notes": report["count"], "turns": turns}
+        return {"forgot": counts, "report": counts}
 
     def _everything(
         self, turn: TurnContext, owner: str, wake: bool, confirming: bool
@@ -185,32 +191,28 @@ class MemoryTools:
                 raise self._refuse("no_notes", "There are no notes.")
             self.confirm_at = len(turn.user_messages)
             raise self._refuse("confirm_everything", "Ask the owner to confirm with a yes.")
-        self.confirm_at = None
-        count = self.store.clear()
-        return {"forgot": count}
+        count = len(self.store.clear())
+        return {"forgot": {"notes": count}, "report": {"notes": count}}
 
     def _forgot(self, notes: list[Note], wake: bool) -> dict[str, Any]:
         if not notes:
             raise self._refuse("no_notes", "No notes are in that window.")
-        if wake:  # on voice only the count (design §6)
-            return {"forgot": len(notes)}
-        return {"forgot": len(notes), "notes": [n.text for n in notes]}
+        counts = {"notes": len(notes)}  # W1, R4: counts only, never the text
+        return {"forgot": counts, "report": counts}
 
     def list_memories(self) -> dict[str, Any]:
+        """Active notes only; a waiting (voice-made, not yet kept) note is only counted,
+        never shown, so its text can't reach a prompt through this result (R4, M1). On
+        a wake turn only notes marked "ok to say aloud" (M2)."""
         turn = self.said()
         notes = self.store.all()
+        active = [n for n in notes if n.status == "active"]
+        pending = sum(n.status == "pending" for n in notes)
         if turn is not None and _source(turn) == "wake":  # M2: what the room may hear
-            return {
-                "active": sum(n.status == "active" for n in notes),
-                "pending": sum(n.status == "pending" for n in notes),
-                "voice_made": [n.text for n in notes if n.source == "wake"][:10],
-            }
-        return {
-            "notes": [
-                {"id": n.id, "text": n.text, "status": n.status, "say_aloud": n.say_aloud}
-                for n in notes
-            ]
-        }
+            aloud = [n.text for n in active if n.say_aloud][:10]
+            return {"say_aloud": aloud, "others": len(active) - len(aloud), "waiting": pending}
+        return {"notes": [{"text": n.text, "say_aloud": n.say_aloud} for n in active],
+                "waiting": pending}  # fmt: skip
 
     def tools(self) -> list[Tool]:
         obj = {"type": "object", "properties": {}}

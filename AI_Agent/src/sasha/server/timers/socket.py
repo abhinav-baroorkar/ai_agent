@@ -9,6 +9,7 @@ import contextlib
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from sasha.memory.check import owner_pair
 from sasha.memory.tools import MEMORY_TOOLS
 from sasha.memory.truth import MemoryTruth
 from sasha.server.timers.service import TimerError
@@ -31,6 +32,7 @@ class TimerSocket:
     assistant: Assistant
     speak: bool
     timer_claims: bool  # check replies for claimed timer changes (False on the listener)
+    turn_replaced: bool = False  # the turn's own check replaced the reply (a secret)
     emit_threadsafe: Callable[[Any], None]
     error: Callable[[str], None]
 
@@ -109,7 +111,15 @@ class TimerSocket:
         if (timer := self._timer_truth(command)) is not None:
             checks.append(timer)
         assistant = self.assistant
-        if self.timer_claims and set(MEMORY_TOOLS) & set(assistant.tools.names):
+        if set(MEMORY_TOOLS) & set(assistant.tools.names):
             cfg = assistant.settings.profile.memory
-            checks.append(MemoryTruth(cfg, command, self.speak, assistant.redact_request))
+            previous = assistant.previous_request()
+            said = (previous, command) if previous is not None else (command,)
+            asked, since = assistant.previous_reply_asked(), assistant.since_previous()
+            pair = owner_pair(said, asked, since, cfg)  # the same words as the tools (R2)
+            # Wake turns (the listener) keep their own truthful reply; only the secret
+            # rule runs there, so a refused secret stays out of the history (R3).
+            wake = not self.timer_claims
+            redact = assistant.redact_request
+            checks.append(MemoryTruth(cfg, pair, self.speak, redact, wake=wake))
         return ChainCheck(checks) if checks else None

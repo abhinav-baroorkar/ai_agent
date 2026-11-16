@@ -56,7 +56,7 @@ def test_forget_since_and_everything(tmp_path: Path) -> None:
     clock.now += 600
     store.add("new", "wake", "voice")
     assert [n.text for n in store.forget_since(clock.now - 300)] == ["new"]
-    assert store.clear() == 1
+    assert [n.text for n in store.clear()] == ["old"]
     assert json.loads((tmp_path / "memory.json").read_text()) == {"notes": []}  # gone
 
 

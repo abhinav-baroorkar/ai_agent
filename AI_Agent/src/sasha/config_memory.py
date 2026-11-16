@@ -37,10 +37,23 @@ class MemoryConfig(BaseModel):
         default_factory=lambda: ["what", "which", "when", "where", "who", "why", "how", "do",
                                  "does", "did", "is", "are", "have", "has"]
     )  # fmt: skip
+    # "I remember the bus was late" is the owner's own memory, not a request (S4).
+    self_subjects: list[str] = Field(
+        default_factory=lambda: ["i", "we", "i'd", "we'd", "i'll", "we'll", "they", "he", "she"]
+    )
     everything_words: list[str] = Field(default_factory=lambda: ["everything", "all"])
     yes_words: list[str] = Field(
         default_factory=lambda: ["yes", "yeah", "yep", "sure", "confirm", "confirmed", "ok",
                                  "okay", "do it", "go ahead"]
+    )  # fmt: skip
+    # A yes may carry these and nothing else ("Yes please."); "yes but..." is no yes (R1).
+    courtesy_words: list[str] = Field(
+        default_factory=lambda: ["please", "thanks", "thank", "you", "that's", "right", "fine"]
+    )
+    # R5: a note keeps exactly the owner's negations ("not", "never" and any "n't").
+    negation_words: list[str] = Field(
+        default_factory=lambda: ["not", "no", "never", "without", "nobody", "nothing", "none",
+                                 "neither", "nor", "nowhere", "cannot"]
     )  # fmt: skip
 
     # M3: every content word of a note is the owner's own. These may be added or dropped
@@ -73,8 +86,17 @@ class MemoryConfig(BaseModel):
             r"(?:\d[ -]?){7,}",  # a run of 7+ digits ("4111 1111 1111 1111")
             r"\b(?:code|pin|passcode)\W+(?:is\W+)?\d+",
             r"\b(?=[A-Za-z0-9_\-]{20,}\b)(?=\S*\d)(?=\S*[A-Za-z])[A-Za-z0-9_\-]+",  # key-like
+            # S1: spoken digits ("four eight two one"), and a wifi or network password.
+            r"\b(?:(?:zero|oh|one|two|three|four|five|six|seven|eight|nine)\W+){3,}"
+            r"(?:zero|oh|one|two|three|four|five|six|seven|eight|nine)\b",
+            r"\b(?:wi-?fi|wireless|network|router)\b[^.?!]*?(?:\bis\b|:)\s*\S+",
         ]
     )
+    # S1: one of these anywhere with any number (digits or words) is a secret.
+    code_words: list[str] = Field(
+        default_factory=lambda: ["code", "codes", "combination", "combo", "pin", "pins",
+                                 "passcode", "password", "passphrase", "lock code"]
+    )  # fmt: skip
     email_pattern: str = r"[\w.+-]+@[\w-]+\.[\w.-]+"  # with "password": refused
     mask: str = "[removed]"
 
@@ -83,7 +105,7 @@ class MemoryConfig(BaseModel):
         default_factory=lambda: {
             "not_saved": "I didn't save that.",
             "not_forgotten": "Nothing was forgotten.",
-            "secret": "I don't store passwords, PINs or codes.",
+            "secret": "I don't store passwords, PINs, codes or long numbers.",
             "say_what": "Say what to remember.",
             "not_said": "I can only keep your own words. Say it the way you want it kept.",
             "full": "My notes are full; ask me to forget something first.",
@@ -95,5 +117,15 @@ class MemoryConfig(BaseModel):
             "confirm_everything": "Forget all your notes? Say yes to confirm.",
             "on_screen": "Do that on the screen, please.",
             "bad_minutes": "For how many minutes?",
+            "forgot": "Forgot {what}.",  # W1: the reply after a forget, from the counts
+            "noted": "Noted: {text}.",  # S3: what was really kept, shown back
+            "noted_short": "Noted.",  # ...spoken, when the text is long
+            "and": " and ",
         }
     )
+    # "{n} note(s)", "{n} earlier turn(s)" in the forget line.
+    units: dict[str, list[str]] = Field(
+        default_factory=lambda: {"notes": ["note", "notes"],
+                                 "turns": ["earlier turn", "earlier turns"]}
+    )  # fmt: skip
+    spoken_noted_max: int = 120  # longer notes are "Noted." when spoken

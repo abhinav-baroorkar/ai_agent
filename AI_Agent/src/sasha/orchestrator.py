@@ -78,9 +78,13 @@ class Assistant:
         self.clock: Callable[[], float] = time.monotonic  # the turn clock
         self._last_turn_end: float | None = None
         self.turn_kept = False  # the last turn is in the history (see replace_reply)
-        self._kept_at: list[float] = []  # per kept turn: when it ended (the turn clock)
+        self._kept_at: list[float] = []  # per kept turn: when it started (the turn clock)
         # forget_turns may come from another thread (the Memory screen) mid-turn.
         self._history_lock = threading.Lock()
+        # The latest forgotten window (start, when it was forgotten): a turn that started
+        # inside it but ended after the forget is dropped when it lands (W2).
+        self._forgot: tuple[float, float] | None = None
+        self._this_turn: tuple[Message, Message] | None = None  # this turn's two entries
         # A section rebuilt for every turn after the system prompt (memory/prompt.py).
         self.prompt_extra: Callable[[], str] | None = None
 
@@ -106,26 +110,55 @@ class Assistant:
         return None if self._last_turn_end is None else self.clock() - self._last_turn_end
 
     def reset(self) -> None:
-        self._history.clear()
-        self._kept_at.clear()
+        with self._history_lock:
+            self._history.clear()
+            self._kept_at.clear()
+            self._this_turn = None
         self._last_turn_end = None
 
     def forget_turns(self, seconds: float) -> int:
-        """Drop this conversation's turns that ended in the last `seconds` (memory's
-        forget(minutes)): the model can't quote them any more. Returns how many."""
-        since = self.clock() - seconds
+        """Drop this conversation's turns that started in the last `seconds` (memory's
+        forget(minutes)): the model can't quote them any more. A turn still running is
+        dropped when it lands (W2). Returns how many went now."""
+        now = self.clock()
+        since = now - seconds
         with self._history_lock:
             keep = [i for i, at in enumerate(self._kept_at) if at < since]
             gone = len(self._kept_at) - len(keep)
             self._history = [m for i in keep for m in self._history[2 * i : 2 * i + 2]]
             self._kept_at = [self._kept_at[i] for i in keep]
+            self._forgot = (since, now)
         return gone
 
-    def redact_request(self, redact: Callable[[str], str]) -> None:
-        """Rewrite the owner's last message as kept in the history (a refused secret,
-        memory M7, stays out of the conversation)."""
-        if self.turn_kept and len(self._history) >= 2 and self._history[-2]["role"] == "user":
-            self._history[-2]["content"] = redact(str(self._history[-2]["content"]))
+    def _kept(self, entry: Message) -> bool:
+        return any(m is entry for m in self._history)
+
+    def redact_request(self, redact: Callable[[str], str], count: int = 1) -> None:
+        """Rewrite the owner's last `count` messages as kept in the history (a refused
+        secret, memory M7: this turn's, and the asked-back one before it). By identity,
+        under the lock: never another turn's entry (W3)."""
+        with self._history_lock:
+            if self._this_turn is None or not self._kept(self._this_turn[0]):
+                return
+            at = next(i for i, m in enumerate(self._history) if m is self._this_turn[0])
+            users = [m for m in self._history[: at + 1] if m["role"] == "user"][-count:]
+            for message in users:
+                message["content"] = redact(str(message["content"]))
+
+    def _keep(self, text: str, reply: str, started: float) -> None:
+        """Keep this turn in the history, unless a forget covered its start (W2)."""
+        with self._history_lock:
+            self._last_turn_end = self.clock()
+            if self._forgot is not None and self._forgot[0] <= started <= self._forgot[1]:
+                self._this_turn, self.turn_kept = None, False
+                return
+            pair: tuple[Message, Message] = (
+                {"role": "user", "content": text},
+                {"role": "assistant", "content": reply},
+            )
+            self._history += list(pair)
+            self._kept_at.append(started)
+            self._this_turn, self.turn_kept = pair, True
 
     # --- stopped turns ---------------------------------------------------------------
     # A stopped turn (the Stop button, or the owner talking over the reply) stays in the
@@ -137,21 +170,16 @@ class Assistant:
         kept = partial.strip()[: cfg.interrupted_keep_chars]
         return f"{kept} {cfg.interrupted_note}".strip()
 
-    def _keep_stopped(self, text: str, partial: str) -> None:
-        with self._history_lock:
-            self._history += [
-                {"role": "user", "content": text},
-                {"role": "assistant", "content": self._stopped_reply(partial)},
-            ]
-            self._kept_at.append(self.clock())
-        self.turn_kept = True
+    def _keep_stopped(self, text: str, partial: str, started: float) -> None:
+        self._keep(text, self._stopped_reply(partial), started)
 
     def replace_reply(self, said: str, stopped: bool = False) -> None:
         """The history keeps what the person was really shown and told, not the model's
         raw text: the socket's released text (a held-back false claim, markdown taken
         out of speech). Only this turn's entry: nothing if the turn wasn't kept."""
-        if self.turn_kept and self._history and self._history[-1]["role"] == "assistant":
-            self._history[-1]["content"] = self._stopped_reply(said) if stopped else said
+        with self._history_lock:  # by identity: never another turn's entry (W3)
+            if self.turn_kept and self._this_turn and self._kept(self._this_turn[1]):
+                self._this_turn[1]["content"] = self._stopped_reply(said) if stopped else said
 
     def mark_interrupted(self) -> None:
         """The last reply was finished but its speech was cut: the model should know
@@ -176,7 +204,9 @@ class Assistant:
         self, text: str, hooks: TurnHooks | None = None, input_mode: str = "text"
     ) -> Reply:
         hooks = hooks or TurnHooks()
+        started = self.clock()
         self.turn_kept = False  # is this turn in the history (for replace_reply)?
+        self._this_turn = None
         streamed: list[str] = []  # what reached the person so far, for a stopped turn
         if hooks.on_delta is not None:
             shown = hooks.on_delta
@@ -200,7 +230,7 @@ class Assistant:
         except BaseException as exc:  # includes Ctrl-C: still write the telemetry line
             trace.finish(success=False, error=f"{type(exc).__name__}: {exc}")
             if isinstance(exc, LLMCancelled):  # stopped: keep it, so "continue" works
-                self._keep_stopped(text, "".join(streamed))
+                self._keep_stopped(text, "".join(streamed), started)
             if isinstance(exc, Exception):
                 raise RequestFailed(calls_made) from exc
             raise  # Ctrl-C, SystemExit: unchanged, so `except Exception` can't swallow them
@@ -209,14 +239,7 @@ class Assistant:
             finish_turn(turn.turn_id)  # e.g. the browser shows "idle" again
         trace.record_text("assistant", reply.text)
         reply.telemetry = trace.finish(success=True)
-        with self._history_lock:
-            self._history += [
-                {"role": "user", "content": text},
-                {"role": "assistant", "content": reply.text},
-            ]
-            self._last_turn_end = self.clock()
-            self._kept_at.append(self._last_turn_end)
-        self.turn_kept = True
+        self._keep(text, reply.text, started)
         return reply
 
     def _ask(
@@ -258,6 +281,8 @@ class Assistant:
                 made = {"name": call.name, "arguments": call.arguments, "ok": result.ok}
                 if result.asks:
                     made["asks"] = result.asks  # a reason label only (truth.py)
+                if result.report:
+                    made["report"] = result.report  # the tool's own summary (memory)
                 calls_made.append(made)
                 if hooks.on_tool:
                     hooks.on_tool(call.name, result.ok)

@@ -56,7 +56,7 @@ def test_a_note_reaches_the_next_prompt_as_data(settings: Settings, tmp_path: Pa
         ws.send_json({"type": "text", "text": "When is my bus?"})
         turn_frames(ws)
     assert first[2]["type"] == "memory" and first[2]["count"] == 0
-    assert reply_of(got) == "Okay, I'll remember that."
+    assert reply_of(got) == "Okay, I'll remember that. Noted: I take the 8:10 bus."  # S3
     assert any(isinstance(f, dict) and f.get("type") == "memory" and f["count"] == 1 for f in got)
     system = system_of(h)
     head = prompt_lines(h.settings).memory_head

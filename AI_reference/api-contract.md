@@ -303,7 +303,9 @@ status:"active"|"pending", say_aloud:bool}`.
 HTTP (all behind the usual Host, Origin and JSON content-type checks; a POST/PATCH
 body must be JSON, `415` otherwise):
 - `GET /api/memory` → `{notes:[Note], count, max}`, newest first.
-- `POST /api/memory/{id}/keep` (body `{}`) → `Note`. `404` unknown id.
+- `POST /api/memory/{id}/keep` (body `{}`) → `Note`. `404` unknown id; `409` if the note
+  isn't waiting (only a voice-made note can be kept, so a stale click never makes a
+  private note readable on wake turns).
 - `PATCH /api/memory/{id}` `{say_aloud: bool}` (nothing else) → `Note`. `409` on a
   pending note (keep it first).
 - `DELETE /api/memory/{id}` → `{ok:true}`.
@@ -325,12 +327,22 @@ WebSocket, server → every socket:
   dropped every conversation's turns from the last `since_s` seconds; each page drops
   its own on-screen turns from that window too.
 
-Server lines (from `profile.memory.lines`, never the model): a claimed save or forget
-that no tool made gets "I didn't save that." / "Nothing was forgotten."; a password,
-PIN or code is refused with "I don't store passwords, PINs or codes.", and that reply
-replaces the model's on every path (held, so the secret is never shown) while the
-history keeps the owner's message with the secret masked. A wake turn can forget only
-voice-made notes; the rest, a time window and everything are for the screen.
+Server lines (from `profile.memory.lines`, never the model):
+- a claimed save or forget that no tool made gets "I didn't save that." / "Nothing was
+  forgotten.";
+- a note that was kept is shown back: "Noted: I take the 8:10 bus." (spoken: long notes
+  just "Noted.");
+- a forget by talking is answered by the server from the counts ("Forgot 1 note and 2
+  earlier turns."), never with a note's text;
+- "forget everything" by talking always shows "Forget all your notes? Say yes to
+  confirm."; only a plain yes in the very next message clears them;
+- a password, PIN, code, combination or long number is refused with "I don't store
+  passwords, PINs, codes or long numbers.": that reply replaces the model's on every
+  path, wake turns included (held, so the secret is never shown or spoken), and the
+  history keeps the owner's messages with the secret and every number masked.
+A wake turn can forget only voice-made notes; the rest, a time window and everything
+are for the screen. By talking, a note is named by the owner's own words ("forget the
+note about the bus"), never by an id.
 
 ## Changes
 - v0.1 (2026-11-14): `speak` query parameter; one conversation per socket stated;

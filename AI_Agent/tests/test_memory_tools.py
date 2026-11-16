@@ -24,7 +24,8 @@ def test_remember_keeps_the_owners_words(tmp_path: Path) -> None:
     store, _ = make_store(tmp_path)
     with turn("Remember that I take the 8:10 bus."):
         got = tools(store).remember(text="the owner takes the 8:10 bus")
-    assert got == {"saved": "the owner takes the 8:10 bus", "status": "active"}
+    assert got["saved"] == "the owner takes the 8:10 bus" and got["status"] == "active"
+    assert got["report"] == {"noted": "the owner takes the 8:10 bus"}  # S3: shown back
     assert store.active()[0].source == "chat"
 
 
@@ -96,7 +97,8 @@ def test_forget_that_the_last_note(tmp_path: Path) -> None:
     with turn("Remember that the bins go out Thursday."):
         memory.remember(text="the bins go out Thursday")
     with turn("Remember that the bins go out Thursday.", "Forget that."):
-        assert memory.forget(which="last") == {"forgot": 1, "notes": ["the bins go out Thursday"]}
+        got = memory.forget(which="last")
+    assert got == {"forgot": {"notes": 1}, "report": {"notes": 1}}  # W1: no text
     assert not store.notes
 
 
@@ -107,7 +109,7 @@ def test_forget_by_words_and_ambiguity(tmp_path: Path) -> None:
     store.add("the school bus is at 7:50", "chat", "main")
     memory = tools(store)
     with turn("Forget the note about the bins."):
-        assert memory.forget(which="bins")["forgot"] == 1
+        assert memory.forget(which="bins")["forgot"] == {"notes": 1}
     with turn("Forget the note about the bus."):
         assert reason(memory.forget, which="bus") == "which_note"  # two match: ask
 
@@ -130,7 +132,8 @@ def test_forget_minutes_must_be_said(tmp_path: Path) -> None:
     with turn("Forget the last 5 minutes."):
         assert reason(memory.forget, minutes=60) == "bad_minutes"  # "60" wasn't said
         got = memory.forget(minutes=5)
-    assert got == {"forgot": 1, "notes": ["new"], "turns": 2} and dropped == [300.0]
+    counts = {"notes": 1, "turns": 2}
+    assert got == {"forgot": counts, "report": counts} and dropped == [300.0]
 
 
 def test_forget_everything_needs_a_yes(tmp_path: Path) -> None:
@@ -146,7 +149,7 @@ def test_forget_everything_needs_a_yes(tmp_path: Path) -> None:
     with turn("Forget everything."):
         reason(memory.forget, everything=True)
     with turn("Forget everything.", "Yes."):
-        assert memory.forget(everything=True) == {"forgot": 2}
+        assert memory.forget(everything=True)["forgot"] == {"notes": 2}
     assert not store.notes
 
 
@@ -165,7 +168,7 @@ def test_wake_forgets_only_voice_notes(tmp_path: Path) -> None:
     with turn("forget the note about the bins", mode="wake"):
         assert reason(memory.forget, which="bins") == "on_screen"
     with turn("forget the note about the plants", mode="wake"):
-        assert memory.forget(which="plants") == {"forgot": 1}  # the count only
+        assert memory.forget(which="plants")["forgot"] == {"notes": 1}  # the count only
     with turn("forget everything", mode="wake"):
         assert reason(memory.forget, everything=True) == "on_screen"
     assert voice.id not in store.notes and len(store.notes) == 1
@@ -181,15 +184,22 @@ def test_forget_needs_a_request(tmp_path: Path) -> None:
 # --- list ----------------------------------------------------------------------------------
 
 
-def test_list_on_wake_gives_counts_and_voice_notes(tmp_path: Path) -> None:
+def test_list_shows_no_waiting_text_and_wake_only_say_aloud(tmp_path: Path) -> None:
+    """R4: a waiting note is only counted, in every result; a wake turn lists only
+    notes marked ok to say aloud (not voice notes the owner turned off)."""
     store, _ = make_store(tmp_path)
     store.add("SECRET-HEALTH-NOTE", "chat", "main")
-    store.add("the plants need water", "wake", "voice")
+    store.add("WAITING: the doors unlocked at night", "wake", "voice")
+    kept = store.keep(store.add("the plants need water", "wake", "voice").id)
+    store.set_say_aloud(kept.id, False)  # kept by voice, then made private again
+    shared = store.add("the bins go out Thursday", "chat", "main")
+    store.set_say_aloud(shared.id, True)
     with turn("what do you remember?", mode="wake"):
         got = tools(store).list_memories()
-    assert got == {"active": 1, "pending": 1, "voice_made": ["the plants need water"]}
+    assert got == {"say_aloud": ["the bins go out Thursday"], "others": 2, "waiting": 1}
     with turn("What do you remember?"):
-        assert len(tools(store).list_memories()["notes"]) == 2
+        chat = tools(store).list_memories()
+    assert chat["waiting"] == 1 and "WAITING" not in str(chat) and len(chat["notes"]) == 3
 
 
 def test_wake_turns_keep_the_memory_tools(tmp_path: Path) -> None:

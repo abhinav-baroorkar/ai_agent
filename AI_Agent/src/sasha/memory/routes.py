@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 
 from sasha.memory.store import MemoryError, MemoryStore
 
-STATUS = {"unknown": 404, "pending": 409, "full": 409}
+STATUS = {"unknown": 404, "pending": 409, "not_pending": 409, "full": 409}
 JsonBody = Callable[[Request], Awaitable[dict[str, Any]]]
 
 
@@ -51,8 +51,8 @@ def add_memory_routes(app: FastAPI, store: MemoryStore, json_body: JsonBody) -> 
         the owner to confirm first. The report lists exactly what went."""
         body = await json_body(request)
         if body == {"everything": True}:
-            items = [{"id": n.id, "text": n.text} for n in store.all()]
-            await run_in_threadpool(store.clear)
+            gone = await run_in_threadpool(store.clear)
+            items = [{"id": n.id, "text": n.text} for n in gone]
             return {"count": len(items), "items": items, "turns": {}}
         minutes = body.get("minutes")
         if set(body) != {"minutes"} or isinstance(minutes, bool) or not isinstance(minutes, int):
