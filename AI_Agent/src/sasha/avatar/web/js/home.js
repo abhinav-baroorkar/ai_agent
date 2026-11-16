@@ -52,15 +52,18 @@ export async function initHome(health, onOnline) {
   // then "listening" while the listener takes the command (visual only; the microphone
   // is the listener's, and nothing here waits for the animation).
   let wokenUntil = 0;
-  function woken() {
+  // `entrance`: the shell has just shown the window (or Home wasn't in view): the full
+  // gathering entrance; otherwise the orb only brightens, with no shrink.
+  function woken(entrance = true) {
     wokenUntil = performance.now() + WOKEN_MS;
-    if (face.enter) face.enter();
+    if (face.enter) face.enter(entrance !== false);
     render();
     setTimeout(render, WOKEN_MS + 50);
   }
-  window.addEventListener('assistant-wake', woken);
+  window.addEventListener('assistant-wake', (ev) => woken(ev.detail?.entrance));
   // a wake that arrived while the page was still starting (the shell's cold start)
-  if (performance.now() - (window.assistantWokeAt ?? -1e9) < 3000) woken();
+  const early = window.assistantWake;
+  if (early && performance.now() - early.at < 3000) woken(early.entrance);
 
   face.setLevelSource(() => {
     if (player.active) return player.level();
