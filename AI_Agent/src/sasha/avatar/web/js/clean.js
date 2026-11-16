@@ -1,5 +1,7 @@
 // Everything the server sends is checked into a known shape here, once, so
 // the rest of the UI can call string and array methods without guarding.
+import { STYLE_IDS } from './faces/styles.js';
+
 const str = (v, fallback = '') => (typeof v === 'string' ? v : v == null ? fallback : String(v));
 const list = (v) => (Array.isArray(v) ? v.map((x) => str(x)) : []);
 
@@ -8,6 +10,8 @@ export function cleanBot(b) {
   return {
     id: str(bot.id), name: str(bot.name, 'Unnamed bot') || 'Unnamed bot', model: str(bot.model, 'unknown'),
     system_prompt: str(bot.system_prompt), connectors: list(bot.connectors), builtin: bot.builtin === true,
+    style: STYLE_IDS.includes(bot.style) ? bot.style : 'glow', // how its orb breathes
+    hasStyle: typeof bot.style === 'string', // the server knows about styles (it refuses fields it doesn't)
   };
 }
 

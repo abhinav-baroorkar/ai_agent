@@ -28,10 +28,10 @@ export function initBots(health) {
   const panel = initBrowserPanel(health);
 
   const canBrowse = (bot) => connectors.some((c) => c.kind === 'browser' && bot.connectors.includes(c.id));
-  const look = (bot) => ({ color: colorOf(bot), uses: usesOf(bot, connectors), purpose: purposeOf(bot, name, MAIN) });
+  const look = (bot) => ({ style: bot.style, color: colorOf(bot), uses: usesOf(bot, connectors), purpose: purposeOf(bot, name, MAIN) });
   function orb(bot, size) {
-    const key = `${bot.id}:${size}`;
-    if (!orbs.has(key)) orbs.set(key, miniOrb(colorOf(bot), size));
+    const key = `${bot.id}:${size}:${bot.style}`;
+    if (!orbs.has(key)) orbs.set(key, miniOrb(colorOf(bot), size, { style: bot.style }));
     return orbs.get(key);
   }
 
@@ -131,7 +131,7 @@ export function initBots(health) {
 
   const setup = initSetup({
     health,
-    lists: () => ({ bots, connectors, mainId: MAIN }),
+    lists: () => ({ bots, connectors, mainId: MAIN, styles: bots.some((b) => b.hasStyle) }),
     async saved(bot, isNew) {
       await load();
       if (isNew) go(cleanBot(bot).id); else location.hash = open.has(bot.id) && active === bot.id ? '#chat' : '#bots';

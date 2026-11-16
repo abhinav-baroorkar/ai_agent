@@ -6,6 +6,10 @@ import { $, h, clear } from './dom.js';
 import { cleanModel } from './clean.js';
 import { STARTS, useWord } from './bot-look.js';
 import { miniOrb } from './faces/mini-orb.js';
+import { stylePicker } from './style-picker.js';
+import { colorOf } from './bot-look.js';
+
+const START_COLORS = { web: [114, 214, 196], write: [179, 166, 245], blank: [140, 196, 245] };
 
 const WHY_ONE = (name) => 'Why only one? A web page can contain hidden instructions. A bot that reads the web is kept away ' +
   `from your home and your accounts, so a page can’t tell it to do anything there. ${name} itself can’t browse the web yet; ` +
@@ -17,7 +21,7 @@ export function initSetup({ health, lists, saved, deleted }) {
   let models = [];
 
   function begin({ bot, start }) {
-    const { bots, connectors, mainId } = lists();
+    const { bots, connectors, mainId, styles } = lists();
     const main = bots.find((b) => b.id === mainId);
     const browser = connectors.find((c) => c.kind === 'browser');
     const own = connectors.filter((c) => c.kind !== 'browser');
@@ -25,9 +29,9 @@ export function initSetup({ health, lists, saved, deleted }) {
     const preset = STARTS.find((x) => x.id === start) || (bot ? null : STARTS[0]);
     const skip = !!start;
     s = {
-      mainId, bot: bot || null, step: bot ? 0 : skip ? 2 : 1, start: preset ? preset.id : 'web', browser, own,
+      mainId, styles, bot: bot || null, step: bot ? 0 : skip ? 2 : 1, start: preset ? preset.id : 'web', browser, own,
       name: bot ? bot.name : preset ? preset.name : '', prompt: bot ? bot.system_prompt : preset ? preset.prompt : '',
-      model: bot ? bot.model : main ? main.model : '', error: '', sure: false,
+      model: bot ? bot.model : main ? main.model : '', error: '', sure: false, style: bot ? bot.style : preset ? preset.style || 'glow' : 'glow',
       use: bot ? (browser && bot.connectors.includes(browser.id) ? 'web' : bot.connectors.length ? 'own' : 'none') : preset ? preset.use : 'none',
       picked: new Set(bot ? bot.connectors.filter((id) => own.some((c) => c.id === id)) : own.filter((c) => c.enabled).map((c) => c.id)),
     };
@@ -41,7 +45,7 @@ export function initSetup({ health, lists, saved, deleted }) {
   function purposeBlock() {
     return h('div', { class: 'choices', role: 'radiogroup', 'aria-label': 'Starting point' }, ...STARTS.map((x) => h('button', {
       class: 'choice', type: 'button', role: 'radio', 'aria-checked': String(s.start === x.id),
-      onclick: () => { Object.assign(s, { start: x.id, name: x.name, prompt: x.prompt, use: x.use === 'web' && !(s.browser && s.browser.enabled) ? 'none' : x.use }); render(); },
+      onclick: () => { Object.assign(s, { start: x.id, name: x.name, prompt: x.prompt, style: x.style || 'glow', use: x.use === 'web' && !(s.browser && s.browser.enabled) ? 'none' : x.use }); render(); },
     }, miniOrb(x.id === 'web' ? [114, 214, 196] : x.id === 'write' ? [179, 166, 245] : [140, 196, 245], 56), h('h3', {}, x.title), h('p', {}, x.about))));
   }
 
@@ -87,10 +91,17 @@ export function initSetup({ health, lists, saved, deleted }) {
         }))));
   }
 
+  function styleBlock() {
+    const color = s.bot ? colorOf(s.bot) : START_COLORS[s.start] || START_COLORS.blank;
+    return stylePicker({ color, value: s.style, onPick: (id) => { s.style = id; } });
+  }
+
   // --- saving and deleting ---------------------------------------------------------
   function body() {
     const ids = s.use === 'web' && s.browser ? [s.browser.id] : s.use === 'own' ? s.own.filter((c) => s.own.length === 1 || s.picked.has(c.id)).map((c) => c.id) : [];
     const out = { model: s.model, connectors: ids };
+    // only to a server that knows the field; the wake-word bot has no style of its own
+    if (s.styles && !(s.bot && s.bot.builtin && s.bot.id !== s.mainId)) out.style = s.style;
     if (!(s.bot && s.bot.builtin)) Object.assign(out, { name: s.name.trim(), system_prompt: s.prompt.trim() });
     return out;
   }
@@ -129,25 +140,34 @@ export function initSetup({ health, lists, saved, deleted }) {
     const error = s.error && h('p', { class: 'form-error', role: 'alert' }, s.error);
     const cancel = h('a', { class: 'btn quiet', href: '#bots' }, 'Cancel');
     if (s.bot) { // Change: everything on one page
-      clear(root).append(h('h1', {}, `Change ${s.bot.name}`),
+      clear(root).append(...[h('h1', {}, `Change ${s.bot.name}`),
         h('section', {}, h('h2', {}, 'What it is called and what it does'), nameBlock()),
         h('section', {}, h('h2', {}, 'What it may use'), ...usesBlock()),
+        s.styles && (!s.bot.builtin || s.bot.id === s.mainId) && h('section', {}, h('h2', {}, 'How it breathes'),
+          s.bot.id === s.mainId && h('p', { class: 'lede' }, 'This is the orb on the first screen. The wake word answers in the same style.'), styleBlock()),
         error, h('div', { class: 'setup-foot' }, h('button', { class: 'btn primary big', type: 'button', onclick: save }, 'Save changes'), cancel),
         !s.bot.builtin && h('section', { class: 'danger-zone' },
           h('p', {}, s.sure ? `Delete ${s.bot.name}? Its instructions and its open chat are removed. This can’t be undone.` : 'Finished with this bot? You can delete it.'),
           h('button', { class: 'btn danger', type: 'button', onclick: remove }, s.sure ? `Yes, delete ${s.bot.name}` : 'Delete this bot'),
-          s.sure && h('button', { class: 'btn quiet', type: 'button', onclick: () => { s.sure = false; render(); } }, 'Keep it')));
+          s.sure && h('button', { class: 'btn quiet', type: 'button', onclick: () => { s.sure = false; render(); } }, 'Keep it'))].filter(Boolean)); // parts that don't apply to this bot are left out
       return;
     }
-    const titles = ['What should this bot help with?', 'What may it use?', 'Name it'];
-    const subs = ['Pick a starting point. You can change everything afterwards.', 'Choose one. Everything runs on this computer.', 'Give it a name and say what it should do. You can change this later.'];
-    const steps = h('div', { class: 'steps' }, ...['What is it for', 'What may it use', 'Name it'].flatMap((t, i) => [i ? h('i') : null, h(i + 1 === s.step ? 'b' : 'span', {}, `${i + 1} ${t}`)]));
-    const block = s.step === 1 ? [purposeBlock()] : s.step === 2 ? usesBlock() : [nameBlock()];
+    const all = [
+      ['What is it for', 'What should this bot help with?', 'Pick a starting point. You can change everything afterwards.', () => [purposeBlock()]],
+      ['What may it use', 'What may it use?', 'Choose one. Everything runs on this computer.', () => usesBlock()],
+      ['How it breathes', 'How should it breathe?', 'Pick how its orb moves. It changes only the look, not what the bot does.', () => [styleBlock()]],
+      ['Name it', 'Name it', 'Give it a name and say what it should do. You can change this later.', () => [nameBlock()]],
+    ];
+    const plan = s.styles ? all : all.filter((x) => x[0] !== 'How it breathes'); // a server without styles: three steps
+    const [, title, sub] = plan[s.step - 1];
+    const steps = h('div', { class: 'steps' }, ...plan.flatMap(([t], i) => [i ? h('i') : null, h(i + 1 === s.step ? 'b' : 'span', {}, `${i + 1} ${t}`)]));
+    const block = plan[s.step - 1][3]();
+    s.last = plan.length;
     const back = s.step > 1 ? h('button', { class: 'btn quiet', type: 'button', onclick: () => { s.step -= 1; s.error = ''; render(); } }, 'Back') : cancel;
-    const next = s.step < 3
+    const next = s.step < s.last
       ? h('button', { class: 'btn primary big', type: 'button', onclick: () => { s.step += 1; render(); } }, 'Next')
       : h('button', { class: 'btn primary big', type: 'button', onclick: save }, 'Make this bot');
-    clear(root).append(steps, h('h1', {}, titles[s.step - 1]), h('p', { class: 'lede' }, subs[s.step - 1]), ...block, error,
+    clear(root).append(steps, h('h1', {}, title), h('p', { class: 'lede' }, sub), ...block, error,
       h('div', { class: 'setup-foot' }, back, h('span', { class: 'grow' }), next));
   }
 
