@@ -248,6 +248,8 @@ class Conversation(TimerSocket):  # the timer side: server/timers/socket.py
             self.speaker.feed(piece)
 
     def _on_tool_threadsafe(self, name: str, ok: bool) -> None:  # from the worker thread
+        if (truth := self.timer_truth) is not None:
+            truth.on_tool(name, ok)  # before any later text: a failed lookup holds it
         self.loop.call_soon_threadsafe(self._on_tool, name, ok)  # in order with the text
 
     def _on_delta_threadsafe(self, piece: str) -> None:  # from the LLM worker thread

@@ -9,9 +9,12 @@ import contextlib
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from sasha.browser.helper import BROWSE_TOOL
 from sasha.memory.check import owner_pair
 from sasha.memory.tools import MEMORY_TOOLS
 from sasha.memory.truth import MemoryTruth
+from sasha.prompting import prompt_lines
+from sasha.server.browse_truth import BrowseTruth
 from sasha.server.timers.service import TimerError
 from sasha.server.timers.status import kinds_asked, status_line
 from sasha.server.timers.tools import TIMER_TOOLS
@@ -122,4 +125,6 @@ class TimerSocket:
             wake = not self.timer_claims
             redact = assistant.redact_request
             checks.append(MemoryTruth(cfg, pair, self.speak, redact, wake=wake))
+        if BROWSE_TOOL in assistant.tools:  # a lookup that brought nothing back says so
+            checks.append(BrowseTruth(prompt_lines(assistant.settings), command))
         return ChainCheck(checks) if checks else None

@@ -98,6 +98,7 @@ def chrome_flags(profile: Path, proxy_port: int) -> list[str]:
         *isolation,
         f"--disable-features={disabled}",
         "--disable-gpu",
+        "--disable-extensions",  # review S1: none can run, also not by accident
         "--mute-audio",
         "--disable-quic",
         "--deny-permission-prompts",
