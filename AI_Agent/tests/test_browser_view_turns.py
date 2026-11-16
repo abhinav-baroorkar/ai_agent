@@ -132,7 +132,8 @@ def test_one_turn_holds_the_browser_and_a_new_holder_gets_no_old_tabs(
     harness = Harness(load_settings(), tmp_path)
     connector = BrowserConnector(BrowserBridge(service))
     harness.deps.connectors = ConnectorRegistry([connector], JsonStore(tmp_path / "c.json"))
-    client = TestClient(create_app(harness.deps, web_dir=None), base_url=BASE_URL, client=LOCAL)
+    harness.deps.window_token = WindowToken(TOKEN)
+    client = WindowClient(create_app(harness.deps, web_dir=None), base_url=BASE_URL, client=LOCAL)
 
     async def step(holder: str) -> None:
         async with service.acquire(holder, turn=True):

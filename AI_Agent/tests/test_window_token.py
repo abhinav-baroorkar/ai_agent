@@ -150,6 +150,9 @@ def _settings_in(settings: Settings, tmp_path: Path) -> Settings:
 def test_the_window_opens_on_the_start_page_never_with_the_token_on_its_command_line(
     settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    from sasha.app import launcher as app_launcher
+
+    monkeypatch.setattr(app_launcher, "available", lambda: False)  # the Chrome window
     spawned: list[list[str]] = []
     monkeypatch.setattr(launch, "is_running", lambda url, timeout_s=1.5: True)
     monkeypatch.setattr(launch.shutil, "which", lambda n: "/usr/bin/google-chrome")
@@ -169,6 +172,9 @@ def test_without_a_token_file_the_window_opens_plainly_and_says_so(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
+    from sasha.app import launcher as app_launcher
+
+    monkeypatch.setattr(app_launcher, "available", lambda: False)  # the Chrome window
     spawned: list[list[str]] = []
     monkeypatch.setattr(launch, "is_running", lambda url, timeout_s=1.5: True)
     monkeypatch.setattr(launch.shutil, "which", lambda n: "/usr/bin/google-chrome")
@@ -177,3 +183,17 @@ def test_without_a_token_file_the_window_opens_plainly_and_says_so(
     assert launch.open_window(s, spawn=lambda cmd, **kw: spawned.append(cmd) or _Proc()) == 0  # type: ignore[arg-type,func-returns-value]
     assert "--app=http://127.0.0.1:8765" in spawned[0]
     assert "browser panel will be refused" in capsys.readouterr().out
+
+
+def test_the_app_shell_reads_the_token_itself_and_loads_it_as_a_fragment(
+    settings: Settings, tmp_path: Path
+) -> None:
+    """With the app shell the token never needs a start page: the shell is given the
+    folder (a path), reads the private file, and loads `#t=<token>`."""
+    from sasha.app.launcher import shell_command
+    from sasha.app.shell import start_url
+
+    cmd = shell_command(_settings_in(settings, tmp_path), 8765, 9)
+    assert cmd[cmd.index("--state-dir") + 1].endswith("state") and TOKEN not in " ".join(cmd)
+    assert start_url(8765, "/", TOKEN) == f"http://127.0.0.1:8765/#t={TOKEN}"
+    assert start_url(8765, "/", None) == "http://127.0.0.1:8765/"

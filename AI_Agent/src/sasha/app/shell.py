@@ -20,6 +20,7 @@ from typing import Any
 
 from sasha.app import policy
 from sasha.app.single import NoRuntimeDir, notify, socket_path
+from sasha.server.window_token import read_token
 
 log = logging.getLogger(__name__)
 
@@ -84,6 +85,15 @@ class Shell:
     pending_wake: bool = False
 
 
+def start_url(port: int, start: str = "/", token: str | None = None) -> str:
+    """The page the shell loads. With the brain's token, as `#t=<token>`: the fragment
+    never reaches the server or a log, and the page strips it from the address at once
+    (take-over 9.0 C4). The shell reads the token from the brain's private file itself,
+    so it is never on a command line (the Chrome window needs the start page for that)."""
+    url = policy.own_origin(port) + (start if start.startswith("/") else "/")
+    return f"{url}#t={token}" if token else url
+
+
 def build(
     app: Any,
     port: int,
@@ -91,7 +101,8 @@ def build(
     title: str,
     icon: Path | None,
     start: str = "/",
-    intercept: bool = True,  # False only for the probe that shows the dead proxy alone
+    intercept: bool = True,
+    token: str | None = None,  # False only for the probe that shows the dead proxy alone
 ) -> Shell:
     """The window, its page and profile. Qt imports are here, so the module imports
     without PySide6 (the launcher checks for it first)."""
@@ -173,7 +184,7 @@ def build(
             page.runJavaScript(wake_js(True))  # a cold start: always just shown
 
     page.loadFinished.connect(loaded)
-    page.load(QUrl(policy.own_origin(port) + (start if start.startswith("/") else "/")))
+    page.load(QUrl(start_url(port, start, token)))
     return shell
 
 
@@ -212,6 +223,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--icon", type=Path, default=None)
     p.add_argument("--wake", action="store_true", help="started by the wake word")
     p.add_argument("--start-path", default="/", help="page to open (the visible check)")
+    p.add_argument("--state-dir", type=Path, default=None, help="where the brain's token is")
     a = p.parse_args(argv)
     from sasha.app.single import SingleInstance
 
@@ -228,7 +240,8 @@ def main(argv: list[str] | None = None) -> int:
     app = QApplication(sys.argv[:1])
     app.setApplicationName("assistant-window")  # the window class, for the menu entry
     app.setDesktopFileName("assistant-window")
-    shell = build(app, a.port, a.profile, a.title, a.icon, a.start_path)
+    token = read_token(a.state_dir) if a.state_dir else None  # None: the panel is refused
+    shell = build(app, a.port, a.profile, a.title, a.icon, a.start_path, token=token)
     single.serve(app, lambda command: bring_up(app, shell, command == "wake", a.notice))
     shell.window.show()
     if a.wake:

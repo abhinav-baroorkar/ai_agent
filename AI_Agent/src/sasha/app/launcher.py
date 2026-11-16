@@ -58,6 +58,9 @@ def shell_command(settings: Settings, port: int, dead_proxy: int, wake: bool = F
         notice,
         "--icon",
         str(ICON),
+        # the shell reads the brain's per-launch token itself (a path, never the token)
+        "--state-dir",
+        str(settings.paths.state_dir),
     ]
     return [*cmd, "--wake"] if wake else cmd
 
