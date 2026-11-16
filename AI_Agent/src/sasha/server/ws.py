@@ -27,6 +27,10 @@ from sasha.orchestrator import Assistant, Reply, RequestFailed, TurnHooks
 from sasha.pipeline.llm import LLMCancelled, OllamaError
 from sasha.server.speech import Speaker
 from sasha.server.spoken import SpokenStream
+from sasha.server.timers.hub import Hub
+from sasha.server.timers.ring import RingPlayer
+from sasha.server.timers.socket import TimerSocket
+from sasha.server.timers.truth import TimerTruth
 from sasha.server.voice import MIC_SAMPLE_RATE, VoiceStages, max_recording_bytes
 
 log = logging.getLogger(__name__)
@@ -50,7 +54,7 @@ def _failure_message(failed: RequestFailed) -> str:
     return f"Something went wrong ({type(cause).__name__})"
 
 
-class Conversation:
+class Conversation(TimerSocket):  # the timer side: server/timers/socket.py
     def __init__(
         self,
         ws: WebSocket,
@@ -58,6 +62,7 @@ class Conversation:
         voice: VoiceStages,
         speak: bool = False,
         language: str = "en",
+        timers: Hub | None = None,
     ) -> None:
         self.ws = ws
         self.assistant = assistant
@@ -74,6 +79,13 @@ class Conversation:
         self.turn: asyncio.Task[None] | None = None
         self.audio: bytearray | None = None
         self.loop = asyncio.get_running_loop()
+        # Timers (server/timers/): every socket gets the frames; a `speak=1` socket may
+        # be the one that speaks a ring (the Home window first, then the listener).
+        self.timers = timers
+        self.ring_role = "home" if speak else "tab"
+        self.ringer = RingPlayer(self, timers) if timers is not None else None
+        self.timer_claims = True  # check replies for claimed timer changes (truth.py)
+        self.timer_truth: TimerTruth | None = None  # set while a turn's reply streams
 
     # --- sending -------------------------------------------------------------
     def emit(self, frame: Frame) -> None:
@@ -111,6 +123,8 @@ class Conversation:
     async def run(self) -> None:
         writer = asyncio.create_task(self._writer())
         self.state("idle")
+        if self.timers is not None:
+            self.timers.add(self)  # the `timers` snapshot, and any missed-items line
         try:
             while True:
                 message = await self.ws.receive()
@@ -128,6 +142,10 @@ class Conversation:
                 self.speaker.cancel()
             if self.turn is not None:
                 self.turn.cancel()
+            if self.timers is not None:
+                self.timers.remove(self)
+            if self.ringer is not None:
+                self.ringer.close()
             self.voice.speaking.ended(id(self))  # in case speech was cut before tts_end
             self.outbox.put_nowait(None)
             with contextlib.suppress(asyncio.CancelledError):
@@ -154,6 +172,8 @@ class Conversation:
             self._on_audio_start(msg.get("sample_rate"))
         elif kind == "audio_stop":
             self._on_audio_stop()
+        elif kind in ("timer_dismiss", "timer_snooze"):
+            await self._on_timer_frame(kind, msg)
         else:
             self.error(f"Unknown message type '{kind[:40]}'")
 
@@ -210,6 +230,9 @@ class Conversation:
             self.speaker.feed(piece)
 
     def _on_delta_threadsafe(self, piece: str) -> None:  # from the LLM worker thread
+        truth = self.timer_truth
+        if truth is not None and not (piece := truth.feed(piece)):
+            return  # held: a spoken turn that asks for a timer (server/timers/truth.py)
         self.loop.call_soon_threadsafe(self._on_delta, piece)
 
     async def _turn(self, text: str, language: str, input_mode: str) -> None:
@@ -231,8 +254,9 @@ class Conversation:
                     if rest := self.spoken.finish():
                         self._emit_delta(rest)
                     shown = self.spoken.text
-                # The history keeps what was shown and spoken (a held-back claim on a wake
-                # turn, the speakable text on speak=1), not the model's raw text.
+                # The history keeps what was shown and spoken, after both truth checks (a
+                # wake turn's correction, the timers' "Nothing was set."), and the
+                # speakable text on speak=1: not the model's raw text.
                 self.assistant.replace_reply(shown)
                 calls = [{"name": c["name"], "ok": c["ok"]} for c in reply.tool_calls]
                 self.emit(
@@ -270,12 +294,20 @@ class Conversation:
             on_tool=lambda name, ok: self.emit_threadsafe({"type": "tool", "name": name, "ok": ok}),
             should_stop=self.stop.is_set,
         )
+        truth = self.timer_truth = self._timer_truth(text)
         try:
-            return await asyncio.to_thread(self.assistant.handle_text, text, hooks, input_mode)
+            reply = await asyncio.to_thread(self.assistant.handle_text, text, hooks, input_mode)
         except RequestFailed as failed:
             if not isinstance(failed.__cause__, LLMCancelled):
                 self.error(_failure_message(failed))
             return None
+        finally:
+            self.timer_truth = None
+        if truth is not None:  # no claimed timer change without a tool that made it
+            tail, reply.text = truth.finish(reply.text, reply.tool_calls)
+            if tail:
+                self._on_delta(tail)
+        return reply
 
     # --- voice -------------------------------------------------------------------
     def _on_audio_start(self, sample_rate: Any) -> None:

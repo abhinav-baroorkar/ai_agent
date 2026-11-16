@@ -24,18 +24,20 @@ from typing import Any
 
 from starlette.websockets import WebSocket
 
-from sasha.bots import VOICE_ID
 from sasha.config import ReplyLines, WakeConfig
+from sasha.conversation import current_turn
 from sasha.orchestrator import Assistant, Reply
-from sasha.prompting import prompt_lines
-from sasha.server.deps import ServerDeps
+from sasha.pipeline.stt import Transcript
 from sasha.server.speaking import ListenerPresence
 from sasha.server.speech import Speaker
+from sasha.server.timers.hub import Hub
+from sasha.server.timers.ring import StopWindow
+from sasha.server.timers.tools import TIMER_TOOLS, add_timer_tools
 from sasha.server.voice import MIC_SAMPLE_RATE, VoiceStages
-from sasha.server.wake import WakeGate, WakeMatcher
+from sasha.server.wake import WakeGate
 from sasha.server.wake_confirm import ConfirmFlow, PlaybackClock
-from sasha.server.wake_policy import CONTROL_TOOL, RateLimiter, WakeToolPolicy
-from sasha.server.wake_truth import TruthfulReply, wake_control_allowed
+from sasha.server.wake_policy import RateLimiter, WakeToolPolicy
+from sasha.server.wake_truth import TruthfulReply
 from sasha.server.ws import Conversation, Frame
 from sasha.telemetry import TelemetryWriter
 
@@ -49,59 +51,9 @@ def _reloaded(reply: Reply) -> bool:
     return any(float(s.get("meta", {}).get("load_ms") or 0) > RELOAD_MS for s in stages)
 
 
-async def open_listener(
-    ws: WebSocket, deps: ServerDeps, voice: VoiceStages, speak: bool
-) -> ListenerConversation:
-    """The listener's conversation: the `voice` bot, wrapped in the wake-turn policy."""
-    settings = deps.settings
-    bot = deps.bots.get(VOICE_ID)
-    assistant, warnings = await asyncio.to_thread(deps.make_assistant, bot)
-    for warning in warnings:
-        log.warning("Bot %s: %s", bot.id, warning)
-    wake_word, config = settings.assistant.wake_word, settings.profile.wake
-    matcher = WakeMatcher(
-        wake_word.phrase,
-        wake_word.variants,
-        config.fillers,
-        config.continuations,
-        wake_word.word_variants,
-    )
-    assert deps.wake_limiter is not None
-    conv = ListenerConversation(
-        ws,
-        assistant,
-        voice,
-        language=settings.assistant.languages.default,
-        config=config,
-        gate=WakeGate(matcher, config.armed_window_s, config.min_confidence),
-        limiter=deps.wake_limiter,
-        # Checked on every call: the opt-in, and truthful replies still on (the gate).
-        device_control=lambda: (
-            deps.bots.get(VOICE_ID).wake_device_control and wake_control_allowed(config)
-        ),
-        telemetry=deps.telemetry,
-        presence=deps.presence,
-        recheck_placement=deps.recheck_placement,
-        speak=speak,
-    )
-
-    def wake_prompt() -> str:
-        """What wake turns can really do now: the policy's view of the tools, without
-        device control unless it is allowed now; then the wake turn's own line (a hint;
-        TruthfulReply is the guarantee). Rebuilt every turn, so turning the opt-in on or
-        off takes effect at once, not at the next connection."""
-        control = conv.policy.device_control()
-        names = [n for n in conv.assistant.tools.names if n != CONTROL_TOOL or control]
-        prompt = deps.prompt_for(deps.bots.get(VOICE_ID), names, spoken=speak)
-        return f"{prompt}\n{config.prompt_note}"
-
-    conv.wake_prompt = wake_prompt
-    assistant.system_prompt = wake_prompt()
-    conv.times_word = prompt_lines(settings).times_word
-    return conv
-
-
 class ListenerConversation(Conversation):
+    """Opened by server/wake_open.py (`open_listener`)."""
+
     def __init__(
         self,
         ws: WebSocket,
@@ -116,8 +68,13 @@ class ListenerConversation(Conversation):
         presence: ListenerPresence,
         recheck_placement: Callable[[], None] = lambda: None,
         speak: bool = True,
+        timers: Hub | None = None,
     ) -> None:
-        super().__init__(ws, assistant, voice, speak=speak, language=language)
+        super().__init__(ws, assistant, voice, speak=speak, language=language, timers=timers)
+        self.ring_role = "listener" if speak else "tab"
+        self.capture_paused = False  # last pause_capture / resume_capture sent
+        self.timer_claims = False  # wake turns: TruthfulReply covers timer claims too
+        self.stop_window = StopWindow(self, timers) if timers is not None else None
         self.config = config
         self.gate = gate
         self.telemetry = telemetry
@@ -133,7 +90,11 @@ class ListenerConversation(Conversation):
         self.policy = WakeToolPolicy(
             config, device_control, limiter, self.confirm.blocking, self.record_tool
         )
-        assistant.tools = self.policy.wrap(assistant.tools)
+        tools = assistant.tools
+        if timers is not None and any(n in tools for n in TIMER_TOOLS):  # D4: voice-made
+            said = current_turn.get  # the owner's messages: wake commands, after the name
+            tools = add_timer_tools(tools, timers.service, "wake", self.confirm.blocking, said)
+        assistant.tools = self.policy.wrap(tools)
 
     def emit(self, frame: Frame) -> None:
         if isinstance(frame, bytes):
@@ -156,6 +117,8 @@ class ListenerConversation(Conversation):
             self.presence.set(id(self), False)
             self._disarm()
             self.confirm.cancel()
+            if self.stop_window is not None:
+                self.stop_window.close()
 
     def _background(self, fn: Callable[[], None]) -> None:
         async def run() -> None:
@@ -166,7 +129,21 @@ class ListenerConversation(Conversation):
 
         asyncio.create_task(run())  # noqa: RUF006 - fire and forget, errors logged
 
+    def ring_started(self, item_id: str) -> None:
+        if self.stop_window is not None:
+            self.stop_window.close()  # the next tone: the window before it ends
+
+    def ring_stopped(self, item_id: str) -> None:
+        super().ring_stopped(item_id)
+        if self.stop_window is not None and self.stop_window.item_id == item_id:
+            self.stop_window.close()  # T6: no window once its item has ended
+
+    async def ring_played(self, item_id: str) -> None:
+        if self.stop_window is not None:
+            await self.stop_window.open_after(item_id)
+
     def _on_pause(self, pause: bool) -> None:
+        self.capture_paused = pause
         self.emit(
             {"type": "pause_capture", "reason": "speaking"} if pause else {"type": "resume_capture"}
         )
@@ -265,16 +242,21 @@ class ListenerConversation(Conversation):
         audio, self.audio = bytes(self.audio), None
         if self.confirm.offer(audio):  # the answer to a pending question
             return
+        stop_for = self.stop_window.offer(audio) if self.stop_window is not None else None
+        if stop_for is not None:  # a segment in the stop window (D1)
+            self._start(self._segment(audio, stop_for))
+            return
         reason = self._drop_reason()
         if reason is not None:
             self._miss(reason, len(audio))
             return
         self._start(self._segment(audio))
 
-    def _drop_reason(self) -> str | None:
+    def _drop_reason(self, own_segment: bool = False) -> str | None:
+        """`own_segment`: asked from inside a segment's task, which is the busy one."""
         if self.paused:
             return "dropped_paused"
-        if self.busy:
+        if self.busy and not own_segment:
             return "dropped_busy"
         if self.voice.speaking.speaking():
             return "dropped_speaking"
@@ -283,7 +265,7 @@ class ListenerConversation(Conversation):
         return None
 
     # --- one segment -------------------------------------------------------------------
-    async def _segment(self, audio: bytes) -> None:
+    async def _segment(self, audio: bytes, stop_for: str | None = None) -> None:
         assert self.stt is not None
         queued = time.perf_counter()
         segment_bytes = len(audio)
@@ -306,13 +288,29 @@ class ListenerConversation(Conversation):
         finally:
             del audio
         done = time.perf_counter()
+        window = self.stop_window
+        if stop_for is not None and window is not None:
+            if window.judge(stop_for, heard):
+                return  # a stop word in the stop window: handled, the text dropped
+            if reason := self._drop_reason(own_segment=True):  # T7: as any other segment
+                self._miss(reason, segment_bytes)
+                return
+        stt_times = {
+            "stt_ms": round((done - started) * 1000, 1),  # decoding only
+            "stt_wait_ms": round((started - queued) * 1000, 1),  # queued behind others
+        }
+        await self._decide(heard, segment_bytes, stt_times)
+
+    async def _decide(
+        self, heard: Transcript, segment_bytes: int, stt_times: dict[str, float]
+    ) -> None:
+        assert self.stt is not None
         decision = self.gate.decide(heard.text, heard.confidence)
         language = heard.language or self.language
         confidence = heard.confidence
         del heard  # the transcript lives no longer than this decision
         timings: dict[str, Any] = {
-            "stt_ms": round((done - started) * 1000, 1),  # decoding only
-            "stt_wait_ms": round((started - queued) * 1000, 1),  # queued behind others
+            **stt_times,
             "stt_device": self.stt.model_version(),
             "variant": decision.variant,
             # numbers only, never the text: how sure the decoder was, and the bar

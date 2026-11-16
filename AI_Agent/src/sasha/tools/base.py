@@ -9,7 +9,12 @@ from typing import Any
 
 
 class ToolError(Exception):
-    """An expected failure the LLM should see as a message (bad input, not allowed...)."""
+    """An expected failure the LLM should see as a message (bad input, not allowed...).
+
+    `asks` is a reason label (never text) when the tool asks the person back, such as
+    the timers' "ambiguous_period": the server can then ask its own fixed question."""
+
+    asks: str = ""
 
 
 @dataclass(frozen=True)
@@ -35,6 +40,7 @@ class Tool:
 class ToolResult:
     ok: bool
     content: str  # JSON text passed back to the LLM
+    asks: str = ""  # the tool asked the person back: a reason label (ToolError.asks)
 
 
 class ToolRegistry:
@@ -78,11 +84,12 @@ class ToolRegistry:
         try:
             result = tool.handler(**clean)
         except ToolError as exc:
-            return _error(str(exc))
+            return _error(str(exc), exc.asks)
         except Exception as exc:
             return _error(f"{type(exc).__name__}: {exc}")
         return ToolResult(ok=True, content=json.dumps(result, ensure_ascii=False, default=str))
 
 
-def _error(message: str) -> ToolResult:
-    return ToolResult(ok=False, content=json.dumps({"error": message}, ensure_ascii=False))
+def _error(message: str, asks: str = "") -> ToolResult:
+    content = json.dumps({"error": message}, ensure_ascii=False)
+    return ToolResult(ok=False, content=content, asks=asks)
