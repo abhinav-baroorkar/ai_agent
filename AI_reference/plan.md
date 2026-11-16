@@ -152,7 +152,7 @@ the Phase 0 real-light gate stays open and must pass before the v0.1 release.
   owner changes it:
 
 1. Timers, alarms and reminders (in final review: the Home card is merged, the server part is in its last round).
-2. Memory ("remember that...").
+2. Memory ("remember that..."): merged 2026-11-16 (notes only when asked; voice notes wait for Keep; see `decisions.md`); not yet tried by the owner.
 3. A morning brief. It needs calendar and mail, so the parked send-guard question is asked
    before the mail part.
 4. Media control for whatever is playing.

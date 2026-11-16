@@ -795,3 +795,65 @@ Reviewed at `a507613` (LGTM; two should-fixes left for a follow-up, below). Deci
   a hand-back (the `restoring` state named in the take-over entry above).
 - **`feat/calc-tools` (merged as `86fde8e`):** calculate and convert tools with exact decimals,
   bounded, never `eval`.
+
+## 2026-11-16 — Memory merged (`feat/memory-server` `a46a7a4`, `feat/memory-ui` `a552f46`; `main` at `fc10776`, 1555 passed; contract v0.6)
+
+This is the built form of the memory design approved on 2026-11-15 (see that entry for the conditions).
+The reviewer's last review of `a46a7a4` with `a552f46` was LGTM. The limits and defaults below (5 notes
+per turn, 10 per 10 minutes from wake turns, about 1500 characters in the prompt, memory on or off per
+bot, one shared household memory) are from the design note kept in the team folder; the reviews did not
+list them as changed. Decisions, with reasons:
+- **Notes are made only when the owner explicitly asks** ("remember that ...", "note that ...").
+  No silent extraction and no suggested notes in v1. A note is kept in the first person, as said
+  ("I take the 8:10 bus"), so the Memory list reads in the owner's voice; the prompt tells the model
+  that "I", "me" and "my" in a note mean the owner. Why: memory is a lasting prompt channel, so only
+  what the owner said may enter it.
+- **Voice notes wait for Keep.** A note made on a wake-word turn is stored as pending, never goes into
+  any prompt, and shows on the owner's screen ("added by voice: keep or delete") in the Memory screen
+  and a card on Home. Only a kept note becomes active. Why: anyone in earshot can speak, including a
+  television.
+- **Wake turns read only notes marked "ok to say aloud".** Chat and window turns (the owner's own
+  screen) get all active notes. A note the owner keeps from a voice turn is marked "ok to say aloud",
+  because it was said aloud already. Why: a read on a wake turn is spoken into the room.
+- **M3: every word and number in a note must come from the owner's own messages** (checked word for
+  word). Nothing from a tool result, a web page, an email, a device name, or anything the model infers
+  or summarises. Why: a write that is only mostly checked becomes a lasting injection. This is
+  enforced by the check, not by the prompt.
+- **Secrets are refused and masked.** Passwords, PINs, codes, card and account numbers, keys, tokens
+  and long digit runs are neither stored nor left in the conversation's history. Why: a secret said
+  once must not stay anywhere.
+- **No silent eviction at 200 notes.** At the cap, new notes are refused and the reply says so ("my
+  notes are full; ask me to forget something"); pending notes count. Why: a note the owner relies on
+  vanishing is the memory version of a silent wrong time. At most 5 new notes per turn, and 10 per 10
+  minutes from wake turns.
+- **Forgetting is done by the server from structured fields, and it reports exactly what was removed.**
+  There are three levels: by note ("forget that", by id or by words; if more than one note matches,
+  it asks); by time window ("forget the last 5 minutes"), which removes the notes made in that window
+  and also every open conversation's own turns from it (Home, the listener, every chat), so the model
+  cannot quote them; and everything, only when the owner's message says "everything" or "all", and
+  only after a confirm. By voice the number of minutes must have been said, so a made-up "60" cannot
+  wipe an hour. Forgotten means gone: removed from the store and the prompt, nothing kept in a trash.
+- **Wake turns cannot forget beyond their own voice notes.** Forgetting anything else, a time window or
+  everything is refused by voice with "Do that on the screen, please." Why: the safer side, and no
+  spoken confirm is needed on the wake path.
+- **M1: a note can never cause a change.** On every turn of a bot with memory on, a changing call
+  (device control, scenes, timer set, change or cancel) is allowed only when the owner's own words
+  name both the target and the action; the action must be in the current message, and the target may
+  come from the owner's last 2 messages within 3 minutes (never for locks, alarm panels or covers; see
+  the relaxation entry above). Notes, tool results and the model's replies never count. Why: that is
+  what makes a stored note harmless. For cancel and snooze, an item id from the model counts as named
+  only when the owner's words name that very item (all of its label's words, or its kind when it is the
+  only active one of that kind, or it is ringing now).
+- **The memory section is shown to the model as data, never as instructions,** in a fixed-heading
+  block, newest first and bounded to about 1500 characters; it is never part of the browse helper's
+  context, and browser bots get no memory at all. Memory is on by default for the main assistant and
+  the window, off for new bots.
+- **Truthfulness:** a reply that claims "I'll remember that" or "I've forgotten that" when no memory
+  tool succeeded gets the server's own line, as for timers; the history keeps what was really said.
+- **Household:** one shared memory for now (one per person needs speaker identification, Phase 3).
+- **Known limits (from the reviews):** on wake turns the target of a change may be taken from an
+  earlier wake transcript, which anyone in the room could have said; locks and similar never carry a
+  target over, and lights and media are low-harm. A review nit is open: when an item is ringing, its id
+  passes even if the owner named a different item's label.
+- **Not tried by the owner yet:** the Memory screen and the Home card for waiting voice notes, and a
+  real voice note.
