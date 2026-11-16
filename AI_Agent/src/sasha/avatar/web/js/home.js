@@ -36,9 +36,9 @@ export async function initHome(health, onOnline) {
   let attempt = 0; // bumped by every stop and every leave; a start that sees it change gives up
   const onHome = () => ['', '#home'].includes(location.hash);
   const realMic = !MOCK || params.get('mic') === 'real'; // mock mode normally uses a pretend microphone
-  let ender = null;
+  let ender = null; // listens for the end of speech while recording
   let audioSent = false; // audio_start has gone out for the recording in progress
-  let flush = null; // sends a recording that was finished before the server was ready // listens for the end of speech while recording
+  let flush = null; // sends a recording that was finished before the server was ready
   let level = 0; // the microphone level of the last frame, 0..1
   let stopMock = null;
   let backstops = []; // wall-clock timers that close the microphone even if no frames arrive
@@ -295,6 +295,9 @@ export async function initHome(health, onOnline) {
   function leave() {
     if (starting) stopMic(false);
     if (recording) discard();
+    // a recording sent with "send now" but still waiting for the server: leaving drops it too,
+    // so no spoken turn starts after the owner has gone
+    if (flush && conv.waiting === flush) conv.waiting = null;
     if (player.active) {
       stopAnswer();
       conv.cancel();
