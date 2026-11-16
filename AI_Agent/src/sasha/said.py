@@ -82,24 +82,29 @@ def _entities(entity_id: Any) -> list[str]:
 
 
 def device_change_said(
-    owner_text: str, arguments: Mapping[str, Any], names: Mapping[str, str]
+    owner_text: str, arguments: Mapping[str, Any], names: Mapping[str, str], earlier: str = ""
 ) -> bool:
-    """`call_service(domain, service, entity_id, data)` named in `owner_text`?"""
+    """`call_service(domain, service, entity_id, data)` named in `owner_text`? The target
+    may also come from `earlier` (the owner's own recent messages, built by the
+    orchestrator: "is the bedroom light on?" then "turn it off"); the action only ever
+    from `owner_text`."""
     said = words(owner_text)
+    targets = said | words(earlier)
     domain, service = str(arguments.get("domain", "")), str(arguments.get("service", ""))
     entities = _entities(arguments.get("entity_id"))
     if not entities:
         return False
     for entity in entities:
         if entity == "all":
-            if domain == "scene" or not said & KIND_WORDS.get(domain, {domain}):
+            if domain == "scene" or not targets & KIND_WORDS.get(domain, {domain}):
                 return False
             continue
         target = _target_words(domain, entity, names.get(entity))
-        if not target or not said & target:
+        if not target or not targets & target:
             return False
-    if domain == "scene":
-        return service == "turn_on"  # the scene's own name, checked above, is the action
+    if domain == "scene":  # the scene's own name is the action: said this turn
+        named_now = (said & _target_words(domain, e, names.get(e)) for e in entities)
+        return service == "turn_on" and all(named_now)
     data = arguments.get("data")
     sets_value = isinstance(data, dict) and bool(SETTING_KEYS & set(data))
     if service == "turn_on" and sets_value and (said & SETTING_WORDS or "%" in owner_text):
@@ -128,9 +133,11 @@ class SaidGuard:
                 if isinstance(device, dict) and isinstance(device.get("entity_id"), str):
                     self.names[device["entity_id"]] = str(device.get("name") or "")[:60]
 
-    def __call__(self, tool: str, arguments: dict[str, Any], owner_text: str) -> bool:
+    def __call__(
+        self, tool: str, arguments: dict[str, Any], owner_text: str, earlier: str = ""
+    ) -> bool:
         if tool != DEVICE_TOOL:
             return False  # fails closed: only device changes can be checked
         if any(e not in self.names for e in _entities(arguments.get("entity_id")) if e != "all"):
             self._refresh()
-        return device_change_said(owner_text, arguments, self.names)
+        return device_change_said(owner_text, arguments, self.names, earlier)

@@ -22,6 +22,8 @@ class Tool:
     read_only: bool = False
     # Its result is outside text (a web page) that may try to steer the model (P1).
     taints: bool = False
+    # It runs its own said-check (timers, memory), so the orchestrator's guard defers.
+    said_checked: bool = False
 
     def spec(self) -> dict[str, Any]:
         """Tool spec in the OpenAI/Ollama function-calling format."""

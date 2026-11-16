@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -16,9 +17,13 @@ from sasha.tools import ToolRegistry
 from sasha.tools.base import ToolResult
 
 # Review P1: while outside text (a `browse` result) is in the conversation, a changing
-# tool must be named by the owner's current message. (tool, arguments, owner's message)
-# -> did he say it? Built per bot (sasha/said.py); without one, every such call is refused.
-ChangeGuard = Callable[[str, dict[str, Any], str], bool]
+# tool must be named by the owner's current message. (tool, arguments, owner's message,
+# his earlier recent messages) -> did he say it? Built per bot (sasha/said.py); without
+# one, every such call is refused. `earlier` is built here, never by the model: the
+# owner's messages of the last 2 kept turns that ended within `llm.target_window_s`
+# (a target like "the bedroom light" may come from there; the action never does).
+ChangeGuard = Callable[[str, dict[str, Any], str, str], bool]
+EARLIER_TURNS = 2
 SAME_TURN = "Changes can't follow a web lookup in the same request; ask the owner to say it again"
 NAME_IT = "Say which device and what to do, and I'll do it."
 
@@ -96,6 +101,8 @@ class Assistant:
         system_prompt: str | None = None,
         max_rounds: int | None = None,
         change_guard: ChangeGuard | None = None,
+        always_guard: bool = False,  # memory-on bots (M1): the guard on every turn
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.settings = settings
         self.llm = llm
@@ -105,8 +112,11 @@ class Assistant:
         self.system_prompt = system_prompt or settings.assistant.render_system_prompt()
         self.max_rounds = max_rounds  # None: the profile's max_tool_rounds
         self.change_guard = change_guard
+        self.always_guard = always_guard
+        self.clock = clock
         self._history: list[Message] = []
         self._browsed: list[bool] = []  # per kept turn: did it bring in outside text?
+        self._ended: list[float] = []  # per kept turn: when it ended (`clock`)
         self._turn_browsed = False
         self.last_tool_calls: list[dict[str, Any]] = []
         self.turn_kept = False  # the last turn is in the history (see replace_reply)
@@ -118,6 +128,7 @@ class Assistant:
     def reset(self) -> None:
         self._history.clear()
         self._browsed.clear()
+        self._ended.clear()
 
     @property
     def tainted(self) -> bool:
@@ -130,6 +141,7 @@ class Assistant:
             {"role": "assistant", "content": reply},
         ]
         self._browsed.append(self._turn_browsed)
+        self._ended.append(self.clock())
         self.turn_kept = True
 
     # --- stopped turns ---------------------------------------------------------------
@@ -271,15 +283,31 @@ class Assistant:
     def _taints(self, name: str) -> bool:
         return name in self.tools and self.tools.get(name).taints
 
+    def earlier_owner_text(self) -> str:
+        """The owner's messages of the last `EARLIER_TURNS` kept turns that ended within
+        `llm.target_window_s` (for the said-check's target words; see ChangeGuard)."""
+        window = self.settings.profile.llm.target_window_s
+        now = self.clock()
+        users = [m for m in self._history if m["role"] == "user"]
+        recent = list(zip(users, self._ended, strict=True))[-EARLIER_TURNS:]
+        return " ".join(str(m["content"]) for m, ended in recent if now - ended <= window)
+
     def _change_refused(self, name: str, arguments: dict[str, Any], text: str) -> ToolResult | None:
-        """P1/P3: a tool not marked read-only, while outside text is in the context."""
-        if name not in self.tools or self.tools.get(name).read_only:
+        """P1/P3 (and M1 with `always_guard`): a tool not marked read-only, while outside
+        text is in the context, must be said by the owner."""
+        if name not in self.tools:
+            return None
+        tool = self.tools.get(name)
+        if tool.read_only:
             return None
         if self._turn_browsed:  # the stricter first layer: never in the same turn
             message = SAME_TURN
+        elif not (self.tainted or self.always_guard) or tool.said_checked:
+            return None  # said_checked: the tool runs its own said-check
         else:
             guard = self.change_guard
-            if not self.tainted or (guard is not None and guard(name, arguments, text)):
+            earlier = "" if self.tainted else self.earlier_owner_text()  # P1 stays strict
+            if guard is not None and guard(name, arguments, text, earlier):
                 return None
             message = NAME_IT
         return ToolResult(ok=False, content=json.dumps({"error": message}, ensure_ascii=False))
