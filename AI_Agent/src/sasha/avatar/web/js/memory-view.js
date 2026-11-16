@@ -13,12 +13,12 @@ export function when(seconds, now = Date.now()) {
   return new Date(seconds * 1000).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 }
 
-// Where a note was made: by voice, in this window, or in a bot's chat (named from /api/bots).
+// Where a note was made: by voice, in the app (any window or device), or in a bot's chat (named from /api/bots).
 export function where(note, botName) {
   if (note.source === 'wake') return h('span', { class: 'tag voice' }, 'said by voice');
   const name = botName(note.bot_id);
   if (note.source === 'chat' && name) return h('span', {}, `in the chat with ${name}`);
-  return h('span', {}, note.source === 'window' ? 'in this window' : 'in a chat');
+  return h('span', {}, note.source === 'window' ? 'said in the app' : 'in a chat');
 }
 
 export function waitingRow(note, { botName, keep, remove, busy }) {
@@ -27,7 +27,8 @@ export function waitingRow(note, { botName, keep, remove, busy }) {
     h('span', { class: 'text' }, note.text),
     h('span', { class: 'meta' }, where(note, botName), h('span', {}, when(note.created_at))),
     h('span', { class: 'acts' },
-      h('button', { class: 'btn small primary', type: 'button', disabled: busy, onclick: () => keep(note) }, icon('check'), 'Keep it'),
+      // Keep and Delete weigh the same: anyone could have said it, so keeping is a choice, not the default (review U2).
+      h('button', { class: 'btn small', type: 'button', disabled: busy, onclick: () => keep(note) }, icon('check'), 'Keep it'),
       h('button', { class: 'btn small', type: 'button', disabled: busy, onclick: () => remove(note) }, 'Delete')));
 }
 
@@ -59,7 +60,7 @@ export function forgetBox({ total, pending, confirmWindow, confirmAll, busy }) {
     h('div', { class: 'row' },
       h('span', {}, 'Forget everything from the last'), pick,
       h('button', { class: 'btn', type: 'button', disabled: busy, onclick: () => confirmWindow(Number(pick.value), pick.selectedOptions[0].textContent) }, 'Forget…')),
-    h('small', {}, 'Removes the notes made in that time, waiting ones too, and what was said in every conversation in that time, so it can’t be repeated.'),
+    h('small', {}, 'Removes the notes made in that time, waiting ones too, and what was said in every conversation in that time.'),
     h('div', { class: 'row' },
       h('button', { class: 'btn danger', type: 'button', disabled: busy || total === 0, onclick: confirmAll }, `Forget all ${total} notes…`),
       h('small', {}, pending ? `Includes the ${pending} waiting for you. Nothing goes to a bin: forgotten notes are gone.` : 'Nothing goes to a bin: forgotten notes are gone.')));
@@ -77,7 +78,7 @@ export function reportBox(report, { what, botName }) {
   return h('div', { class: 'report', role: 'status' },
     h('b', {}, !report.count ? `No notes were made ${what}.` : report.count === 1 ? `Forgot 1 note ${what}:` : `Forgot ${report.count} notes ${what}:`),
     report.items.length ? h('ul', {}, report.items.map((it) => h('li', {}, h('span', {}, it.text)))) : null,
-    places.length ? h('small', {}, `Also removed: ${places.join(', ')}. Nothing else was changed.`) : null);
+    places.length ? h('small', {}, `Also removed: ${places.join(', ')}.`) : null);
 }
 
 export function cleanReport(r) {

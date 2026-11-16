@@ -11,8 +11,9 @@ import { waitingRow, keptRow, forgetBox, reportBox, cleanReport } from './memory
 export function initMemory({ conv, history, bots, onReady }) {
   const el = {
     pane: $('#memory'), link: $('#to-memory'), card: $('#memory-card'), cardText: $('#memory-card-text'),
-    cardMore: $('#memory-card-more'), dialog: $('#memory-confirm'),
+    cardMore: $('#memory-card-more'), dialog: $('#memory-confirm'), live: $('#memory-card-live'),
   };
+  let announced = '';
   let state = { notes: [], count: 0, max: 200 };
   let supported = false;
   let asking = null; // the note asking "forget for good?"
@@ -77,11 +78,11 @@ export function initMemory({ conv, history, bots, onReady }) {
   }
   const confirmWindow = (minutes, label) => confirm(
     `Forget the last ${label}?`,
-    `The notes made in the last ${label} go, waiting ones too, and so does everything said in that time in every conversation. It can’t be undone.`,
+    `The notes made in the last ${label} go, waiting ones too, and so does what was said in that time in every conversation. It can’t be undone.`,
     'Forget', () => forget({ minutes }, `from the last ${label}`));
   const confirmAll = () => confirm(
     `Forget all ${state.notes.length} notes?`,
-    `Every note goes${pending().length ? `, the ${pending().length} waiting for you too` : ''}. They can’t be brought back, and the assistant won’t know any of them afterwards.`,
+    `Every note goes${pending().length ? `, the ${pending().length} waiting for you too` : ''}. They can’t be brought back.`,
     'Forget everything', () => forget({ everything: true }, ''));
 
   function render() {
@@ -91,7 +92,7 @@ export function initMemory({ conv, history, bots, onReady }) {
     const full = state.count >= state.max;
     const kids = [
       h('div', { class: 'mem-head' }, h('h1', {}, 'Memory'), h('span', { class: `usage${full ? ' full' : ''}` }, `${state.count} of ${state.max} notes`)),
-      h('p', { class: 'lede' }, 'What you asked the assistant to remember, in your own words. It uses these notes to answer you; a note never makes it do anything.'),
+      h('p', { class: 'lede' }, 'What you asked the assistant to remember, in your own words. It uses these notes when it answers you.'),
     ];
     if (error) kids.push(h('p', { class: 'form-error', role: 'alert' }, error));
     if (report) kids.push(reportBox(report, { what: report.what, botName }));
@@ -104,13 +105,13 @@ export function initMemory({ conv, history, bots, onReady }) {
     if (pending().length) {
       kids.push(
         h('h2', { class: 'eyebrow' }, 'Waiting for you', h('span', { class: 'count' }, String(pending().length))),
-        h('p', { class: 'why' }, 'Added by voice. Anyone near the speaker could have said these, a TV too, so they aren’t used until you keep them.'),
+        h('p', { class: 'why' }, 'Added by voice. Anyone near the speaker could have said these, a TV too, so check each one, then keep it or delete it.'),
         h('ul', { class: 'mem-list waiting' }, pending().map((n) => waitingRow(n, opts))));
     }
     if (kept().length) {
       kids.push(
         h('h2', { class: 'eyebrow' }, 'Remembered', h('span', { class: 'count' }, String(kept().length))),
-        h('p', { class: 'why' }, '“OK to say aloud” lets it use a note when someone talks to it by the wake word. The others are used only in this window and in your chats.'),
+        h('p', { class: 'why' }, '“OK to say aloud” lets it use a note when it answers out loud, after the wake word.'),
         h('ul', { class: 'mem-list' }, kept().map((n) => keptRow(n, opts))));
     }
     if (state.notes.length) {
@@ -128,6 +129,10 @@ export function initMemory({ conv, history, bots, onReady }) {
     el.card.hidden = !supported || !wait.length;
     if (el.card.hidden) return;
     const note = wait[0]; // newest first
+    if (note.id !== announced) { // a screen reader hears each new note once, not every frame
+      announced = note.id;
+      el.live.textContent = `A note added by voice is waiting for you: ${note.text}`;
+    }
     el.cardText.textContent = note.text;
     el.cardMore.hidden = wait.length < 2;
     el.cardMore.textContent = wait.length === 2 ? 'and 1 more' : `and ${wait.length - 1} more`;

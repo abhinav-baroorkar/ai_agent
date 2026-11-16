@@ -77,11 +77,12 @@
     <button id="mock-ring" class="btn small quiet" type="button" hidden>Mock: make one ring</button>
   </section>
 
-  <section id="memory-card" class="memory-card" aria-label="A note waiting for you" role="status" hidden>
+  <p id="memory-card-live" class="sr" role="status"></p>
+  <section id="memory-card" class="memory-card" aria-label="A note waiting for you" hidden>
     <span class="eyebrow">Added by voice · waiting for you</span>
     <q id="memory-card-text"></q>
     <small id="memory-card-more" hidden></small>
-    <span class="memory-card-acts"><button class="btn small primary" type="button" data-act="keep">Keep it</button><button class="btn small" type="button" data-act="delete">Delete</button><a class="btn small quiet" href="#memory">Memory</a></span>
+    <span class="memory-card-acts"><button class="btn small" type="button" data-act="keep">Keep it</button><button class="btn small" type="button" data-act="delete">Delete</button><a class="btn small quiet" href="#memory">Memory</a></span>
   </section>
   <a id="home-bots" class="bots-entry" href="#bots" hidden>
     <span id="home-bot-orbs" class="stack" aria-hidden="true"></span>
