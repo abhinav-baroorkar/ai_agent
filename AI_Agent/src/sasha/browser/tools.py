@@ -31,7 +31,9 @@ from sasha.browser.leaks import QueryLeakError, check_query
 from sasha.browser.origin import SearchRefusedError, check_open_url, search_url
 from sasha.browser.pages import BrowserTabs, PageError, TabHook
 from sasha.browser.service import BrowserBusyError, BrowserService, BrowserStoppedError
+from sasha.browser.task_check import MAX_PAGE_WORDS, check_search_words
 from sasha.conversation import current_turn, on_turn_end
+from sasha.said import words
 from sasha.tools import Tool, ToolError
 
 STEPS_PER_TURN = 12
@@ -104,6 +106,10 @@ class BrowserConversation:
     # Sites the tabs really loaded (from the page layer, never the model), for the
     # browse helper's provenance (review P4). The helper clears it per lookup.
     sites: list[str] = field(default_factory=list)
+    # Set by the browse helper: its searches also pass the query-word rule (10.2).
+    helper_task: str | None = None
+    page_words: set[str] = field(default_factory=set)
+    blocked_queries: int = 0  # searches the query-word rule refused (a count only)
 
     def _turn(self) -> tuple[str, ...]:
         ctx = current_turn.get()
@@ -152,6 +158,10 @@ class BrowserConversation:
         site = result.get("site")
         if isinstance(site, str) and site and site not in self.sites and len(self.sites) < 5:
             self.sites.append(site)
+        page = result.get("page")
+        helper_reading = self.helper_task is not None and len(self.page_words) < MAX_PAGE_WORDS
+        if helper_reading and isinstance(page, str):
+            self.page_words |= words(page)
         return {**result, "note": NOTE} if "page" in result else result
 
     # --- the tools -------------------------------------------------------------------
@@ -172,6 +182,12 @@ class BrowserConversation:
             check_query(str(q), owner[:-1], owner[-1] if owner else "", self.queries)
         except QueryLeakError as e:
             raise ToolError(str(e)) from None
+        if self.helper_task is not None:
+            try:
+                check_search_words(str(q), self.helper_task, owner[-1], self.page_words)
+            except ValueError as e:
+                self.blocked_queries += 1
+                raise ToolError(str(e)) from None
         self.queries.append(str(q))  # the turn's searches are checked together (W2)
         if not self.search_template:
             raise ToolError("No search engine is set yet; the owner can choose one in Settings")

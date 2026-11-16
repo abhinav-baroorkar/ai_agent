@@ -98,7 +98,7 @@ class ServerDeps:
         connector = self.connectors.get(browser)
         if not isinstance(connector, BrowserConnector):
             return None
-        conv = connector.conversation(settings)  # one holder per conversation (P6)
+        conv = connector.conversation(settings, helper=True)  # one per conversation (P6)
         lines = prompt_lines(self.settings)
         return BrowseHelper(conv, self.settings, llm, self.telemetry, lines)
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -40,6 +41,9 @@ class Reply:
     text: str
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     telemetry: dict[str, Any] = field(default_factory=dict)
+    # Sites the turn's web results came from: the server's own `site`/`sites` fields of
+    # tainting tools (browse: the tabs' record, P4), never the model's words.
+    sites: list[str] = field(default_factory=list)
 
 
 class RequestFailed(Exception):
@@ -61,6 +65,24 @@ def wrap_untrusted(source: str, content: str) -> str:
     except ValueError:
         data = content
     return json.dumps({"source": source, "untrusted_data": data}, ensure_ascii=False)
+
+
+_HOST = re.compile(r"^[a-z0-9.-]{1,255}$")
+MAX_REPLY_SITES = 5
+
+
+def _add_sites(sites: list[str], content: str) -> None:
+    try:
+        data = json.loads(content)
+    except ValueError:
+        return
+    if not isinstance(data, dict):
+        return
+    listed = data.get("sites")
+    for host in [data.get("site"), *(listed if isinstance(listed, list) else [])]:
+        new = isinstance(host, str) and _HOST.match(host) and host not in sites
+        if new and len(sites) < MAX_REPLY_SITES:
+            sites.append(str(host))
 
 
 class Assistant:
@@ -212,6 +234,7 @@ class Assistant:
         hooks: TurnHooks,
     ) -> Reply:
         messages = self._messages(text)
+        sites: list[str] = []
         max_rounds = self.max_rounds or self.settings.profile.llm.max_tool_rounds
         specs = self.tools.specs() if len(self.tools) else None
 
@@ -224,7 +247,7 @@ class Assistant:
                 meta["tool_calls"] = len(resp.tool_calls)
 
             if not resp.tool_calls:
-                return Reply(text=resp.content, tool_calls=calls_made)
+                return Reply(text=resp.content, tool_calls=calls_made, sites=sites)
 
             messages.append({"role": "assistant", **resp.raw_message})
             for call in resp.tool_calls:
@@ -236,6 +259,7 @@ class Assistant:
                     meta["ok"] = result.ok
                 if result.ok and self._taints(call.name):
                     self._turn_browsed = True
+                    _add_sites(sites, result.content)
                 calls_made.append({"name": call.name, "arguments": call.arguments, "ok": result.ok})
                 if hooks.on_tool:
                     hooks.on_tool(call.name, result.ok)

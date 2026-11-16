@@ -71,7 +71,7 @@ Server → client:
 - `{type:"transcript", text, final:bool}`: what the brain heard
 - `{type:"tool", name, ok:bool}`: a tool ran
 - `{type:"reply_delta", text}`: streamed piece of the answer
-- `{type:"reply", text, tool_calls:[{name, ok}], timing:{total_ms, tokens_per_s}}`: final answer
+- `{type:"reply", text, tool_calls:[{name, ok}], sites:[string], timing:{total_ms, tokens_per_s}}`: final answer (`sites`: v0.5.1, Web lookups)
 - `{type:"tts_start", sample_rate}`, then binary speech frames, then `{type:"tts_end"}`
 - `{type:"error", message}`
 
@@ -162,7 +162,7 @@ request with `Sec-Fetch-Site` other than `same-origin` or `none` gets 403):
 | `POST /api/browser/stop` | stop the browser now (Chrome and its proxy); `{ok:true}`, also when it wasn't running. No body needed; a body that is sent must be JSON |
 
 `BrowserState` = `{enabled:bool, running:bool, agent:"idle"|"working", holder:string|null,
-holder_bot:{id, name}|null, tabs:[{tab:int, site:string, title:string, current:bool}],
+holder_bot:{id, name, via}|null, tabs:[{tab:int, site:string, title:string, current:bool}],
 guard:{allowed:int, refused:{<category>:int}, background_refused:int}}`.
 - `enabled`: the browser connector's switch in Settings, nothing more. Whether a given
   bot may browse is up to the UI to work out from that bot's `connectors` list.
@@ -212,6 +212,44 @@ WebSocket `/ws/browser` (one viewer):
 - Nothing about URLs, sites, titles or frames goes into logs or telemetry: only counts
   (frames sent and dropped, viewers, stops).
 
+## Web lookups (v0.5.1)
+
+The main assistant can look things up on the web through the `browse` tool while the
+browser connector is on (Settings). The page text stays inside an isolated helper; the
+main conversation only gets a short answer and the sites it came from. A bot with the
+direct browser (the `browser` connector in its own `connectors`) works as before.
+
+Main socket (`/ws`):
+- `reply` adds `sites:[string]`: the hostnames the turn's web results really came
+  from, in order, at most 5, from the server's own record of what the tabs loaded
+  (never the model's text). Empty for a turn without a web lookup or browser use.
+  Each is a plain hostname (letters, digits, dots, hyphens; up to 255 characters).
+- A `tool` frame with `name:"browse"` marks the lookup (`ok:false` when it was refused,
+  timed out or failed). The lookup takes 10 to 30 s; the state stays `thinking`.
+- `speak=1` sockets (the Home window), once a `browse` has returned `ok:true` in the
+  turn: the rest of the answer is released in whole sentences up to 500 characters
+  (what doesn't fit is neither shown nor spoken), then, unless the answer already
+  named the site, the server adds `From <site>.` (the first of `sites`, without
+  `www.`). The `reply_delta` frames, `reply.text`, the speech and the history all
+  carry the same text. `speak=0` sockets get the whole answer and no added line.
+- Wake-word turns (the listener socket) never browse.
+
+UI (for the UI session to build against):
+- Under a reply with a non-empty `sites`, show one line: "looked up: <site>, <site>"
+  (hostnames joined with ", ", with `textContent`, never as markup or links). On
+  `speak=1` the spoken "From <site>." is already part of the text; show the line too.
+- While a `tool` frame for `browse` is the latest one and no `reply_delta` has come
+  since, the status can read "Looking it up…".
+- Bot form wording: in this version only the main assistant gets web lookups, and
+  it has them whenever the browser connector is on in Settings (no per-bot field).
+  Its form can say "Web lookups: on while the browser is on in Settings". The
+  `browser` connector tick on a bot reads "Direct browser (advanced)" and still turns
+  that bot's other connectors off (B4).
+
+Live view: `holder_bot` adds `via:"helper"|"direct"`. `helper`: the main assistant's
+web lookup holds the browser (suggested text: "In use by <name> (web lookup)");
+`direct`: a bot with the direct browser. Frames, Stop and take-over work the same.
+
 ## Changes
 - v0.1 (2026-11-14): `speak` query parameter; one conversation per socket stated;
   `PUT /api/connectors/{id}` returns the Connector; `pronouns` is an object;
@@ -233,5 +271,8 @@ WebSocket `/ws/browser` (one viewer):
 - v0.4.3 (2026-11-16): `wake` misses carry `reason` (a label, never text). The wake
   phrase is "hey" plus the name (assistant.yaml), not the name alone.
 - v0.4.4 (2026-11-16): `Bot.style` (the orb's breathing style), default `glow`.
+- v0.5.1 (2026-11-16): web lookups: `reply.sites`; on `speak=1` the answer after a
+  `browse` is capped at 500 characters and ends with "From <site>." unless it named
+  it; `holder_bot.via`; the UI's "looked up" line and bot form wording.
 - Planned for v0.5 (not built yet): `POST /api/connectors` and
   `DELETE /api/connectors/{id}` to add and remove MCP connectors from Settings.

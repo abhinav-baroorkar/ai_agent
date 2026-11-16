@@ -128,7 +128,8 @@ class BrowseHelper:
         def stop() -> bool:
             return self.clock() >= deadline or bool(outer and outer())
 
-        self.conv.sites = []
+        self.conv.sites, self.conv.page_words = [], set()
+        self.conv.helper_task = checked  # its searches: the query-word rule (10.2)
         # Streaming with a quiet `on_delta`, so a timeout cancels the LLM call (P7).
         hooks = TurnHooks(on_delta=lambda _: None, should_stop=stop)
         try:

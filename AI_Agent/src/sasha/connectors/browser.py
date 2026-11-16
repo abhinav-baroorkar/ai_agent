@@ -56,6 +56,7 @@ class BrowserConnector:
     def __init__(self, bridge: BrowserBridge) -> None:
         self.bridge = bridge
         self.holders: OrderedDict[str, str] = OrderedDict()  # browser holder -> its bot
+        self.helper_holders: set[str] = set()  # holders of browse helpers (via "helper")
         self._holders_lock = threading.Lock()
 
     @property
@@ -85,7 +86,7 @@ class BrowserConnector:
     def build_tools(self, settings: dict[str, Any]) -> list[Tool]:
         return browser_tools(self.conversation(settings))
 
-    def conversation(self, settings: dict[str, Any]) -> BrowserConversation:
+    def conversation(self, settings: dict[str, Any], helper: bool = False) -> BrowserConversation:
         """One conversation's own browser holder (a raw-browser bot, or the browse
         helper of one main conversation, review P6)."""
         holder = f"conversation-{next(_conversations)}"
@@ -93,8 +94,11 @@ class BrowserConnector:
         if bot is not None:  # for the live view's holder_bot; the newest MAX_HOLDERS only
             with self._holders_lock:  # tools are built on several worker threads at once
                 self.holders[holder] = bot
+                if helper:
+                    self.helper_holders.add(holder)
                 while len(self.holders) > MAX_HOLDERS:
-                    self.holders.popitem(last=False)
+                    gone, _ = self.holders.popitem(last=False)
+                    self.helper_holders.discard(gone)
         return BrowserConversation(
             self.bridge,
             holder=holder,

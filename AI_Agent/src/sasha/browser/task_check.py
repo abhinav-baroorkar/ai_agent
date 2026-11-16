@@ -19,6 +19,8 @@ from sasha.said import raw_words, words
 
 MAX_TASK_CHARS = 300
 OWN_WORDS = "Use the owner's own words for the lookup"
+SEARCH_WORDS = "Search only with words from the task or from pages you have read"
+MAX_PAGE_WORDS = 20_000
 _TASK_TEXT = """a an the of in on at to for from by with about and or is are was were be
 it its this that these those what whats which who whom whose when where why how much many
 find look up search check get tell show give me us price prices cost costs weather forecast
@@ -35,6 +37,24 @@ def clean(text: str) -> str:
     return " ".join("".join(kept).split())
 
 
+def outside(text: str, allowed: set[str] | frozenset[str]) -> set[str]:
+    """The words of `text` not in `allowed` (a plural of an allowed word is allowed)."""
+    return {
+        w
+        for w in raw_words(text)
+        if w not in allowed and not (w.endswith("s") and {w[:-1], w[:-2]} & allowed)
+    }
+
+
+def check_search_words(query: str, task: str, current: str, page_words: set[str]) -> None:
+    """The helper's own searches (design 10.2, W2): every word is in the owner's current
+    request, the task, page text the helper already read, or the fixed vocabulary. A
+    page can't know the owner's earlier words or the home's device names, so it can't
+    get them searched. ValueError otherwise."""
+    if outside(query, words(current) | words(task) | page_words | TASK_WORDS):
+        raise ValueError(SEARCH_WORDS)
+
+
 def check_task(task: str, owner_messages: tuple[str, ...]) -> str:
     """The cleaned task, or ValueError with a message the main model can act on."""
     text = clean(task)
@@ -44,11 +64,7 @@ def check_task(task: str, owner_messages: tuple[str, ...]) -> str:
         raise ValueError(f"Keep the lookup under {MAX_TASK_CHARS} characters")
     current = owner_messages[-1] if owner_messages else ""
     previous = owner_messages[-2] if len(owner_messages) > 1 else ""
-    allowed = words(current) | words(previous) | TASK_WORDS
-    plural_of_allowed = {
-        w for w in raw_words(text) if w.endswith("s") and {w[:-1], w[:-2]} & allowed
-    }
-    if raw_words(text) - allowed - plural_of_allowed:
+    if outside(text, words(current) | words(previous) | TASK_WORDS):
         raise ValueError(OWN_WORDS)
     try:
         check_query(text, owner_messages[:-1], current)

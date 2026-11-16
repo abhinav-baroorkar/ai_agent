@@ -23,10 +23,12 @@ from typing import Any
 
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
+from sasha.browser.helper import BROWSE_TOOL
 from sasha.orchestrator import Assistant, Reply, RequestFailed, TurnHooks
 from sasha.pipeline.llm import LLMCancelled, OllamaError
 from sasha.server.speech import Speaker
 from sasha.server.spoken import SpokenStream
+from sasha.server.spoken_cap import LookupCap
 from sasha.server.voice import MIC_SAMPLE_RATE, VoiceStages, max_recording_bytes
 
 log = logging.getLogger(__name__)
@@ -69,6 +71,8 @@ class Conversation:
         self.spoken: SpokenStream | None = None  # this turn's speakable text (speak=1)
         self.times_word = "times"  # how "2*3" is said; the app sets it from prompt_lines
         self.released = ""  # what this turn really showed and spoke (for the history)
+        self.lookup: LookupCap | None = None  # speak=1, after a web lookup (P8)
+        self._before_lookup = ""
         self.outbox: asyncio.Queue[Frame | None] = asyncio.Queue()
         self.stop = threading.Event()
         self.turn: asyncio.Task[None] | None = None
@@ -195,19 +199,36 @@ class Conversation:
             piece = self.spoken.feed(piece)
             if not piece:
                 return
-        self._emit_delta(piece)
+        self._release(piece)
+
+    def _release(self, piece: str) -> None:
+        if self.lookup is not None:
+            self.lookup.feed(piece)  # whole sentences, up to the cap
+        else:
+            self._emit_delta(piece)
+
+    def _on_tool(self, name: str, ok: bool) -> None:  # on the event loop
+        self.emit({"type": "tool", "name": name, "ok": ok})
+        if name == BROWSE_TOOL and ok and self.speak and self.lookup is None:
+            if self.spoken is not None and (rest := self.spoken.finish()):
+                self._emit_delta(rest)  # what came before the lookup is said as it was
+            self._before_lookup = self.released
+            self.lookup = LookupCap(self._emit_delta)
 
     def flush_spoken(self) -> None:
         """Release what the speakable-text stream still holds (before a confirm question,
         the turn's earlier sentence must be spoken first)."""
         if self.spoken is not None and (rest := self.spoken.finish()):
-            self._emit_delta(rest)
+            self._release(rest)
 
     def _emit_delta(self, piece: str) -> None:
         self.released += piece
         self.emit({"type": "reply_delta", "text": piece})
         if self.speaker is not None:
             self.speaker.feed(piece)
+
+    def _on_tool_threadsafe(self, name: str, ok: bool) -> None:  # from the worker thread
+        self.loop.call_soon_threadsafe(self._on_tool, name, ok)  # in order with the text
 
     def _on_delta_threadsafe(self, piece: str) -> None:  # from the LLM worker thread
         self.loop.call_soon_threadsafe(self._on_delta, piece)
@@ -221,6 +242,7 @@ class Conversation:
         # subtitles; bot chat tabs (speak=0) keep the model's text (server/spoken.py).
         self.spoken = SpokenStream(self.times_word) if self.speak else None
         self.released = ""
+        self.lookup = None
         spoken = False
         try:
             self.state("thinking")
@@ -229,8 +251,11 @@ class Conversation:
                 shown = reply.text
                 if self.spoken is not None:
                     if rest := self.spoken.finish():
-                        self._emit_delta(rest)
+                        self._release(rest)
                     shown = self.spoken.text
+                if self.lookup is not None:  # capped, then "From <site>." (P8)
+                    self.lookup.finish(reply.sites, self._before_lookup)
+                    shown = self.released
                 # The history keeps what was shown and spoken (a held-back claim on a wake
                 # turn, the speakable text on speak=1), not the model's raw text.
                 self.assistant.replace_reply(shown)
@@ -240,6 +265,7 @@ class Conversation:
                         "type": "reply",
                         "text": shown,
                         "tool_calls": calls,
+                        "sites": reply.sites,
                         "timing": _timing(reply),
                     }
                 )
@@ -267,7 +293,7 @@ class Conversation:
     async def _ask(self, text: str, input_mode: str) -> Reply | None:
         hooks = TurnHooks(
             on_delta=self._on_delta_threadsafe,
-            on_tool=lambda name, ok: self.emit_threadsafe({"type": "tool", "name": name, "ok": ok}),
+            on_tool=self._on_tool_threadsafe,
             should_stop=self.stop.is_set,
         )
         try:
