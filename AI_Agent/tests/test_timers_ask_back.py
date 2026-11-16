@@ -145,3 +145,91 @@ def test_the_answer_to_a_server_question_is_read_with_it(
     remembered = [m["content"] for m in seen if m["role"] == "assistant"]
     assert remembered[0] == f"{cfg.nothing_set} {cfg.ask_generic}"
     assert len(service.items) == 1  # the hour from the request, the period from the answer
+
+
+# --- an answer to a timer question is held like the request (a false claim is never spoken)
+
+
+def test_an_answer_turn_counts_as_the_request() -> None:
+    claim = "Got it, I'll set the alarm for 7:00 AM."
+    said = f"{CFG.nothing_set} {CFG.ask_generic}"
+    truth = TimerTruth(CFG, "Morning.", spoken=True, answering=True)
+    truth.feed(claim)
+    assert truth.holding and truth.finish(claim, []) == (said, said)
+    # Not an answer: "Morning." alone is no request, so nothing is held.
+    assert not TimerTruth(CFG, "Morning.", spoken=True).holding
+
+
+def spoken_turns(h: Harness, tts: FakeTTS, texts: tuple[str, ...]) -> list[str]:
+    """What was spoken on each turn of a speak=1 socket."""
+    out: list[str] = []
+    with h.client().websocket_connect(f"{WS}/ws?speak=1") as ws:
+        ws.receive_json()
+        ws.receive_json()
+        for text in texts:
+            before = len(tts.spoken)
+            ws.send_json({"type": "text", "text": text})
+            turn_frames(ws)
+            out.append(" ".join(t for t, _ in tts.spoken[before:]))
+    return out
+
+
+def test_a_spoken_answer_never_speaks_a_false_claim(settings: Settings, tmp_path: Path) -> None:
+    tts = FakeTTS()
+    h = Harness(settings, tmp_path, tts=tts)
+    service, _ = with_timers(h)
+    h.llm("big-model").responses = [
+        resp("Morning or evening?"),  # asks back: left alone
+        resp("Got it! I'll set the alarm for 7:00 AM. Should it repeat?"),  # no tool call
+    ]
+    said = spoken_turns(h, tts, ("Set an alarm for 7.", "Morning."))
+    cfg = h.settings.profile.timers
+    # The reply asks again, but the claim comes first: held and replaced all the same.
+    assert said == ["Morning or evening?", f"{cfg.nothing_set} {cfg.ask_generic}"]
+    assert not service.items
+
+
+def test_a_spoken_answer_with_no_claim_is_said(settings: Settings, tmp_path: Path) -> None:
+    tts = FakeTTS()
+    h = Harness(settings, tmp_path, tts=tts)
+    with_timers(h)
+    h.llm("big-model").responses = [resp("Morning or evening?"), resp("Okay, one moment?")]
+    said = spoken_turns(h, tts, ("Set an alarm for 7.", "Morning."))
+    assert said[1] == "Okay, one moment?"  # a question back: held, then said as it was
+
+
+def test_an_answer_to_another_question_is_not_held(settings: Settings, tmp_path: Path) -> None:
+    """Only answers to a timer request are held: a joke's "Want another?" isn't one."""
+    tts = FakeTTS()
+    h = Harness(settings, tmp_path, tts=tts)
+    with_timers(h)
+    h.llm("big-model").responses = [resp("Here's one. Want another?"), resp("Here's another.")]
+    said = spoken_turns(h, tts, ("Tell me a joke.", "Yes."))
+    assert said[1] == "Here's another."
+
+
+def test_a_claim_with_a_question_still_gets_the_line() -> None:
+    reply = "Alarm set for 7. Anything else?"
+    assert typed("Set an alarm for 7.", reply, []) == f"{reply} {CFG.nothing_set}"
+    said = f"{CFG.nothing_set} {CFG.ask_generic}"
+    assert spoken("Set an alarm for 7.", reply, []) == (said, said)
+
+
+@pytest.mark.parametrize(
+    ("reply", "line"),
+    [
+        ("I'd be happy to set a timer for you! How long would you like it to run?", False),
+        ("I'd be happy to help you set an alarm! Is it AM or PM?", False),
+        ("I can set that reminder. What time?", False),
+        ("I'll set the alarm for 7:00 AM. Should it repeat?", True),  # a promise
+        ("I'm going to set the alarm for 7. Okay?", True),
+        ("Alarm set for 7. Anything else?", True),
+    ],
+)
+def test_an_offer_with_a_question_is_left_alone(reply: str, line: bool) -> None:
+    assert (typed("Set an alarm.", reply, []) != reply) is line
+
+
+def test_the_generic_question_fits_a_timer() -> None:
+    said = f"{CFG.nothing_set} {CFG.ask_generic_timer}"
+    assert spoken("Set a timer.", "Your timer is running.", []) == (said, said)

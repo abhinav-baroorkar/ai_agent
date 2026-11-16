@@ -44,7 +44,13 @@ from sasha.orchestrator import Assistant, RequestFailed
 from sasha.pipeline.llm import OllamaLLM
 from sasha.server.timers.service import TimerService
 from sasha.server.timers.tools import TimerAsk, add_timer_tools
-from sasha.server.timers.truth import CHANGING_TOOLS, TimerTruth, asks_back, claims_timer
+from sasha.server.timers.truth import (
+    CHANGING_TOOLS,
+    TimerTruth,
+    asks_back,
+    asks_for_timer,
+    claims_timer,
+)
 from sasha.state import JsonStore
 from sasha.telemetry import TelemetryWriter
 from sasha.tools import Tool, ToolRegistry
@@ -100,10 +106,13 @@ def run_case(
         assistant.tools = recording(add_timer_tools(base, service, said=current_turn.get), calls)
         started = time.perf_counter()
         split = 0  # where the last turn's tool calls start
+        answering = False  # the second turn answers a timer question (as the socket sees it)
         try:
             reply = assistant.handle_text(str(case["say"])).text
             if case.get("then"):  # a two-turn case: the person answers the question
                 split = len(calls)
+                cfg = settings.profile.timers
+                answering = assistant.previous_reply_asked() and asks_for_timer(case["say"], cfg)
                 reply = assistant.handle_text(str(case["then"])).text
         except RequestFailed as exc:
             reply = f"(failed: {type(exc.__cause__).__name__})"
@@ -124,19 +133,24 @@ def run_case(
         "reply": reply,
         "verdict": verdict(case, items, got, calls, reply),
         "split": split,
-        **judge(settings.profile.timers, command, calls[split:], reply),
+        "answering": answering,
+        **judge(settings.profile.timers, command, calls[split:], reply, answering),
         "seconds": round(seconds, 2),
     }
 
 
 def judge(
-    cfg: TimersConfig, command: str, calls: list[dict[str, Any]], reply: str
+    cfg: TimersConfig,
+    command: str,
+    calls: list[dict[str, Any]],
+    reply: str,
+    answering: bool = False,
 ) -> dict[str, Any]:
     """What the server's TimerTruth (server/timers/truth.py) does with the last turn's
     reply: on a typed chat (the reply shown) and on a spoken window turn (what is said)."""
     last = [{"name": c["tool"], "ok": "result" in c, "asks": c.get("asked", "")} for c in calls]
-    shown = TimerTruth(cfg, command, spoken=False).finish(reply, last)[1]
-    held = TimerTruth(cfg, command, spoken=True)
+    shown = TimerTruth(cfg, command, spoken=False, answering=answering).finish(reply, last)[1]
+    held = TimerTruth(cfg, command, spoken=True, answering=answering)
     held.feed(reply)
     tail, final = held.finish(reply, last)
     added = shown[len(reply.rstrip()) :] if shown != reply else ""
@@ -229,8 +243,12 @@ def rescore(path: Path, cfg: TimersConfig) -> None:
         split = row.get("split")
         if split is None and two_turn:
             approx += 1  # older files: the turns' calls weren't split; all are judged
-        command = row["say"].split(" / ")[-1]
-        row.update(judge(cfg, command, row["calls"][split or 0 :], row["reply"]))
+        first, command = row["say"].split(" / ")[0], row["say"].split(" / ")[-1]
+        # Older files didn't keep it: a two-turn case's first turn is a timer request
+        # meant to be asked back, so its second turn is taken as the answer.
+        answering = row.get("answering", two_turn and asks_for_timer(first, cfg))
+        calls = row["calls"][split or 0 :]
+        row.update(judge(cfg, command, calls, row["reply"], answering))
         if row["server_line"] or before:
             mark = "Q" if row["server_question"] else ("L" if row["server_line"] else "-")
             print(f"[{row['run']}] {mark} {row['say']}")

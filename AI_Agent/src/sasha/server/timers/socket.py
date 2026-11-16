@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from sasha.server.timers.service import TimerError
 from sasha.server.timers.tools import TIMER_TOOLS
-from sasha.server.timers.truth import TimerTruth
+from sasha.server.timers.truth import TimerTruth, asks_for_timer
 
 if TYPE_CHECKING:
     from sasha.orchestrator import Assistant
@@ -79,4 +79,14 @@ class TimerSocket:
         names = self.assistant.tools.names
         if not self.timer_claims or self.timers is None or not set(TIMER_TOOLS) & set(names):
             return None
-        return TimerTruth(self.timers.config, command, spoken=self.speak)
+        cfg, assistant = self.timers.config, self.assistant
+        # An answer to a timer question ("Morning.") is part of that request (the
+        # said-check's span-2 rule): held on a spoken turn and judged like the request.
+        previous, since = assistant.previous_request(), assistant.since_previous()
+        answering = (
+            previous is not None
+            and assistant.previous_reply_asked()
+            and asks_for_timer(previous, cfg)
+            and (since is None or since <= cfg.answer_window_s)
+        )
+        return TimerTruth(cfg, command, spoken=self.speak, answering=answering)

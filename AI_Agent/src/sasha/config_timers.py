@@ -128,6 +128,8 @@ class TimersConfig(BaseModel):
     # An ask with no line above, and a held spoken request reply the server replaces
     # with no tool having asked: "Nothing was set. What time should it be?".
     ask_generic: str = "What time should it be?"
+    ask_generic_timer: str = "For how long?"  # ...when the request names a timer
+    timer_only_words: list[str] = Field(default_factory=lambda: ["timer", "timers", "countdown"])
     # ...but not after a stop or cancel request ("turn off the alarm"): the line alone.
     cancel_words: list[str] = Field(
         default_factory=lambda: ["cancel", "stop", "off", "delete", "remove", "dismiss",
@@ -154,6 +156,9 @@ class TimersConfig(BaseModel):
                                  "is", "are", "do", "does", "did", "has", "have", "was",
                                  "were", "what's", "when's", "how's", "how many", "how long"]
     )  # fmt: skip
+    # In a reply that asks back, a claim word right after one of these is an offer, not
+    # a claim ("I'd be happy to set a timer! How long?"); "I'll set it for 7." still is.
+    offer_words: list[str] = Field(default_factory=lambda: ["to", "can", "could", "may", "might"])
     negation_words: list[str] = Field(
         default_factory=lambda: ["not", "can't", "cannot", "unable", "don't", "won't", "no"]
     )

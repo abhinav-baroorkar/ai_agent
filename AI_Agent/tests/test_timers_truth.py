@@ -90,7 +90,8 @@ def test_review_rows_get_the_line(command: str, reply: str) -> None:
     held = TimerTruth(cfg, command, spoken=True)
     held.feed(reply)
     cancel = command.startswith(("snooze", "turn off"))
-    said = cfg.nothing_set if cancel else f"{cfg.nothing_set} {cfg.ask_generic}"
+    question = cfg.ask_generic_timer if "timer" in command else cfg.ask_generic
+    said = cfg.nothing_set if cancel else f"{cfg.nothing_set} {question}"
     assert held.finish(reply, []) == (said, said)  # the model's text is never spoken
 
 

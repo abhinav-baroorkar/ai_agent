@@ -9,13 +9,14 @@ tools, the server adds its own line ("Nothing was set."):
   the conversation goes on and no false claim can come with it;
 - structurally, whatever the wording (T1): the request asked to set, change or cancel a
   timer, alarm or reminder, no changing timer tool succeeded this turn, and the reply
-  isn't a question back (a "?" with no claim after it). A plain fact, so no claim needs
-  recognising;
+  isn't a question back (a "?" with no claim anywhere in it). A plain fact, so no claim
+  needs recognising;
 - for any other turn, when the reply claims such a change: a claim word and a timer
   word in the same clause, with no negation right before the claim word ("Should I set
   an alarm?" and "I can't set alarms" are not claims; "No problem, alarm set" is).
 On a typed chat (speak=0) the text streams as usual and the line comes after it. On a
-spoken window turn (speak=1) whose request asks for a timer, all model text is held
+spoken window turn (speak=1) whose request asks for a timer, or answers the previous
+reply's question about one ("Morning." after "Morning or evening?"), all model text is held
 until the turn ends, so a false sentence is never spoken: the server's question, or the
 line with a fixed question ("Nothing was set. What time should it be?"; the line alone
 after a cancel request), replaces it. The history keeps the reply as shown, so the
@@ -33,6 +34,7 @@ from sasha.config_timers import TimersConfig
 
 CHANGING_TOOLS = ("set_timer", "set_alarm", "set_reminder", "cancel_timer", "snooze_timer")
 NEGATION_REACH = 2  # a negation counts only this close before the claim word
+OFFER_REACH = 3  # "happy to help you set": "to" three words before
 _CLAUSE = re.compile(r"[^.!?,;:]+")
 _NOT_NEGATIONS = (("no", "problem"), ("no", "worries"), ("no", "doubt"))
 
@@ -49,8 +51,19 @@ def _negated(words: list[str], at: int, negation: set[str]) -> bool:
     return False
 
 
-def claims_timer(text: str, cfg: TimersConfig) -> bool:
+def _offered(words: list[str], at: int, offer: set[str]) -> bool:
+    """An offer, not a claim: "happy to (help you) set", "I can set" (not "going to")."""
+    for i in range(max(0, at - OFFER_REACH), at):
+        if words[i] in offer and not (words[i] == "to" and i and words[i - 1] == "going"):
+            return True
+    return False
+
+
+def claims_timer(text: str, cfg: TimersConfig, offers: bool = True) -> bool:
+    """Does the text claim a timer change? `offers=False`: an offer ("I'd be happy to
+    set a timer! How long?") is no claim; used only for replies that ask back."""
     claim, timer, negation = set(cfg.claim_words), set(cfg.timer_words), set(cfg.negation_words)
+    offer = set() if offers else set(cfg.offer_words)
     for sentence in re.split(r"(?<=[.!?])\s+", text):
         if sentence.strip().endswith("?"):
             continue
@@ -62,7 +75,11 @@ def claims_timer(text: str, cfg: TimersConfig) -> bool:
         for clause in _CLAUSE.findall(sentence):
             clause_words = _words(clause)
             for i, w in enumerate(clause_words):
-                if w in claim and not _negated(clause_words, i, negation):
+                if (
+                    w in claim
+                    and not _negated(clause_words, i, negation)
+                    and not (offer and _offered(clause_words, i, offer))
+                ):
                     return True
     return False
 
@@ -91,7 +108,8 @@ def asks_for_timer(command: str, cfg: TimersConfig) -> bool:
 def asks_back(text: str, cfg: TimersConfig) -> bool:
     """The reply asks the person something: a "?" anywhere (sasha.conversation), and no
     claim after the last one ("Morning or evening? I've set it for 7." still claims)."""
-    return conversation.asks_back(text) and not claims_timer(text.rsplit("?", 1)[1], cfg)
+    tail = text.rsplit("?", 1)[1] if "?" in text else ""
+    return conversation.asks_back(text) and not claims_timer(tail, cfg, offers=False)
 
 
 def pending_ask(tool_calls: list[dict[str, Any]]) -> tuple[str, str] | None:
@@ -112,10 +130,19 @@ def pending_ask(tool_calls: list[dict[str, Any]]) -> tuple[str, str] | None:
 class TimerTruth:
     """One per typed or window turn of a bot with timer tools."""
 
-    def __init__(self, cfg: TimersConfig, command: str, spoken: bool) -> None:
+    def __init__(
+        self, cfg: TimersConfig, command: str, spoken: bool, answering: bool = False
+    ) -> None:
+        """`answering`: the command answers the previous reply's question about a timer
+        request ("Morning." after "Morning or evening?"), so it counts as that request."""
         self.cfg = cfg
-        self.requested = asks_for_timer(command, cfg)
-        self.cancelling = bool(set(_words(command)) & set(cfg.cancel_words))
+        self.requested = answering or asks_for_timer(command, cfg)
+        said = set(_words(command))
+        self.cancelling = bool(said & set(cfg.cancel_words))
+        # "For how long?" for a timer, "What time should it be?" for anything else.
+        self.generic = (
+            cfg.ask_generic_timer if said & set(cfg.timer_only_words) else (cfg.ask_generic)
+        )
         self.holding = spoken and self.requested  # never speak a false claim
         self.held = ""
 
@@ -148,13 +175,16 @@ class TimerTruth:
         # "Your alarm is set for 7." read from list_timers is a report, not a claim.
         listed = any(c.get("name") == "list_timers" and c.get("ok") for c in tool_calls)
         if self.requested:
-            needs_line = not made and not asked_back  # T1: structural, any wording
+            # T1: structural, any wording. A question back is left alone, unless a claim
+            # comes with it ("I'll set it for 7. Should it repeat?"): never spoken.
+            promised = claims_timer(text, self.cfg, offers=False)  # offers aren't claims
+            needs_line = not made and (not asked_back or promised)
         else:
             needs_line = not made and not listed and claims_timer(text, self.cfg)
         if not needs_line:
             return self.held, text
         line = self.cfg.nothing_set
         if self.holding:  # nothing was spoken yet: the server's line (and question) instead
-            spoken = line if self.cancelling else f"{line} {self.cfg.ask_generic}"
+            spoken = line if self.cancelling else f"{line} {self.generic}"
             return spoken, spoken
         return f" {line}", f"{text.rstrip()} {line}"

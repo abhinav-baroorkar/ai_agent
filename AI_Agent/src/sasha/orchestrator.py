@@ -82,6 +82,23 @@ class Assistant:
     def name(self) -> str:
         return self.settings.assistant.name
 
+    def previous_reply_asked(self) -> bool:
+        """Did the last reply ask the owner something? Only the fact. A question whose
+        speech was cut isn't counted: the answer is read alone and asks again (the safe
+        failure, by design)."""
+        replies = [m["content"] for m in self._history if m["role"] == "assistant"]
+        last = str(replies[-1]) if replies else ""
+        return asks_back(last) and not last.endswith(self.settings.profile.llm.interrupted_note)
+
+    def previous_request(self) -> str | None:
+        """The owner's previous message in this conversation (None at the start)."""
+        said = [m["content"] for m in self._history if m["role"] == "user"]
+        return str(said[-1]) if said else None
+
+    def since_previous(self) -> float | None:
+        """Seconds since the previous turn ended (None at the start)."""
+        return None if self._last_turn_end is None else self.clock() - self._last_turn_end
+
     def reset(self) -> None:
         self._history.clear()
         self._last_turn_end = None
@@ -147,12 +164,7 @@ class Assistant:
         calls_made: list[dict[str, Any]] = []
         self.last_tool_calls = calls_made
         owner_said = (*(m["content"] for m in self._history if m["role"] == "user"), text)
-        replies = [m["content"] for m in self._history if m["role"] == "assistant"]
-        last = str(replies[-1]) if replies else ""
-        # Only the fact. A question whose speech was cut isn't counted: the answer is
-        # read alone and asks again (the safe failure, by design).
-        asked = asks_back(last) and not last.endswith(self.settings.profile.llm.interrupted_note)
-        since = None if self._last_turn_end is None else self.clock() - self._last_turn_end
+        asked, since = self.previous_reply_asked(), self.since_previous()
         turn = new_turn(owner_said, input_mode, asked, since)
         token = current_turn.set(turn)  # for tools (B1; the timers' said-check)
         try:
