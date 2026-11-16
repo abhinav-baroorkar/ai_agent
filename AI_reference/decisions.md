@@ -686,3 +686,12 @@ Summary of the design that passed review (two rounds). Opt-in until the measurem
   with the rules of `d37cc0a` (0 silent wrong times, 0 spoken false claims, right or asked 0.95;
   offline probes 17 of 17); see the entry "2026-11-16: timers bench, final" in `research-notes.md`.
   The reviewer re-probed the server logic of `d37cc0a` offline; that was not a model run.
+
+## 2026-11-16 — Correction to the timers entry above (appended)
+
+- **Wording correction.** "When a tool asks back, the server speaks its own fixed question for the
+  reason, not the model's words" holds when nothing was made. Read it as: when a tool asks back and
+  nothing was made, the server asks its own fixed question for the reason; only a reply that is
+  entirely questions may stand instead. Two cases differ from the short wording: on a typed turn, a
+  reply that is all questions is kept as the model wrote it; on a spoken turn where something was
+  also made, an all-questions reply is spoken as it is.
