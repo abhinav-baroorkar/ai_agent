@@ -270,7 +270,9 @@ body or a JSON body:
 `BrowserState` gains `mode`: `assistant` (normal), `waiting` (asked, a turn is finishing),
 `switching`, `owner` (his window is open), or `restoring` (the clean-up after his window
 didn't finish; bots stay refused and it retries every few seconds; a new take-over is
-refused meanwhile); `owner_until` (ISO time, while `owner`);
+refused meanwhile); `restore_problem` (string or null: after 3 failed clean-ups, why, in
+plain words, such as "The browser profile is still in use"); `owner_until` (ISO time,
+while `owner`);
 and `owner_refused` (`{category:int}`, addresses his window tried that the guard refused,
 counted apart from the page's own). `POST /api/browser/stop` during a take-over hands
 back. While `mode` is not `assistant`, every bot's browser step answers "The owner is

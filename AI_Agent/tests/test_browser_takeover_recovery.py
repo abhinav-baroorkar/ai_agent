@@ -154,3 +154,55 @@ def test_s1_s2_more_permissions_and_downloads_blocked(tmp_path: Path) -> None:
                  "automatic_downloads", "payment_handler", "storage_access"):  # fmt: skip
         assert blocked[kind] == 2, kind
     assert prefs["download_restrictions"] == BLOCK_ALL_DOWNLOADS
+
+
+def test_k4b_hand_back_while_waiting_ends_the_headless_chrome_first(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reviewer's probe: the profile is in use while the headless Chrome runs (as
+    real Chrome's lock makes it). Hand-back during `waiting` must not stick in
+    `restoring`."""
+    import sasha.browser.profile as profile_module
+
+    async def main() -> None:
+        service, t, spawned = _rig(tmp_path, monkeypatch)
+        monkeypatch.setattr(profile_module, "in_use", lambda root: service.chrome is not None)
+        async with service.acquire("conversation-a", turn=True):
+            pass  # a turn ran: the headless Chrome is up and holds the profile
+        assert service.chrome is not None
+        await t.start()
+        assert t.mode == "waiting"
+        await t.hand_back()
+        assert t.mode == "assistant" and not service.driving
+        assert service.chrome is None and not pending(tmp_path) and spawned == []
+        service.end_turn("conversation-a")
+        await service.stop()
+
+    asyncio.run(main())
+
+
+def test_the_panel_says_why_after_three_failed_restores(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(takeover_module, "RETRY_S", 0.02)
+
+    async def never(data_dir: Path) -> str:
+        raise cleanup_module.RestoreIncomplete("The browser profile is still in use")
+
+    monkeypatch.setattr(takeover_module, "finish_takeover", never)
+
+    async def main() -> None:
+        service, t, spawned = _rig(tmp_path, monkeypatch)
+        await t.start()
+        await _until(lambda: t.mode == "owner")
+        spawned[0][2].closed.set()
+        await _until(lambda: t.mode == "restoring")
+        assert t.state()["restore_problem"] is None  # not after one try
+        await _until(lambda: t.state()["restore_problem"] is not None)
+        assert t.state()["restore_problem"] == "The browser profile is still in use"
+        assert t.mode == "restoring" and service.driving
+        if t._retry is not None:
+            t._retry.cancel()
+        await service.stop()
+
+    asyncio.run(main())

@@ -41,6 +41,13 @@ STORAGE_WIPE = (
     "Default/blob_storage",
     "Default/GPUCache",
     "Default/Code Cache",
+    # the reviewer's second list: an HTTP cache can hold a signed-in page
+    "Default/Cache",
+    "Default/Shared Storage",
+    "Default/Network/Trust Tokens",
+    "Default/Network/Reporting and NEL",
+    "Default/Network Persistent State",
+    "home/.cache",  # XDG_CACHE_HOME of both windows (launch.browser_env): any cache there
 )
 
 

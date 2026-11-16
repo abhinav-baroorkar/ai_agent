@@ -65,6 +65,7 @@ WARN_BEFORE_S = 120.0  # the panel warns from 13 minutes
 WAIT_FOR_TURN_S = 135.0  # a running turn's own limits end it before this
 EXIT_WAIT_S = 3.0  # SIGTERM, then SIGKILL
 RETRY_S = 5.0  # a restore that failed is tried again this often (K3)
+SAY_WHY_AFTER = 3  # failed restores before the panel says why
 
 
 class TakeOver:
@@ -90,6 +91,8 @@ class TakeOver:
         self._task: asyncio.Task[None] | None = None
         self._retry: asyncio.Task[None] | None = None
         self._launching: asyncio.Future[None] | None = None
+        self.restore_failures = 0
+        self.restore_problem: str | None = None  # after SAY_WHY_AFTER failures
         self._lock = asyncio.Lock()
 
     @property
@@ -107,7 +110,12 @@ class TakeOver:
     def state(self) -> dict[str, Any]:
         until = self.owner_until.isoformat(timespec="seconds") if self.owner_until else None
         owner_refused = dict(self.proxy.stats.refused) if self.proxy is not None else {}
-        return {"mode": self.mode, "owner_until": until, "owner_refused": owner_refused}
+        return {
+            "mode": self.mode,
+            "owner_until": until,
+            "owner_refused": owner_refused,
+            "restore_problem": self.restore_problem,
+        }
 
     def _set(self, mode: str) -> None:
         self.mode = mode
@@ -240,10 +248,7 @@ class TakeOver:
             await self.proxy.stop()
             self.proxy = None
         self.owner_until = None
-        try:
-            self.service.keep_cookies_of = await finish_takeover(self.service.data_dir)
-        except RestoreIncomplete as exc:
-            log.warning("Take-over: %s; trying again", exc)
+        if not await self._finish():
             self._set("restoring")
             if self._retry is None or self._retry.done():
                 self._retry = asyncio.get_running_loop().create_task(self._retry_restore())
@@ -251,16 +256,29 @@ class TakeOver:
         self.service.driving = False
         self._set("assistant")
 
+    async def _finish(self) -> bool:
+        """One restore attempt. K4b: the assistant's own headless Chrome is ended first,
+        so it can't keep the profile (a hand-back while still `waiting`)."""
+        try:
+            await self.service.stop("take_over")
+            self.service.keep_cookies_of = await finish_takeover(self.service.data_dir)
+        except RestoreIncomplete as exc:
+            self.restore_failures += 1
+            if self.restore_failures >= SAY_WHY_AFTER:
+                self.restore_problem = str(exc)
+            log.warning("Take-over: %s; trying again", exc)
+            return False
+        self.restore_failures, self.restore_problem = 0, None
+        return True
+
     async def _retry_restore(self) -> None:
         while self.mode == "restoring":
             await asyncio.sleep(RETRY_S)
             async with self._lock:
                 if self.mode != "restoring":
                     return
-                try:
-                    self.service.keep_cookies_of = await finish_takeover(self.service.data_dir)
-                except RestoreIncomplete as exc:
-                    log.warning("Take-over: %s; trying again", exc)
+                if not await self._finish():
+                    self.service.changed()  # the panel may now say why
                     continue
                 self.service.driving = False
                 self._set("assistant")
