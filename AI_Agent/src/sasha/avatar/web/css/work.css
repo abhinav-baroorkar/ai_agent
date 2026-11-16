@@ -1,6 +1,7 @@
 /* Everything that is not Home: a top bar with the way back, and one pane under it. */
-.work { display: grid; grid-template-rows: auto minmax(0, 1fr); }
-.work-top { display: flex; align-items: center; gap: .6rem; padding: 14px max(20px, 2.5vw); }
+/* minmax(0, 1fr): a narrow window must not let the bar's own width push every pane sideways. */
+.work { display: grid; grid-template-rows: auto minmax(0, 1fr); grid-template-columns: minmax(0, 1fr); }
+.work-top { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; padding: 14px max(20px, 2.5vw); }
 .back-home { display: inline-flex; align-items: center; gap: .6rem; padding: .3rem 1.1rem .3rem .35rem; border-radius: 99px;
   background: var(--surface); border: 1px solid color-mix(in srgb, var(--lamp) 38%, var(--line)); color: var(--lamp); font-weight: 500; }
 .back-home:hover { background: var(--surface-2); }
