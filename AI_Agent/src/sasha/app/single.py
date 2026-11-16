@@ -14,6 +14,7 @@ import logging
 import os
 import re
 import socket
+import stat
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -34,9 +35,17 @@ class NoRuntimeDir(RuntimeError):
 
 
 def socket_path() -> Path:
+    """The socket in $XDG_RUNTIME_DIR, which must be a folder of this user that no one
+    else can enter (0700 as logind makes it); anything else is refused, never /tmp."""
     runtime = os.environ.get("XDG_RUNTIME_DIR")
-    if not runtime or not Path(runtime).is_dir():
+    if not runtime:
         raise NoRuntimeDir("XDG_RUNTIME_DIR is not set; the window needs a desktop session")
+    try:
+        info = os.stat(runtime)
+    except OSError:
+        raise NoRuntimeDir("XDG_RUNTIME_DIR doesn't exist") from None
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        raise NoRuntimeDir("XDG_RUNTIME_DIR isn't a private folder of this user")
     return Path(runtime) / SOCKET_NAME
 
 

@@ -40,9 +40,17 @@ WAKE_JS = (
 )
 
 
-def chromium_flags(dead_proxy: int) -> str:
-    # The proxy's default bypass keeps loopback direct: only the brain is reachable.
-    return " ".join((*CHROMIUM_FLAGS, f"--proxy-server=http://127.0.0.1:{dead_proxy}"))
+def chromium_flags(dead_proxy: int, port: int) -> str:
+    """Everything goes to a dead proxy, loopback included (`<-loopback>` removes
+    Chromium's built-in loopback bypass), except the brain's own address: so even
+    without the interceptor no other local service is reachable."""
+    return " ".join(
+        (
+            *CHROMIUM_FLAGS,
+            f"--proxy-server=http://127.0.0.1:{dead_proxy}",
+            f"--proxy-bypass-list=<-loopback>;127.0.0.1:{port}",  # this order: measured
+        )
+    )
 
 
 # Environment variables that would open a DevTools port (or inspector) into the window
@@ -50,10 +58,10 @@ def chromium_flags(dead_proxy: int) -> str:
 DEBUG_VARIABLES = ("QTWEBENGINE_REMOTE_DEBUGGING", "QTWEBENGINE_INSPECTOR_SERVER")
 
 
-def harden_environment(env: Any, dead_proxy: int) -> None:
+def harden_environment(env: Any, dead_proxy: int, port: int) -> None:
     for name in DEBUG_VARIABLES:
         env.pop(name, None)
-    env["QTWEBENGINE_CHROMIUM_FLAGS"] = chromium_flags(dead_proxy)  # ours only, replaced
+    env["QTWEBENGINE_CHROMIUM_FLAGS"] = chromium_flags(dead_proxy, port)  # ours only
 
 
 @dataclass
@@ -201,7 +209,7 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if single.hand_over("wake" if a.wake else "raise"):
         return 0  # the window is already open: it raised itself
-    harden_environment(os.environ, a.dead_proxy)
+    harden_environment(os.environ, a.dead_proxy, a.port)
     from PySide6.QtWidgets import QApplication
 
     app = QApplication(sys.argv[:1])

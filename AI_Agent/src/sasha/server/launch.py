@@ -208,6 +208,7 @@ def open_window(
     host: str | None = None,
     port: int | None = None,
     spawn: Callable[..., subprocess.Popen[bytes]] = subprocess.Popen,
+    chrome: bool = False,  # `sasha window --chrome`: the Chrome window even with the shell
 ) -> int:
     cfg = settings.profile.server
     host, port = host or cfg.host, port or cfg.port
@@ -247,7 +248,7 @@ def open_window(
 
     from sasha.app import launcher  # the app shell, if the `app` extra is installed
 
-    if launcher.available():
+    if launcher.available() and not chrome:
         how = launcher.open_shell(settings, port, proxy_port, spawn=spawn)
         if how not in ("no_display", "no_session"):
             print("The assistant's window is open." if how == "raised" else f"Opened {url}.")

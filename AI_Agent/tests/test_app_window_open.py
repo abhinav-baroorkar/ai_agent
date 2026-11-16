@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import socket
 import threading
 from pathlib import Path
@@ -90,8 +91,12 @@ def test_off_in_config() -> None:
 
 
 def test_the_launcher_raises_an_open_window_or_starts_one(
-    settings: Settings, monkeypatch: pytest.MonkeyPatch
+    settings: Settings, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    run = tmp_path / "run"
+    run.mkdir(mode=0o700)
+    os.chmod(run, 0o700)
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(run))  # a private runtime folder of ours
     spawned: list[tuple[list[str], dict[str, Any]]] = []
 
     def spawn(cmd: list[str], **kw: Any) -> None:
@@ -118,7 +123,7 @@ def test_the_launcher_raises_an_open_window_or_starts_one(
     assert launcher.open_shell(settings, 8765, 9, spawn=spawn, ask=lambda p, c: False) == (
         "no_session"  # never a socket in a shared folder such as /tmp
     )
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(Path.home()))
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(run))
     monkeypatch.delenv("DISPLAY")
     monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
     assert launcher.open_shell(settings, 8765, 9, spawn=spawn, ask=lambda p, c: False) == (
@@ -270,3 +275,22 @@ def test_the_menu_entry_escapes_odd_paths_and_off_removes_only_its_own(
     other.unlink()
     other.symlink_to(tmp_path / "elsewhere")
     assert app_menu("off", settings, root, home=home, out=out.append) == 1
+
+
+def test_the_socket_lives_only_in_a_private_runtime_folder_of_ours(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    private = tmp_path / "run"
+    private.mkdir(mode=0o700)
+    os.chmod(private, 0o700)
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(private))
+    assert single.socket_path() == private / single.SOCKET_NAME
+    os.chmod(private, 0o755)  # others may enter: refused
+    with pytest.raises(single.NoRuntimeDir):
+        single.socket_path()
+    monkeypatch.setenv("XDG_RUNTIME_DIR", "/")  # not ours (root's)
+    with pytest.raises(single.NoRuntimeDir):
+        single.socket_path()
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path / "missing"))
+    with pytest.raises(single.NoRuntimeDir):
+        single.socket_path()
