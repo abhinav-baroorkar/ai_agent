@@ -14,12 +14,14 @@ import argparse
 import logging
 import os
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from sasha.app import policy
 from sasha.app.single import NoRuntimeDir, notify, socket_path
+from sasha.app.waiting import BrainWait, brain_up
 from sasha.server.window_token import read_token
 
 log = logging.getLogger(__name__)
@@ -83,6 +85,10 @@ class Shell:
     interceptor: Any
     loaded: bool = False
     pending_wake: bool = False
+    # --attach: a plain line in front until the brain is up (app/waiting.py)
+    stack: Any = None
+    label: Any = None
+    url: Any = None
 
 
 def start_url(port: int, start: str = "/", token: str | None = None) -> str:
@@ -101,12 +107,13 @@ def build(
     title: str,
     icon: Path | None,
     start: str = "/",
-    intercept: bool = True,
-    token: str | None = None,  # False only for the probe that shows the dead proxy alone
+    intercept: bool = True,  # False only for the probe that shows the dead proxy alone
+    token: str | None = None,
+    waiting: str | None = None,  # --attach: show this and load nothing yet
 ) -> Shell:
     """The window, its page and profile. Qt imports are here, so the module imports
     without PySide6 (the launcher checks for it first)."""
-    from PySide6.QtCore import QUrl
+    from PySide6.QtCore import Qt, QUrl
     from PySide6.QtGui import QIcon
     from PySide6.QtWebEngineCore import (
         QWebEnginePage,
@@ -115,7 +122,7 @@ def build(
         QWebEngineUrlRequestInterceptor,
     )
     from PySide6.QtWebEngineWidgets import QWebEngineView
-    from PySide6.QtWidgets import QMainWindow
+    from PySide6.QtWidgets import QLabel, QMainWindow, QStackedWidget
 
     class Interceptor(QWebEngineUrlRequestInterceptor):
         blocked = 0
@@ -168,7 +175,6 @@ def build(
     window = QMainWindow()
     view = QWebEngineView(window)
     view.setPage(page)
-    window.setCentralWidget(view)
     window.setWindowTitle(title)
     if icon is not None and icon.is_file():
         window.setWindowIcon(QIcon(str(icon)))
@@ -184,8 +190,46 @@ def build(
             page.runJavaScript(wake_js(True))  # a cold start: always just shown
 
     page.loadFinished.connect(loaded)
-    page.load(QUrl(start_url(port, start, token)))
+    url = QUrl(start_url(port, start, token))
+    if waiting is None:
+        window.setCentralWidget(view)
+        page.load(url)
+        return shell
+    label = QLabel(waiting)  # plain text only: never markup
+    label.setTextFormat(Qt.TextFormat.PlainText)
+    label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    label.setWordWrap(True)
+    label.setStyleSheet("background:#0b0f14; color:#cfd8e3; font-size:20px; padding:24px;")
+    stack = QStackedWidget(window)
+    stack.addWidget(label)
+    stack.addWidget(view)
+    window.setCentralWidget(stack)
+    shell.stack, shell.label, shell.url = stack, label, url
     return shell
+
+
+def load_when_up(
+    shell: Shell, wait: BrainWait, late: str, url: Callable[[], str] | None = None
+) -> None:
+    """--attach: show the page once the brain answers; say so if it is late. `url` is
+    built only then (with the token the brain has just written)."""
+    from PySide6.QtCore import QTimer, QUrl
+
+    timer = QTimer(shell.window)
+    timer.setInterval(250)
+
+    def tick() -> None:
+        state = wait.state()
+        if state == "up":
+            timer.stop()
+            shell.stack.setCurrentIndex(1)
+            shell.page.load(QUrl(url()) if url is not None else shell.url)
+        elif state == "late" and shell.label.text() != late:
+            shell.label.setText(late)
+
+    timer.timeout.connect(tick)
+    wait.start()
+    timer.start()
 
 
 def bring_up(app: Any, shell: Shell, wake: bool, notice: str) -> None:
@@ -224,6 +268,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--wake", action="store_true", help="started by the wake word")
     p.add_argument("--start-path", default="/", help="page to open (the visible check)")
     p.add_argument("--state-dir", type=Path, default=None, help="where the brain's token is")
+    p.add_argument("--wait-for-brain", type=float, default=None, help="--attach: seconds")
+    p.add_argument("--starting-notice", default="Starting…")
+    p.add_argument("--late-notice", default="The assistant didn't start.")
     a = p.parse_args(argv)
     from sasha.app.single import SingleInstance
 
@@ -240,8 +287,26 @@ def main(argv: list[str] | None = None) -> int:
     app = QApplication(sys.argv[:1])
     app.setApplicationName("assistant-window")  # the window class, for the menu entry
     app.setDesktopFileName("assistant-window")
-    token = read_token(a.state_dir) if a.state_dir else None  # None: the panel is refused
-    shell = build(app, a.port, a.profile, a.title, a.icon, a.start_path, token=token)
+    attach = a.wait_for_brain is not None
+    waiting = a.starting_notice if attach else None
+
+    def token() -> str | None:  # None: the browser panel is refused
+        return read_token(a.state_dir) if a.state_dir else None
+
+    shell = build(
+        app,
+        a.port,
+        a.profile,
+        a.title,
+        a.icon,
+        a.start_path,
+        token=None if attach else token(),
+        waiting=waiting,
+    )
+    if attach:  # never starts a brain: waits for the service (app/waiting.py)
+        wait = BrainWait(lambda: brain_up(a.port), wait_s=a.wait_for_brain)
+        # the token is read once the brain answers: the file of a previous run is stale
+        load_when_up(shell, wait, a.late_notice, lambda: start_url(a.port, a.start_path, token()))
     single.serve(app, lambda command: bring_up(app, shell, command == "wake", a.notice))
     shell.window.show()
     if a.wake:

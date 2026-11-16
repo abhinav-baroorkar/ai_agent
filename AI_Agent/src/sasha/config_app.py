@@ -11,6 +11,12 @@ class AppText(BaseModel):
 
     menu_comment: str = "Local voice assistant"  # the applications menu's tooltip
     listening_notice: str = "{name} is listening"  # the notification when it can't raise
+    # `sasha window --attach` (start at login): shown while the brain service starts,
+    # and if it doesn't come up in time.
+    starting_notice: str = "{name} is starting…"
+    not_started_notice: str = (
+        "{name} didn't start. Open a terminal and run `sasha serve` to see why."
+    )
 
 
 class WindowConfig(BaseModel):

@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from sasha.app.single import DESKTOP_ID, NoRuntimeDir, ask_window, socket_path
+from sasha.app.waiting import ATTACH_WAIT_S
 from sasha.config import Settings
 
 Spawn = Callable[..., Any]
@@ -39,9 +40,12 @@ def has_display(env: dict[str, str] | None = None) -> bool:
     return bool(env.get("DISPLAY") or env.get("WAYLAND_DISPLAY"))
 
 
-def shell_command(settings: Settings, port: int, dead_proxy: int, wake: bool = False) -> list[str]:
+def shell_command(
+    settings: Settings, port: int, dead_proxy: int, wake: bool = False, attach: bool = False
+) -> list[str]:
     name = settings.assistant.name
-    notice = settings.assistant.app.listening_notice.replace("{name}", name)
+    text = settings.assistant.app
+    notice = text.listening_notice.replace("{name}", name)
     cmd = [
         sys.executable,
         "-m",
@@ -62,6 +66,15 @@ def shell_command(settings: Settings, port: int, dead_proxy: int, wake: bool = F
         "--state-dir",
         str(settings.paths.state_dir),
     ]
+    if attach:  # never starts a brain: shows "starting…" until the service is up
+        cmd += [
+            "--wait-for-brain",
+            str(ATTACH_WAIT_S),
+            "--starting-notice",
+            text.starting_notice.replace("{name}", name),
+            "--late-notice",
+            text.not_started_notice.replace("{name}", name),
+        ]
     return [*cmd, "--wake"] if wake else cmd
 
 
@@ -72,6 +85,7 @@ def open_shell(
     *,
     wake: bool = False,
     as_unit: bool = False,
+    attach: bool = False,
     spawn: Spawn = subprocess.Popen,
     ask: Callable[[Path, str], bool] = ask_window,
 ) -> str:
@@ -85,7 +99,7 @@ def open_shell(
         return "raised"
     if not has_display():
         return "no_display"
-    cmd = shell_command(settings, port, dead_proxy, wake=wake)
+    cmd = shell_command(settings, port, dead_proxy, wake=wake, attach=attach)
     env = {**os.environ, "SASHA_ROOT": str(settings.paths.root)}
     if as_unit and shutil.which("systemd-run"):
         unit = ["systemd-run", "--user", f"--unit={DESKTOP_ID}", "--collect", "--quiet"]
