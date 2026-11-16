@@ -129,6 +129,12 @@ def asks_for_timer(command: str, cfg: TimersConfig) -> bool:
     return bool(said & set(cfg.request_verbs)) or phrased or timed
 
 
+def reported(tool_calls: list[dict[str, Any]]) -> bool:
+    """list_timers succeeded this turn: "Your alarm is set for 7." is a report of what
+    the service holds, not a claim."""
+    return any(c.get("name") == "list_timers" and c.get("ok") for c in tool_calls)
+
+
 def pending_ask(tool_calls: list[dict[str, Any]]) -> tuple[str, str] | None:
     """(tool, reason) of the last ask of a changing timer tool this turn, unless a later
     call of the same tool succeeded (the model asked, got the answer, and set it)."""
@@ -220,7 +226,7 @@ class TimerTruth:
                 return f"{self.held.rstrip()} {question}", f"{text.rstrip()} {question}"
             line = f"{self.cfg.nothing_set} " if claims_anything(text, self.cfg) else ""
             return f" {line}{question}", f"{text.rstrip()} {line}{question}"
-        listed = any(c.get("name") == "list_timers" and c.get("ok") for c in tool_calls)
+        listed = reported(tool_calls)
         if self.state is not None:  # a status question: the real state unless it listed
             if listed:
                 return self.held, text
@@ -228,7 +234,7 @@ class TimerTruth:
             return (real, real) if self.holding else (f" {real}", f"{text.rstrip()} {real}")
         if self.requested:
             needs_line = not made and not all_questions(text)  # T1 and Q1: structural
-        else:  # "Your alarm is set for 7." read from list_timers is a report, not a claim
+        else:  # a report after list_timers is no claim
             needs_line = not made and not listed and claims_timer(text, self.cfg)
         if not needs_line:
             return self.held, text

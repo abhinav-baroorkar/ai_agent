@@ -48,6 +48,7 @@ from sasha.config_timers import TimersConfig
 from sasha.conversation import current_turn
 from sasha.orchestrator import Assistant, RequestFailed
 from sasha.pipeline.llm import OllamaLLM
+from sasha.server.spoken import SpokenStream
 from sasha.server.timers.service import TimerService
 from sasha.server.timers.status import kinds_asked, status_line
 from sasha.server.timers.tools import TimerAsk, add_timer_tools
@@ -57,6 +58,7 @@ from sasha.server.timers.truth import (
     asks_for_timer,
     claims_anything,
     claims_timer,
+    reported,
 )
 from sasha.state import JsonStore
 from sasha.telemetry import TelemetryWriter
@@ -149,6 +151,7 @@ def run_case(
             reply,
             answering,
             lambda words: status_line(service, kinds_asked(words)),
+            existing=bool(split) and any(i.kind == case["kind"] for i in items),
         ),
         "seconds": round(seconds, 2),
     }
@@ -161,9 +164,13 @@ def judge(
     reply: str,
     answering: bool = False,
     state: Callable[[list[str]], str] | None = None,
+    existing: bool = False,
 ) -> dict[str, Any]:
     """What the server's TimerTruth (server/timers/truth.py) does with the last turn's
-    reply: on a typed chat (the reply shown) and on a spoken window turn (what is said)."""
+    reply: on a typed chat (the reply shown) and on a spoken window turn (what is said,
+    after the same speakable-text cleaner, server/spoken.py). A claim is false only if
+    nothing was made, no earlier turn made the item (`existing`: the service holds one
+    of the case's kind), and it isn't a report after list_timers (truth.reported)."""
     last = [
         {"name": c["tool"], "ok": "result" in c or bool(c.get("ok")), "asks": c.get("asked", "")}
         for c in calls
@@ -173,12 +180,16 @@ def judge(
     held = TimerTruth(cfg, command, spoken=True, answering=answering, state=state)
     held.feed(reply)
     tail, final = held.finish(reply, last)
-    spoken = tail if held.holding else final
+    raw = tail if held.holding else final
     added = shown[len(reply.rstrip()) :] if shown != reply else ""
-    made = any(c["name"] in CHANGING_TOOLS and c["ok"] for c in last)
-    claims = claims_timer(reply, cfg)
-    kept = bool(reply.strip()) and spoken.startswith(reply.strip()[:30])  # the model's words
-    false = claims or (held.requested and claims_anything(reply, cfg))
+    made = any(c["name"] in CHANGING_TOOLS and c["ok"] for c in last) or existing
+    claims = claims_timer(reply, cfg) and not reported(last)
+    kept = bool(reply.strip()) and raw.startswith(reply.strip()[:30])  # the model's words
+    false = claims or (held.requested and claims_anything(reply, cfg) and not reported(last))
+    cleaner = SpokenStream()  # what speech really says (markdown, lists, links removed)
+    cleaner.feed(raw)
+    cleaner.finish()
+    spoken = cleaner.text
     return {
         "server_line": shown != reply,  # the server added its line, question or state
         "server_question": "?" in added,  # ...and what it added asks ("Morning or evening?")
@@ -304,7 +315,8 @@ def rescore(path: Path, cfg: TimersConfig) -> None:
         # meant to be asked back, so its second turn is taken as the answer.
         answering = row.get("answering", two_turn and asks_for_timer(first, cfg))
         calls = row["calls"][split or 0 :]
-        row.update(judge(cfg, command, calls, row["reply"], answering))
+        existing = two_turn and any(i["kind"] == row["kind"] for i in row["items"])
+        row.update(judge(cfg, command, calls, row["reply"], answering, existing=existing))
         if row["server_line"] or before:
             mark = "Q" if row["server_question"] else ("L" if row["server_line"] else "-")
             print(f"[{row['run']}] {mark} {row['say']}")

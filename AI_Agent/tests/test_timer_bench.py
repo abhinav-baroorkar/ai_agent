@@ -109,3 +109,18 @@ def test_judge_sees_the_tools_ask() -> None:
     got = BENCH.judge(cfg, "Wake me up at 7.", calls, "I need to know: 7 AM or 7 PM.")
     assert got["server_question"] and got["spoken"] == "Morning or evening?"
     assert got["shown"].endswith("Morning or evening?")
+
+
+def test_a_report_or_an_earlier_item_is_no_false_claim() -> None:
+    """After list_timers the reply is a report (truth.reported); in a two-turn case an
+    item made in the first turn makes "your alarm is set" true."""
+    from sasha.config_timers import TimersConfig
+
+    cfg = TimersConfig()
+    listed = [{"tool": "list_timers", "args": {}, "result": {"items": []}}]
+    report = BENCH.judge(cfg, "Is my alarm set?", listed, "You don't have any alarms set.")
+    assert not report["spoken_claim"] and not report["uncaught_claim"]
+    earlier = BENCH.judge(cfg, "Is my alarm set?", [], "Your alarm is set for 7.", existing=True)
+    assert not earlier["spoken_claim"] and not earlier["uncaught_claim"]
+    cleaned = BENCH.judge(cfg, "Tell me about timers.", [], "I can help:\n- Set a timer\n")
+    assert "- " not in cleaned["spoken"]  # the bench reports speech after the cleaner
