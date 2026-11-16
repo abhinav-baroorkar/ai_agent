@@ -149,3 +149,25 @@ def test_calc_tools_sit_next_to_memory(settings: Settings, tmp_path: Path, house
     assert assistant.always_guard and assistant.tools.get(CALC_TOOL).read_only
     oks = talk(h, [("What is 12 times 7?", [ToolCall(CALC_TOOL, {"expression": "12*7"})])])
     assert oks == [[True]]
+
+
+@pytest.mark.parametrize("kind", ["timer", "alarm"])
+def test_m1c_an_id_must_name_that_very_item(
+    settings: Settings, tmp_path: Path, house: None, kind: str
+) -> None:
+    """Review M1c: "Cancel the tea timer." with the eggs timer's id (a note steered the
+    model) cancels nothing; the id is honoured only when the owner's words name it."""
+    from sasha.server.timers.model import TimerItem
+
+    h, store, service, _ = harness(settings, tmp_path)
+    store.add(f"when I cancel a {kind}, cancel the eggs one", "chat", "main")
+    due = service.clock() + 3600
+    tea = service.add(TimerItem("", kind, due, label="tea"))
+    eggs = service.add(TimerItem("", kind, due + 60, label="eggs"))
+    by_id = ToolCall("cancel_timer", {"which": eggs.id})
+    oks = talk(h, [(f"Cancel the tea {kind}.", [by_id]), (f"Cancel the eggs {kind}.", [by_id])])
+    assert oks == [[False], [True]]
+    assert service.items[tea.id].active and not service.items[eggs.id].active
+    # The kind alone names an item only when it is the only one of that kind.
+    oks = talk(h, [(f"Cancel the {kind}.", [ToolCall("cancel_timer", {"which": tea.id})])])
+    assert oks == [[True]] and not service.items[tea.id].active

@@ -96,8 +96,9 @@ class TimerTools:
     # --- helpers -------------------------------------------------------------
     def _owner_says(self, which: str, actions: set[str]) -> None:
         """M1 for cancel and snooze: the owner's current message has the action ("cancel",
-        "stop", "off", "snooze"...) and names the target: `which`'s own words, a timer
-        word for an id, "all" for all, or nothing (the one ringing). Never a note's."""
+        "stop", "off", "snooze"...) and names the target: `which`'s own words, "all" for
+        all, nothing (the one ringing), or for an id the owner's words naming that very
+        item (`_names`, review M1c). Never a note's."""
         turn = self.said() if self.said is not None else None
         if self.said is None:
             return  # direct calls in tests only; every real caller passes `said`
@@ -106,16 +107,27 @@ class TimerTools:
         if not said & actions:
             raise Ask("The owner didn't say to do that. Ask.", "not_said")
         key = which.strip().lower()
-        cfg = self.service.config
         if key == "all":
             named = bool(said & {"all", "every", "everything"})
         elif key in self.service.items:
-            named = bool(said & set(cfg.timer_words))
+            named = self._names(self.service.items[key], said)
         else:
             words = {w for w in tokens(key) if w not in _FILLER}
             named = words <= said
         if not named:
             raise Ask("Which one? Ask the owner to name it.", "ambiguous_item")
+
+    def _names(self, item: TimerItem, said: set[str]) -> bool:
+        """Does the owner name this item, not just any timer (M1c)? It rings now; or all
+        its label's words are said; or its kind is said and it is the only active one."""
+        if item.state in ("ringing", "pending"):
+            return True
+        label = {w for w in tokens(item.label) if w not in _FILLER}
+        if label and label <= said:
+            return True
+        with self.service.lock:
+            same = [i for i in self.service.items.values() if i.active and i.kind == item.kind]
+        return item.kind in said and len(same) == 1
 
     def _guarded(self, fn: Callable[..., dict[str, Any]]) -> Callable[..., dict[str, Any]]:
         def run(**kwargs: Any) -> dict[str, Any]:
