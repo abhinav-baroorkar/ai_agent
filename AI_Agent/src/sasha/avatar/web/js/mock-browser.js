@@ -6,6 +6,8 @@
 //   ?mock=1&browser=old       a server before take-over (no mode in the state)
 //   ?mock=1&browser=busy      another viewer already has the picture (close code 1013)
 //   ?mock=1&browser=down      the connection keeps failing (the offline state)
+//   ?mock=1&browser=restoring a hand-back cleans up for 5 s first (mode `restoring`)
+//   ?mock=1&browser=stuck     ...and the clean-up keeps failing (with `restore_problem`)
 // Otherwise it starts when a message goes to a bot that has the browser connector.
 // several switches can be given with commas, e.g. ?browser=running,noscreen
 const flags = (new URLSearchParams(location.search).get('browser') || '').split(',');
@@ -22,7 +24,7 @@ const PAGES = [
 ];
 const state = {
   enabled: mode !== 'off', running: false, agent: 'idle', holder: null, holder_bot: null, tabs: [],
-  mode: 'assistant', owner_until: null, owner_refused: {},
+  mode: 'assistant', owner_until: null, owner_refused: {}, restore_problem: null,
   guard: { allowed: 0, refused: {}, background_refused: 0 },
 };
 let current = 0;
@@ -69,7 +71,18 @@ function ownerDrives() {
 
 function handBack() {
   clearTimeout(ownerTimer);
-  Object.assign(state, { mode: 'assistant', owner_until: null, owner_refused: {}, tabs: state.running ? tabs() : [] });
+  if ((has('restoring') || has('stuck')) && state.mode === 'owner') { // the server's clean-up after his window
+    Object.assign(state, { mode: 'restoring', owner_until: null, owner_refused: {}, tabs: [],
+      restore_problem: has('stuck') ? 'The browser profile is still in use' : null });
+    changed();
+    if (!has('stuck')) setTimeout(restored, 5000);
+    return;
+  }
+  restored();
+}
+
+function restored() {
+  Object.assign(state, { mode: 'assistant', owner_until: null, owner_refused: {}, restore_problem: null, tabs: state.running ? tabs() : [] });
   changed();
 }
 const tell = (msg) => viewers.forEach((v) => v.emit(msg));
@@ -117,7 +130,7 @@ function sendFrame(viewer) {
 // The browser is used for a turn: it starts if needed, works for a while, then idles out.
 // helper: the main assistant's web lookup holds the browser (v0.5.1), not a bot of its own
 export function use(helper = false) {
-  if (!state.enabled || mode === 'busy') return;
+  if (!state.enabled || mode === 'busy' || state.mode === 'restoring') return; // bots are refused while it cleans up
   clearTimeout(stopTimer);
   const holder_bot = helper ? { id: 'main', name: assistantName(), via: 'helper' } : { id: 'b-web', name: 'Web researcher', via: 'direct' };
   Object.assign(state, { running: true, agent: 'working', holder: 'conversation-1', holder_bot, tabs: tabs() });
@@ -133,6 +146,7 @@ export function use(helper = false) {
 }
 
 export function stop(reason) {
+  if (state.mode === 'restoring') return; // the clean-up isn't stoppable; it finishes by itself
   if (state.mode !== 'assistant') return handBack(); // stopping during a take-over hands back
   clearTimeout(stopTimer);
   const was = state.running;
