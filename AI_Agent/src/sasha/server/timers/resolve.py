@@ -6,7 +6,10 @@ section 1: ask, don't guess):
 - hour 1-12 without am/pm when both readings are still possible; for alarms, always
   (R1: at 08:00, "7:30" must not silently become 19:30 today);
 - no hour at all ("tomorrow morning"); a number that isn't whole ("7.9");
-- a day that isn't today/tomorrow/a weekday/YYYY-MM-DD/a day of the month ("30th");
+- a day that isn't today/tomorrow/a weekday/YYYY-MM-DD/a day of the month ("30th")/a
+  date in words ("2nd of April", "April 2nd");
+- "next <weekday>" within 2 days ("next Friday" on a Thursday): this one or the one
+  after? (owner rule, 2026-11-16). Further ahead it is the coming one;
 - a time already past on a named day (the message says what today is).
 A past clock time today without a day moves to tomorrow (`moved` says so).
 Unambiguous slips are read, not asked: "18" with "pm" is 18:00, "0" with "am" 00:00.
@@ -24,6 +27,12 @@ from datetime import date, datetime, timedelta, timezone, tzinfo
 
 WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
 _ORDINAL = re.compile(r"^(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)$")
+MONTHS = ("january", "february", "march", "april", "may", "june", "july", "august",
+          "september", "october", "november", "december")  # fmt: skip
+_SHORT = {m[:3]: i for i, m in enumerate(MONTHS, 1)} | {"sept": 9}
+_DAY_MONTH = re.compile(r"^(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)?(?:\s+of)?\s+([a-z]+)$")
+_MONTH_DAY = re.compile(r"^([a-z]+)\s+(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)?$")
+NEXT_ASK_DAYS = 2  # "next <weekday>" this close is asked back (owner rule)
 
 
 class Ask(ValueError):
@@ -89,20 +98,59 @@ def _month_day(number: int, today: date) -> date:
     raise Ask("Which day? Ask for the date.", "bad_day")
 
 
+def _month(word: str) -> int | None:
+    if word in MONTHS:
+        return MONTHS.index(word) + 1
+    return _SHORT.get(word)
+
+
+def _dated(number: int, month: int, today: date) -> date:
+    """ "2nd of April": this year if still ahead (or today), else next year."""
+    for year in (today.year, today.year + 1):
+        try:
+            candidate = date(year, month, number)
+        except ValueError:  # "30th of February"
+            raise Ask("That date doesn't exist. Ask for the date.", "bad_day") from None
+        if candidate >= today:
+            return candidate
+    raise Ask("Which day? Ask for the date.", "bad_day")  # unreachable
+
+
+def _weekday(name: str, today: date) -> date:
+    ahead = (WEEKDAYS.index(name) - today.weekday()) % 7
+    return today + timedelta(days=ahead or 7)  # "monday" said on a Monday: next one
+
+
 def _day(spec: object, today: date) -> date | None:
     """None = no day given."""
-    text = str(spec or "").strip().lower()
+    text = " ".join(str(spec or "").strip().lower().replace(",", " ").split())
     if not text:
         return None
     if text == "today":
         return today
     if text == "tomorrow":
         return today + timedelta(days=1)
-    if text in WEEKDAYS:
-        ahead = (WEEKDAYS.index(text) - today.weekday()) % 7
-        return today + timedelta(days=ahead or 7)  # "monday" said on a Monday: next one
+    words = text.split()
+    if text in WEEKDAYS or (len(words) == 2 and words[0] == "this" and words[1] in WEEKDAYS):
+        return _weekday(words[-1], today)  # "friday", "this friday": the coming one
+    if len(words) == 3 and words[0] in WEEKDAYS and words[1:] == ["after", "next"]:
+        return _weekday(words[0], today) + timedelta(days=7)  # "friday after next"
+    if len(words) == 2 and words[0] == "next" and words[1] in WEEKDAYS:
+        coming = _weekday(words[1], today)
+        if (coming - today).days <= NEXT_ASK_DAYS:  # "next friday" on a thursday
+            later = coming + timedelta(days=7)
+            raise Ask(
+                f"This {words[1]} ({coming.isoformat()}) or the one after "
+                f"({later.isoformat()})? Ask, then send 'this {words[1]}' or "
+                f"'{words[1]} after next'.",
+                f"next_weekday:{words[1]}",
+            )
+        return coming
     if m := _ORDINAL.match(text):
         return _month_day(int(m.group(1)), today)
+    for pattern, number_at, month_at in ((_DAY_MONTH, 1, 2), (_MONTH_DAY, 2, 1)):
+        if (m := pattern.match(text)) and (month := _month(m.group(month_at))):
+            return _dated(int(m.group(number_at)), month, today)
     try:
         return date.fromisoformat(text)
     except ValueError:
