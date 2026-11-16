@@ -75,6 +75,21 @@ def words(text: str) -> set[str]:
     return found | {w[:-1] for w in found if w.endswith("s") and len(w) > 3}
 
 
+# Words that carry no meaning of their own, allowed in a free-text field the owner's
+# words must cover ("buy the milk" for "remind me to buy milk").
+GLUE = {"a", "an", "the", "to", "my", "of", "for", "and", "at", "on", "in"}
+
+
+def said_by_owner(field: str, owner_text: str) -> bool:
+    """Every word of a free-text field (a reminder's text, a label) is the owner's own,
+    or glue; a plural of his word counts. An empty field passes."""
+    allowed = words(owner_text) | GLUE
+    for word in raw_words(field.replace("\u2019", "'")):
+        if word not in allowed and not (word.endswith("s") and {word[:-1], word[:-2]} & allowed):
+            return False
+    return True
+
+
 def negated(owner_text: str, action_words: set[str], negations: tuple[str, ...]) -> bool:
     """A negation within `NEGATION_REACH` words before a verb or an action word."""
     tokens = [t.lower() for t in _TOKEN.findall(owner_text.replace("\u2019", "'"))]

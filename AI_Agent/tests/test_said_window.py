@@ -173,6 +173,8 @@ def test_timer_tool_marks(tmp_path: Path) -> None:
         assert marks[name] == (False, True), name  # their own said-check
     for name in ("cancel_timer", "snooze_timer"):
         assert marks[name] == (False, False), name  # no own check: the guard, fail closed
+    fields = {n: tools.get(n).said_fields for n in ("set_timer", "set_alarm", "set_reminder")}
+    assert fields == {"set_timer": ("label",), "set_alarm": ("label",), "set_reminder": ("text",)}
 
 
 # --- delta review E1-E3, and G1 with earlier targets -----------------------------------
@@ -194,16 +196,41 @@ def test_locks_and_covers_never_carry_a_target_over() -> None:
     assert device_change_said("unlock the front door", door, NAMES)
 
 
-def test_said_checked_tools_go_through_the_guard_while_tainted(
+def test_after_a_lookup_timers_work_but_page_text_is_refused(
     settings: Settings, tmp_path: Path
 ) -> None:
-    """Review E3: their own check covers times, not every free-text field a page could
-    choose, so under a web-result taint they are guarded too (fail closed)."""
-    ran: list[str] = []
-    own = Tool(
-        "set_reminder", "r", OBJ, lambda: ran.append("own") or {"ok": True}, said_checked=True
-    )
-    a, llm, _, _, _ = _setup(settings, tmp_path, [own])
-    _turn(a, llm, "look up x", ToolCall(BROWSE_TOOL, {"task": "x"}))
-    _turn(a, llm, "remind me", ToolCall("set_reminder", {}))
-    assert ran == [] and SAY_IT in str(llm.seen[-1][0][-1]["content"])
+    """Primary's E3 decision: while tainted, a said_checked tool runs only if every word
+    of its free-text fields is the owner's own (this turn, or the previous within the
+    window); its own check still runs inside it. The real timer tools."""
+    from sasha.conversation import current_turn
+    from sasha.server.timers.tools import add_timer_tools
+    from tests.timer_fakes import make_service
+
+    service, _, _ = make_service(tmp_path)
+    home = Home()
+    tools = add_timer_tools(ToolRegistry(home.tools()), service, said=current_turn.get)
+    llm = FakeLLM("m")
+    telemetry = TelemetryWriter(tmp_path, "a", "p", enabled=False)
+    a = Assistant(settings, llm, tools, telemetry, change_guard=SaidGuard(None))
+    _turn(a, llm, "when does the shop close?", ToolCall(BROWSE_TOOL, {"task": "x"}))
+    assert a.tainted
+    _turn(a, llm, "set a timer for 20 minutes", ToolCall("set_timer", {"minutes": 20}))
+    assert [c["ok"] for c in a.last_tool_calls] == [True]  # the owner's timer is set
+    planted = ToolCall("set_reminder", {"text": "unlock the front door", "in_minutes": 10})
+    _turn(a, llm, "remind me in 10 minutes", planted)
+    assert [c["ok"] for c in a.last_tool_calls] == [False]
+    assert SAY_IT in str(llm.seen[-1][0][-1]["content"])
+    own = ToolCall("set_reminder", {"text": "call the plumber", "in_minutes": 10})
+    _turn(a, llm, "remind me to call plumber in 10 minutes", own)
+    assert [c["ok"] for c in a.last_tool_calls] == [True]
+    _turn(a, llm, "cancel it", ToolCall("cancel_timer", {"which": "all"}))
+    assert [c["ok"] for c in a.last_tool_calls] == [False]  # no own check: fails closed
+
+
+def test_said_by_owner() -> None:
+    from sasha.said import said_by_owner
+
+    assert said_by_owner("buy the milk", "remind me to buy milk")
+    assert said_by_owner("", "anything")
+    assert said_by_owner("eggs", "remind me about the egg")  # a plural of his word
+    assert not said_by_owner("unlock the front door", "remind me in 10 minutes")

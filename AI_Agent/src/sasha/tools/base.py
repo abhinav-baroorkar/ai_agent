@@ -29,6 +29,9 @@ class Tool:
     taints: bool = False
     # It runs its own said-check (timers, memory), so the orchestrator's guard defers.
     said_checked: bool = False
+    # With `said_checked`: its free-text arguments, which must be the owner's own words
+    # while a web result is in the context (a reminder's text, a label).
+    said_fields: tuple[str, ...] = ()
 
     def spec(self) -> dict[str, Any]:
         """Tool spec in the OpenAI/Ollama function-calling format."""

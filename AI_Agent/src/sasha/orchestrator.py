@@ -12,7 +12,7 @@ from typing import Any
 from sasha.config import Settings
 from sasha.conversation import asks_back, current_turn, finish_turn, new_turn
 from sasha.pipeline.llm import LLM, LLMCancelled, LLMResponse, Message, StreamingLLM
-from sasha.said import DEVICE_TOOL
+from sasha.said import DEVICE_TOOL, said_by_owner
 from sasha.telemetry import RequestTrace, TelemetryWriter
 from sasha.tools import ToolRegistry
 from sasha.tools.base import ToolResult
@@ -309,13 +309,13 @@ class Assistant:
     def _taints(self, name: str) -> bool:
         return name in self.tools and self.tools.get(name).taints
 
-    def earlier_owner_text(self) -> str:
-        """The owner's messages of the last `EARLIER_TURNS` kept turns that ended within
+    def earlier_owner_text(self, turns: int = EARLIER_TURNS) -> str:
+        """The owner's messages of the last `turns` kept turns that ended within
         `llm.target_window_s` (for the said-check's target words; see ChangeGuard)."""
         window = self.settings.profile.llm.target_window_s
         now = self.clock()
         users = [m for m in self._history if m["role"] == "user"]
-        recent = list(zip(users, self._ended, strict=True))[-EARLIER_TURNS:]
+        recent = list(zip(users, self._ended, strict=True))[-turns:] if turns > 0 else []
         return " ".join(str(m["content"]) for m, ended in recent if now - ended <= window)
 
     def _change_refused(self, name: str, arguments: dict[str, Any], text: str) -> ToolResult | None:
@@ -331,10 +331,15 @@ class Assistant:
         elif not (self.tainted or self.always_guard):
             return None
         elif tool.said_checked and not self.tainted:
-            # its own said-check covers memory's M1; under a web-result taint (P1) it
-            # goes through the guard too, since the tool checks times, not every free
-            # text field a page could choose (review E3)
-            return None
+            return None  # its own said-check covers memory's M1
+        elif tool.said_checked:
+            # Under a web-result taint (P1, review E3) its own check covers times, not
+            # the free text a page could choose: every word of its `said_fields` must
+            # also be the owner's, this turn or the previous one within the window.
+            own = f"{text} {self.earlier_owner_text(turns=1)}"
+            if all(said_by_owner(str(arguments.get(f) or ""), own) for f in tool.said_fields):
+                return None
+            message = SAY_IT
         else:
             guard = self.change_guard
             earlier = "" if self.tainted else self.earlier_owner_text()  # P1 stays strict
