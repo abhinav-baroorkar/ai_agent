@@ -34,6 +34,8 @@ avatar:
 app:                   # the app shell's words outside its page ({name} is filled in)
   menu_comment: Local voice assistant
   listening_notice: "{name} is listening"
+  starting_notice: "{name} is starting…"   # the window at login, before the brain is up
+  not_started_notice: "{name} didn't start. Open a terminal and run `sasha serve` to see why."
 # {name}, {subject}, {object}, {possessive} are filled in from the fields above.
 system_prompt: |
   You are {name}, a helpful voice assistant running fully locally in the user's home.

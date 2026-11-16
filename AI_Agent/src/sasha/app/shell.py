@@ -20,6 +20,7 @@ from typing import Any
 
 from sasha.app import policy
 from sasha.app.single import NoRuntimeDir, notify, socket_path
+from sasha.app.waiting import BrainWait, brain_up
 
 log = logging.getLogger(__name__)
 
@@ -82,6 +83,10 @@ class Shell:
     interceptor: Any
     loaded: bool = False
     pending_wake: bool = False
+    # --attach: a plain line in front until the brain is up (app/waiting.py)
+    stack: Any = None
+    label: Any = None
+    url: Any = None
 
 
 def build(
@@ -92,10 +97,11 @@ def build(
     icon: Path | None,
     start: str = "/",
     intercept: bool = True,  # False only for the probe that shows the dead proxy alone
+    waiting: str | None = None,  # --attach: show this and load nothing yet
 ) -> Shell:
     """The window, its page and profile. Qt imports are here, so the module imports
     without PySide6 (the launcher checks for it first)."""
-    from PySide6.QtCore import QUrl
+    from PySide6.QtCore import Qt, QUrl
     from PySide6.QtGui import QIcon
     from PySide6.QtWebEngineCore import (
         QWebEnginePage,
@@ -104,7 +110,7 @@ def build(
         QWebEngineUrlRequestInterceptor,
     )
     from PySide6.QtWebEngineWidgets import QWebEngineView
-    from PySide6.QtWidgets import QMainWindow
+    from PySide6.QtWidgets import QLabel, QMainWindow, QStackedWidget
 
     class Interceptor(QWebEngineUrlRequestInterceptor):
         blocked = 0
@@ -157,7 +163,6 @@ def build(
     window = QMainWindow()
     view = QWebEngineView(window)
     view.setPage(page)
-    window.setCentralWidget(view)
     window.setWindowTitle(title)
     if icon is not None and icon.is_file():
         window.setWindowIcon(QIcon(str(icon)))
@@ -173,8 +178,43 @@ def build(
             page.runJavaScript(wake_js(True))  # a cold start: always just shown
 
     page.loadFinished.connect(loaded)
-    page.load(QUrl(policy.own_origin(port) + (start if start.startswith("/") else "/")))
+    url = QUrl(policy.own_origin(port) + (start if start.startswith("/") else "/"))
+    if waiting is None:
+        window.setCentralWidget(view)
+        page.load(url)
+        return shell
+    label = QLabel(waiting)  # plain text only: never markup
+    label.setTextFormat(Qt.TextFormat.PlainText)
+    label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    label.setWordWrap(True)
+    label.setStyleSheet("background:#0b0f14; color:#cfd8e3; font-size:20px; padding:24px;")
+    stack = QStackedWidget(window)
+    stack.addWidget(label)
+    stack.addWidget(view)
+    window.setCentralWidget(stack)
+    shell.stack, shell.label, shell.url = stack, label, url
     return shell
+
+
+def load_when_up(shell: Shell, wait: BrainWait, late: str) -> None:
+    """--attach: show the page once the brain answers; say so if it is late."""
+    from PySide6.QtCore import QTimer
+
+    timer = QTimer(shell.window)
+    timer.setInterval(250)
+
+    def tick() -> None:
+        state = wait.state()
+        if state == "up":
+            timer.stop()
+            shell.stack.setCurrentIndex(1)
+            shell.page.load(shell.url)
+        elif state == "late" and shell.label.text() != late:
+            shell.label.setText(late)
+
+    timer.timeout.connect(tick)
+    wait.start()
+    timer.start()
 
 
 def bring_up(app: Any, shell: Shell, wake: bool, notice: str) -> None:
@@ -212,6 +252,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--icon", type=Path, default=None)
     p.add_argument("--wake", action="store_true", help="started by the wake word")
     p.add_argument("--start-path", default="/", help="page to open (the visible check)")
+    p.add_argument("--wait-for-brain", type=float, default=None, help="--attach: seconds")
+    p.add_argument("--starting-notice", default="Starting…")
+    p.add_argument("--late-notice", default="The assistant didn't start.")
     a = p.parse_args(argv)
     from sasha.app.single import SingleInstance
 
@@ -228,7 +271,12 @@ def main(argv: list[str] | None = None) -> int:
     app = QApplication(sys.argv[:1])
     app.setApplicationName("assistant-window")  # the window class, for the menu entry
     app.setDesktopFileName("assistant-window")
-    shell = build(app, a.port, a.profile, a.title, a.icon, a.start_path)
+    attach = a.wait_for_brain is not None
+    waiting = a.starting_notice if attach else None
+    shell = build(app, a.port, a.profile, a.title, a.icon, a.start_path, waiting=waiting)
+    if attach:  # never starts a brain: waits for the service (app/waiting.py)
+        wait = BrainWait(lambda: brain_up(a.port), wait_s=a.wait_for_brain)
+        load_when_up(shell, wait, a.late_notice)
     single.serve(app, lambda command: bring_up(app, shell, command == "wake", a.notice))
     shell.window.show()
     if a.wake:

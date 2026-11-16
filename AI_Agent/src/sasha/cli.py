@@ -1,5 +1,5 @@
 """Command line: `sasha chat` (text loop), `doctor`, `serve` and `window` (brain server),
-`listen` (wake word listener) and `autostart` (start both at login)."""
+`listen` (wake word listener) and `autostart` (start them at login)."""
 
 from __future__ import annotations
 
@@ -165,6 +165,11 @@ def build_parser() -> argparse.ArgumentParser:
             cmd.add_argument(
                 "--chrome", action="store_true", help="Use the Chrome window, not the app shell"
             )
+            cmd.add_argument(
+                "--attach",
+                action="store_true",
+                help="Never start the server: wait for the running one (start at login)",
+            )
     listen = sub.add_parser("listen", help="Wake word listener (microphone; foreground)")
     listen.add_argument(
         "--debug-dump-audio",
@@ -177,7 +182,9 @@ def build_parser() -> argparse.ArgumentParser:
     listen.add_argument(
         "--end-silence-ms", type=int, default=None, help="Silence that ends a command (600)"
     )
-    auto = sub.add_parser("autostart", help="Start brain + listener at login: on|off|show")
+    auto = sub.add_parser(
+        "autostart", help="Start brain, listener and window at login: on|off|show"
+    )
     auto.add_argument("action", choices=["on", "off", "show"])
     auto.add_argument("--yes", action="store_true", help="With `on`: really link and enable")
     menu = sub.add_parser("app-menu", help="The assistant in the applications menu: on|off|show")
@@ -213,7 +220,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         from sasha.listener.autostart import autostart
         from sasha.pipeline.model_cache import project_root
 
-        return autostart(args.action, project_root(settings.paths.root), yes=args.yes)
+        return autostart(
+            args.action, project_root(settings.paths.root), yes=args.yes, settings=settings
+        )
     if args.command == "app-menu":
         from sasha.app.menu import app_menu
         from sasha.pipeline.model_cache import project_root
@@ -223,7 +232,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         from sasha.server.launch import open_window, run_server  # FastAPI only when needed
 
         if args.command == "window":
-            return open_window(settings, host=args.host, port=args.port, chrome=args.chrome)
+            return open_window(
+                settings, host=args.host, port=args.port, chrome=args.chrome, attach=args.attach
+            )
         return run_server(settings, host=args.host, port=args.port)
     assistant, warnings = make_assistant(settings, small=getattr(args, "small", False))
     for w in warnings:
