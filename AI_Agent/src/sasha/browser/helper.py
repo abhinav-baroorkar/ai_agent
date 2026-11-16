@@ -62,6 +62,19 @@ def named_address(task: str, owner_text: str) -> str | None:
     return None
 
 
+class LookupFailed(ToolError):
+    """browse came back with nothing from the web; `asks` is the reason label the
+    server's truth check reads (server/browse_truth.py), never text."""
+
+    def __init__(self, reason: str, marker: str) -> None:
+        line = PERSON_CHECK if reason == "person_check" else "Nothing was found on the web."
+        super().__init__(
+            f"{line} Tell the owner exactly that. Don't answer as if from the web; if "
+            f'you add what you already know, start that part with "{marker}"'
+        )
+        self.asks = reason
+
+
 def helper_prompt(lines: PromptLines) -> str:
     """The helper's whole system prompt. Deliberately not `build_prompt`."""
     return lines.helper
@@ -159,9 +172,9 @@ class BrowseHelper:
                 raise ToolError("The owner stopped the request" if stopped else TOO_LONG) from None
             raise ToolError("The web lookup failed") from None
         result = shape_result(reply.text, list(self.conv.sites))
-        if self.conv.person_check and not result["facts"] and not result["sites"]:
-            # the search was blocked: say so in the owner's words, not "no results"
-            result = {"answer": PERSON_CHECK, "facts": [], "sites": [], "blocked": "person_check"}
+        if not result["sites"]:  # no page loaded: whatever it says isn't from the web
+            reason = "person_check" if self.conv.person_check else "nothing_found"
+            raise LookupFailed(reason, self.lines.web_unchecked)
         return result
 
 

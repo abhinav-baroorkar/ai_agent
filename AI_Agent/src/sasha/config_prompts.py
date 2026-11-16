@@ -83,6 +83,11 @@ class PromptLines(BaseModel):
         'only: {"answer": "...", "facts": [{"text": "...", "site": "..."}]}. If you '
         'can\'t find it, say so in "answer".'
     )
+    # A lookup that brought nothing back (server/browse_truth.py): the server's own line
+    # reaches the owner; the model may add what it knows only after this marker.
+    web_nothing_found: str = "I couldn't find that on the web."
+    web_failed: str = "I couldn't check the web for that."
+    web_unchecked: str = "I couldn't check the web. From what I already know:"
     limits: list[Limit] = Field(
         default_factory=lambda: [
             Limit(text="You can't go on the internet or look anything up online.",

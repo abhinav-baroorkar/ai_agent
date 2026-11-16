@@ -31,6 +31,9 @@ EXTENSION_DIRS = (
     "Default/Local Extension Settings",
     "Default/Extension State",
     "Default/Extension Rules",
+    "Default/Extension Scripts",  # review S2
+    "Default/Sync Extension Settings",
+    "Default/Managed Extension Settings",
 )
 DOWNLOADS = "takeover-downloads"
 TAKEOVER_WIPE = (DOWNLOADS, "Default/Web Data", "Default/Web Data-journal",

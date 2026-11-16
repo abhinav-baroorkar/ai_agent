@@ -114,10 +114,13 @@ def test_a_blocked_search_says_so_plainly(
 
     original = wiring.FakeTabs.search_results
     wiring.FakeTabs.search_results = lambda self, url: blocked(url)  # type: ignore[method-assign]
+    from sasha.browser.helper import LookupFailed
+
     token = current_turn.set(new_turn(("pune weather",), "text"))
     try:
-        out = helper.browse("pune weather")
+        with pytest.raises(LookupFailed) as failed:
+            helper.browse("pune weather")
     finally:
         current_turn.reset(token)
         wiring.FakeTabs.search_results = original  # type: ignore[method-assign]
-    assert out == {"answer": PERSON_CHECK, "facts": [], "sites": [], "blocked": "person_check"}
+    assert failed.value.asks == "person_check" and PERSON_CHECK in str(failed.value)
