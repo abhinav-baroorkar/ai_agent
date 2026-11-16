@@ -24,15 +24,21 @@ _TABLE_SEP = re.compile(r"^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?$")
 _HEADING = re.compile(r"^#{1,6}\s+")
 _QUOTE = re.compile(r"^(>\s?)+")
 _BULLET = re.compile(r"^([-*+•]|\d{1,3}[.)])\s+")
-_LINK = re.compile(r"!?\[([^\]]*)\]\([^)\s]*\)")
+# Linear (SP2): a link's text can't hold another "[", so "[[[[..." fails at once, and
+# both parts are bounded, so hostile input can't make the cleaner quadratic.
+_LINK = re.compile(r"!?\[([^\[\]\n]{0,300})\]\([^)\s]{0,500}\)")
+_LINK_REST = re.compile(r"\]\([^)\s]{0,500}\)?|[\[\]]")  # pieces of a link cut apart (SP1)
+_TIMES = re.compile(r"(?<=\d)\s*\*\s*(?=\d)")  # "2*3": a multiplication, not emphasis
 _EMPHASIS = re.compile(r"\*+|~~|`+|(?<!\w)_+|_+(?!\w)")
 _SPACES = re.compile(r"[ \t]+")
 _SENTENCE_END = re.compile(r"[.!?]+\s+")
 _STOPS = ".!?:;,"
 LINE_START_HOLD = 4  # a partial line is not cut until this many characters (a marker)
+MAX_HOLD = 200  # SP1: held text is cut at a soft break past this, so speech can't stall
+_SOFT_BREAKS = (", ", "; ", ": ", " ")
 
 
-def clean_line(line: str, line_start: bool = True) -> str:
+def clean_line(line: str, line_start: bool = True, times: str = "times") -> str:
     """One line (or the rest of one) as speakable text. "" if nothing is left to say."""
     text = line.strip()
     if not text:
@@ -49,6 +55,8 @@ def clean_line(line: str, line_start: bool = True) -> str:
             text, found = pattern.subn("", text)
             made_sentence = made_sentence or bool(found)
     text = _LINK.sub(r"\1", text)
+    text = _LINK_REST.sub("", text)  # a link cut by the hold limit: never its address
+    text = _TIMES.sub(f" {times} ", text)
     text = _EMPHASIS.sub("", text)
     text = _SPACES.sub(" ", text).strip()
     if made_sentence and text and text[-1] not in _STOPS:
@@ -59,13 +67,14 @@ def clean_line(line: str, line_start: bool = True) -> str:
 class SpokenStream:
     """Feed streamed model text; get speakable text out. `text` is all that came out."""
 
-    def __init__(self) -> None:
+    def __init__(self, times: str = "times") -> None:
         self.buffer = ""
         self.line_open = False  # part of the current line was already released
         self.text = ""
+        self.times = times  # how "2*3" is said (profile.prompt_lines, per language)
 
     def _out(self, part: str, line_start: bool) -> str:
-        cleaned = clean_line(part, line_start)
+        cleaned = clean_line(part, line_start, self.times)
         if not cleaned:
             return ""
         piece = f"{' ' if self.text else ''}{cleaned}"
@@ -79,12 +88,23 @@ class SpokenStream:
             line, self.buffer = self.buffer.split("\n", 1)
             out += self._out(line, not self.line_open)
             self.line_open = False
-        cut = self._cut()
-        if cut:
+        while cut := self._cut() or self._forced_cut():  # until what is held fits
             part, self.buffer = self.buffer[:cut], self.buffer[cut:]
             out += self._out(part, not self.line_open)
             self.line_open = True
         return out
+
+    def _forced_cut(self) -> int:
+        """SP1: held past MAX_HOLD (a long unclosed link, no sentence end): cut at the
+        last soft break before it, or hard at MAX_HOLD."""
+        if len(self.buffer) <= MAX_HOLD:
+            return 0
+        window = self.buffer[:MAX_HOLD]
+        for mark in _SOFT_BREAKS:
+            at = window.rfind(mark)
+            if at > 0:
+                return at + len(mark)
+        return MAX_HOLD
 
     def _cut(self) -> int:
         """Where the open line may be cut now: after its last complete sentence."""
@@ -108,9 +128,9 @@ class SpokenStream:
         return out
 
 
-def to_spoken(text: str) -> str:
+def to_spoken(text: str, times: str = "times") -> str:
     """A whole answer at once."""
-    stream = SpokenStream()
+    stream = SpokenStream(times)
     stream.feed(text)
     stream.finish()
     return stream.text
