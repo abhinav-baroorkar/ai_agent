@@ -95,3 +95,4 @@ disallow_subclassing_any = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "-rfE"  # every failure and error names itself in the short summary
