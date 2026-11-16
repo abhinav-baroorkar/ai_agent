@@ -33,7 +33,8 @@ _LINK_REST = re.compile(rf"\]\({_ADDRESS}\)?|[\[\]]")  # pieces of a link cut ap
 # SF1: a bare address is said as its host only ("see example.com"), never read out.
 _URL = re.compile(r"\b(?:https?://|www\.)([^/\s()\[\]<>]+)[^\s()\[\]<>]*", re.IGNORECASE)
 _SKIP_END = re.compile(r"[)\s]")  # where an address that is being dropped ends
-_TIMES = re.compile(r"(?<=\d)\s*\*\s*(?=\d)")  # "2*3": a multiplication, not emphasis
+# "2*3" and "2 \u00d7 3": a multiplication, not emphasis
+_TIMES = re.compile(r"(?<=\d)\s*[*\u00d7]\s*(?=\d)")
 _EMPHASIS = re.compile(r"\*+|~~|`+|(?<!\w)_+|_+(?!\w)")
 _SPACES = re.compile(r"[ \t]+")
 _SENTENCE_END = re.compile(r"[.!?]+\s+")

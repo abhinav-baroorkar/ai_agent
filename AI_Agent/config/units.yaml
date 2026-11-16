@@ -1,0 +1,71 @@
+# Units for the `convert` tool (src/sasha/tools/units.py). One table:
+#   <kind>:
+#     <unit>: [factor, offset, singular, plural, aliases...]
+# value_in_base = value * factor + offset. Factors and offsets are exact text: a decimal
+# ("0.0254") or a fraction ("5/9"). The first unit of each kind is its base.
+# Aliases are matched without regard to case, except where two would clash (data sizes
+# are matched case-sensitively first: "Mb" is not "MB").
+# Cooking volumes are US measures; "metric cup" is 250 ml. Converting a cup of flour to
+# grams needs the ingredient's density, which this table doesn't have.
+length:
+  metre: [1, 0, metre, metres, m, meter, meters]
+  kilometre: [1000, 0, kilometre, kilometres, km, kilometer, kilometers]
+  centimetre: [0.01, 0, centimetre, centimetres, cm, centimeter, centimeters]
+  millimetre: [0.001, 0, millimetre, millimetres, mm, millimeter, millimeters]
+  inch: [0.0254, 0, inch, inches, in, '"']
+  foot: [0.3048, 0, foot, feet, ft, "'"]
+  yard: [0.9144, 0, yard, yards, yd]
+  mile: [1609.344, 0, mile, miles, mi]
+  nautical_mile: [1852, 0, nautical mile, nautical miles, nmi]
+mass:
+  kilogram: [1, 0, kilogram, kilograms, kg, kilo, kilos]
+  gram: [0.001, 0, gram, grams, g]
+  milligram: [0.000001, 0, milligram, milligrams, mg]
+  tonne: [1000, 0, tonne, tonnes, t, metric ton, metric tons]
+  pound: [0.45359237, 0, pound, pounds, lb, lbs]
+  ounce: [0.028349523125, 0, ounce, ounces, oz]
+  stone: [6.35029318, 0, stone, stone, st]
+volume:
+  litre: [1, 0, litre, litres, l, liter, liters]
+  millilitre: [0.001, 0, millilitre, millilitres, ml, milliliter, milliliters]
+  cubic_metre: [1000, 0, cubic metre, cubic metres, m3, cubic meter, cubic meters]
+  us_gallon: [3.785411784, 0, US gallon, US gallons, gal, gallon, gallons]
+  imperial_gallon: [4.54609, 0, imperial gallon, imperial gallons, imperial gal, uk gallon]
+  us_pint: [0.473176473, 0, pint, pints, pt]
+  us_fluid_ounce: [0.0295735295625, 0, fluid ounce, fluid ounces, fl oz, floz]
+  cup: [0.2365882365, 0, cup, cups, c, us cup]
+  metric_cup: [0.25, 0, metric cup, metric cups]
+  tablespoon: [0.01478676478125, 0, tablespoon, tablespoons, tbsp, tbs, tbl]
+  teaspoon: [0.00492892159375, 0, teaspoon, teaspoons, tsp]
+temperature:
+  kelvin: [1, 0, kelvin, kelvin, k]
+  celsius: [1, 273.15, degree Celsius, degrees Celsius, c, °c, centigrade, degc]
+  fahrenheit: [5/9, 45967/180, degree Fahrenheit, degrees Fahrenheit, f, °f, degf]
+speed:
+  metre_per_second: [1, 0, metre per second, metres per second, m/s, mps]
+  kilometre_per_hour: [5/18, 0, kilometre per hour, kilometres per hour, km/h, kph, kmph, kmh]
+  mile_per_hour: [0.44704, 0, mile per hour, miles per hour, mph]
+  knot: [1852/3600, 0, knot, knots, kn, kt]
+  foot_per_second: [0.3048, 0, foot per second, feet per second, ft/s, fps]
+time:
+  second: [1, 0, second, seconds, s, sec, secs]
+  millisecond: [0.001, 0, millisecond, milliseconds, ms]
+  minute: [60, 0, minute, minutes, min, mins]
+  hour: [3600, 0, hour, hours, h, hr, hrs]
+  day: [86400, 0, day, days, d]
+  week: [604800, 0, week, weeks, wk]
+  year: [31557600, 0, year, years, yr]  # a Julian year, 365.25 days
+data:
+  byte: [1, 0, byte, bytes, B]
+  bit: [1/8, 0, bit, bits, b]
+  kilobyte: [1000, 0, kilobyte, kilobytes, kB, KB]
+  megabyte: [1000000, 0, megabyte, megabytes, MB]
+  gigabyte: [1000000000, 0, gigabyte, gigabytes, GB]
+  terabyte: [1000000000000, 0, terabyte, terabytes, TB]
+  kibibyte: [1024, 0, kibibyte, kibibytes, KiB]
+  mebibyte: [1048576, 0, mebibyte, mebibytes, MiB]
+  gibibyte: [1073741824, 0, gibibyte, gibibytes, GiB]
+  tebibyte: [1099511627776, 0, tebibyte, tebibytes, TiB]
+  kilobit: [125, 0, kilobit, kilobits, kbit, Kb]  # Kb: kilobit, like Mb (review S4)
+  megabit: [125000, 0, megabit, megabits, Mbit, Mb]
+  gigabit: [125000000, 0, gigabit, gigabits, Gbit, Gb]
