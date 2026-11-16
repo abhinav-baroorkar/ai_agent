@@ -32,7 +32,7 @@ from sasha.config import CONTROLLABLE_DOMAINS, WakeConfig
 from sasha.server.timers.tools import TIMER_TOOLS, TimerAsk
 from sasha.tools import ToolError, ToolRegistry
 
-READ_ONLY_TOOLS = ("list_devices", "get_state", "get_current_time")
+READ_ONLY_TOOLS = ("list_devices", "get_state", "get_current_time", "calculate", "convert")
 CONTROL_TOOL = "call_service"
 TIMER_KINDS = {"set_alarm": "alarm", "set_reminder": "reminder"}
 TIMER_NAMES = {"timer": "Timer", "alarm": "Alarm", "reminder": "Reminder"}

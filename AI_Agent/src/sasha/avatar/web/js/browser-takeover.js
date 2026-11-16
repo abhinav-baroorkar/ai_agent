@@ -70,6 +70,10 @@ export function initTakeover(root, health) {
           state.owner_until && h('span', { class: 'to-left' }, ' It comes back by itself in ', count, '.')),
         h('button', { class: 'btn small primary', type: 'button', disabled: busy, onclick: () => post('hand_back') }, icon('back'), 'Hand back')));
       if (refused) parts.push(h('p', { class: 'to-note' }, `${refused} ${refused === 1 ? 'address' : 'addresses'} refused in your window.`));
+    } else if (mode === 'restoring') {
+      // After a hand-back the server cleans up and retries by itself; nothing to press.
+      parts.push(h('p', { class: 'to-note' }, `Cleaning up after your window… ${health.assistant.name} gets the browser back in a moment.`));
+      if (state.restore_problem) parts.push(h('p', { class: 'to-note' }, `The clean-up hasn’t finished yet: ${state.restore_problem}. It keeps trying by itself.`));
     }
     if (error) parts.push(h('p', { class: 'form-error', role: 'alert' }, error));
     clear(root).append(...parts);
