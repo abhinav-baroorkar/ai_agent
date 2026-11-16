@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from collections import Counter, deque
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit
@@ -33,6 +34,8 @@ MAX_BODY = 1024 * 1024  # phase 1 is read-only; a larger request body is refused
 # update) that no page needs. Exact hostnames, not domains, so www.google.com search
 # pages and www.gstatic.com page assets still work. Chrome tolerates these failing.
 BACKGROUND_HOSTS = frozenset({"accounts.google.com", "clients2.google.com"})
+SETTLE_S = 1.0  # a refusal is told apart once the page's request event has surely arrived
+MAX_UNSETTLED = 1024
 _HOP_HEADERS = {b"proxy-connection", b"proxy-authorization", b"connection", b"keep-alive"}
 
 
@@ -60,9 +63,12 @@ class FilteringProxy:
         self.refuse_hosts = refuse_hosts
         self.max_connections = max_connections
         self.stats = ProxyStats()
-        # (host, category) of recent refusals, in memory only (never logged): the live
-        # view counts one as the page's only if a page asked for that host.
-        self.refusals: deque[tuple[str, str]] = deque(maxlen=1024)
+        # Refusals not yet told apart (in memory only, never logged): `settle` counts each,
+        # once it is SETTLE_S old (so the page's own request event has arrived), as the
+        # page's if a page asked for that host, else as background. Running totals.
+        self.unsettled: deque[tuple[float, str, str]] = deque()
+        self.page_refused: Counter[str] = Counter()
+        self.other_refused = 0
         self._server: asyncio.base_events.Server | None = None
         self._active = 0
 
@@ -166,7 +172,10 @@ class FilteringProxy:
             return None
         verdict, addresses = await resolve(host, port, self.resolver)
         if not verdict.allowed:
-            self.refusals.append((host.lower().rstrip("."), verdict.category))
+            if len(self.unsettled) >= MAX_UNSETTLED:  # a flood: count the oldest as background
+                self.unsettled.popleft()
+                self.other_refused += 1
+            self.unsettled.append((time.monotonic(), host.lower().rstrip("."), verdict.category))
             await self._reply(writer, 403, verdict.category)
             return None
         for ip in addresses:
@@ -174,6 +183,16 @@ class FilteringProxy:
                 return await asyncio.wait_for(self._connect(ip, port), CONNECT_TIMEOUT_S)
         await self._reply(writer, 502, "unreachable")
         return None
+
+    def settle(self, page_hosts: set[str], now: float | None = None) -> None:
+        """Count every refusal at least SETTLE_S old as the page's or as background."""
+        now = time.monotonic() if now is None else now
+        while self.unsettled and now - self.unsettled[0][0] >= SETTLE_S:
+            _, host, category = self.unsettled.popleft()
+            if host in page_hosts:
+                self.page_refused[category] += 1
+            else:
+                self.other_refused += 1
 
     async def _connect(
         self, ip: IP, port: int

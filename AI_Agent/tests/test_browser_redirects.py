@@ -54,3 +54,16 @@ def test_default_search_is_duckduckgo_html() -> None:
     assert BrowserConnector.__new__(BrowserConnector).default_settings() == {
         "search_template": DEFAULT_SEARCH
     }
+
+
+def test_a_known_redirect_engine_needs_several_real_results() -> None:
+    """Review S2: a challenge page with one stray off-site link is not a results page."""
+    from sasha.browser.redirects import MIN_RESULTS, looks_like_results
+
+    ddg = "html.duckduckgo.com"
+    assert looks_like_results(ddg, unwrapped=MIN_RESULTS, offsite=0)
+    assert not looks_like_results(ddg, unwrapped=MIN_RESULTS - 1, offsite=5)
+    assert not looks_like_results(ddg, unwrapped=0, offsite=1)  # a captcha's terms link
+    # an engine we don't know: any result-shaped link counts, as before
+    assert looks_like_results("search.example", unwrapped=0, offsite=1)
+    assert not looks_like_results("search.example", unwrapped=0, offsite=0)

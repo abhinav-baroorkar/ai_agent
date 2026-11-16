@@ -47,3 +47,16 @@ def short(url: str) -> str:
     path = parts.path if parts.path not in ("", "/") else ""
     text = f"{parts.hostname or ''}{path}"
     return text if len(text) <= 80 else text[:79] + "…"
+
+
+# Engines whose results always go through a redirect on their own site (REDIRECTS): for
+# them only those links count as results, so a challenge page with a stray off-site link
+# (a captcha provider's terms, a help page) doesn't pass as results (review S2).
+REDIRECT_ENGINES = frozenset({"duckduckgo.com"})
+MIN_RESULTS = 3
+
+
+def looks_like_results(engine_host: str | None, unwrapped: int, offsite: int) -> bool:
+    if engine_host and site_of(engine_host) in REDIRECT_ENGINES:
+        return unwrapped >= MIN_RESULTS
+    return unwrapped + offsite > 0  # an engine we don't know: any result-shaped link

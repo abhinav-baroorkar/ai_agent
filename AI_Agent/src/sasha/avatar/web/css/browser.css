@@ -45,3 +45,10 @@
   .bots-body.with-browser { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 45%) minmax(0, 1fr); }
   .bots-body.with-browser .browser { order: -1; border-left: 0; border-bottom: 1px solid var(--line); }
 }
+
+/* Taking over: one quiet row in the panel, above the Site line. */
+.takeover { flex: none; display: grid; gap: .4rem; padding: .55rem .7rem; border-radius: var(--r); background: var(--surface); border: 1px dashed color-mix(in srgb, var(--lamp) 35%, var(--line)); }
+.takeover .to-row { display: flex; align-items: center; gap: .7rem; flex-wrap: wrap; }
+.takeover .to-row p { flex: 1 1 14rem; font-size: .84rem; color: var(--muted); line-height: 1.45; }
+.takeover .to-note { font-size: .82rem; color: var(--muted); }
+.takeover .count { font-family: var(--mono); color: var(--lamp); }

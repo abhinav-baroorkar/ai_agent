@@ -122,3 +122,47 @@ re-run.
   shown otherwise.
 - Not tested for real: the wake word on a real microphone, the browser on a public site, search on
   the real engine, timers with real voice.
+
+## 2026-11-15: wake word, wake answers, timers bench, app shell (numbers as reported with the merges)
+
+Synthetic speech unless noted; no real-room data yet.
+
+| Measure | Result | Source |
+| --- | --- | --- |
+| Name recognised with a hint vs without (synthetic samples) | 102 of 108 vs 65 of 108 | `fix/wake-real-mic`, merged; the author's synthetic run |
+| False wakes on ordinary samples (sets 1 and 3) | 0 of 216 | `fix/wake-hint-armed`, merged |
+| "Sacha" with the hint vs without | 18 of 18 vs 1 of 18 | same bench |
+| Unasked time or date mentioned on wake answers | 2 of 9 before, 0 of 27 after | `fix/wake-answers`, merged; the author's bench |
+| Timers bench, `qwen3.5:9b`, 77 cases x 2 runs | 0 silent wrong times; right or asked 0.961 | the author's bench at `feat/timers-server` `b253796`; that commit had one blocking review item, since fixed. The branch merged on 2026-11-16 at `d37cc0a`, which the reviewer re-probed offline (not a model run). The fresh real-model run on the final commit's rules is in the next section |
+| App shell memory and cold start | 673 MB; about 0.46 s cold start, offscreen | reported with `feat/app-shell`; offscreen, no display, not the visible check |
+
+- "Sacha" and "Shasha" wake the assistant because they sound the same as the name; "Sacha" mostly
+  because of the hint (18 of 18 with it, 1 of 18 without).
+- **Network layers of the app window:** each of the three (the request interceptor, the content
+  security policy, the dead-proxy bypass) is reported to hold on its own, after
+  `fix/app-shell-hardening`. At the first review the dead-proxy layer was unverified, because the
+  probe passed on the interceptor alone.
+- The timers bench is earlier than the earlier "186 runs" row above (62 phrasings x 3 runs, before
+  the last change); the 77-case bench is the newer one. Neither is final until the branch is
+  reviewed and merged.
+
+## 2026-11-16: timers bench, final (run by Primary, re-scored with the merged rules)
+
+Model `qwen3.5:9b`, 90 cases x 2 runs (180 runs), run by Primary at `89a2ab1` and re-scored with the
+rules of `d37cc0a` (the merged timers branch). The numbers are Primary's, not independently re-run.
+
+| Outcome | Runs | Share |
+| --- | --- | --- |
+| Right | 116 | 64.4% |
+| Asked | 55 | 30.6% |
+| Asked, not needed | 8 | 4.4% |
+| None | 1 | 0.6% |
+| Right or asked | 171 | 0.95 |
+| Silent wrong times | 0 | 0 |
+| Spoken false claims | 0 | 0 |
+| Uncaught false claims | 0 | 0 |
+
+- The server added its own line on 62 runs, of which 18 were its own fixed question.
+- Offline probes of the server logic: 17 of 17 passed.
+- This supersedes the author's earlier benches above (186 runs at `b253796`: 0.919 right or asked;
+  77 cases x 2: 0.961), which used earlier rules and a different case set.

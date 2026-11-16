@@ -81,6 +81,7 @@ export function initHistory(name) {
       current().chips.append(h('span', { class: `chip ${tool.ok ? 'ok' : 'bad'}` }, icon(tool.ok ? 'check' : 'x'), String(tool.name ?? 'tool')));
     },
     said(text) { setText(current().said, text); },
+    sites(line) { current().said.after(h('p', { class: 'h-sites' }, `looked up: ${line}`)); },
     stopped() { if (turn && turn.said.textContent) turn.said.dataset.stopped = ''; },
     get isOpen() { return !el.panel.hidden; },
     // Memory's `forgot`: drop the turns from `cutoff` (ms) on; true if the latest went.
