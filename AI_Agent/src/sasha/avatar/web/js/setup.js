@@ -22,6 +22,8 @@ export function initSetup({ health, lists, saved, deleted }) {
 
   function begin({ bot, start }) {
     const { bots, connectors, mainId, styles } = lists();
+    // web lookups (v0.5.1): the main assistant looks things up through the browser connector
+    const lookups = connectors.some((c) => c.kind === 'browser' && c.tools.includes('browse'));
     const main = bots.find((b) => b.id === mainId);
     const browser = connectors.find((c) => c.kind === 'browser');
     const own = connectors.filter((c) => c.kind !== 'browser');
@@ -29,7 +31,7 @@ export function initSetup({ health, lists, saved, deleted }) {
     const preset = STARTS.find((x) => x.id === start) || (bot ? null : STARTS[0]);
     const skip = !!start;
     s = {
-      mainId, styles, bot: bot || null, step: bot ? 0 : skip ? 2 : 1, start: preset ? preset.id : 'web', browser, own,
+      mainId, styles, lookups, bot: bot || null, step: bot ? 0 : skip ? 2 : 1, start: preset ? preset.id : 'web', browser, own,
       name: bot ? bot.name : preset ? preset.name : '', prompt: bot ? bot.system_prompt : preset ? preset.prompt : '',
       model: bot ? bot.model : main ? main.model : '', error: '', sure: false, style: bot ? bot.style : preset ? preset.style || 'glow' : 'glow',
       use: bot ? (browser && bot.connectors.includes(browser.id) ? 'web' : bot.connectors.length ? 'own' : 'none') : preset ? preset.use : 'none',
@@ -58,12 +60,20 @@ export function initSetup({ health, lists, saved, deleted }) {
     const ownTitle = ownWords.length ? ownWords.map((w, i) => (i ? w : w.charAt(0).toUpperCase() + w.slice(1))).join(', ') : '';
     const rows = [option('none', 'Nothing extra', 'It just talks with you.')];
     if (s.browser) {
+      const web = s.lookups ? 'Direct browser (advanced)' : 'The web';
+      const how = s.lookups
+        ? `It drives its own browser, which you can watch and stop. You don’t need this to look things up: ${health.assistant.name} does web lookups while the browser is on in Settings.`
+        : 'It can search and read pages in its own browser. You can watch it and stop it at any time.';
       rows.push(s.browser.enabled
-        ? option('web', 'The web', 'It can search and read pages in its own browser. You can watch it and stop it at any time.')
-        : option('web', 'The web', 'The browser is switched off. Turn it on in Settings first.', true));
+        ? option('web', web, how)
+        : option('web', web, 'The browser is switched off. Turn it on in Settings first.', true));
     }
     if (s.own.length) rows.push(option('own', ownTitle, s.own.length === 1 && s.own[0].kind === 'home_assistant' ? 'It can check and switch the devices you have allowed.' : 'It can use the things you tick below.'));
     const out = [h('div', { class: 'options', role: 'radiogroup', 'aria-label': 'What it may use' }, ...rows)];
+    if (s.lookups && s.bot && s.bot.id === s.mainId) { // the main assistant's own web lookups
+      out.unshift(h('p', { class: 'lookups' }, h('b', {}, 'Web lookups: '),
+        s.browser && s.browser.enabled ? 'on while the browser is on in Settings.' : 'off. They come on when you turn the browser on in Settings.'));
+    }
     if (s.use === 'own' && s.own.length > 1) {
       out.push(h('div', { class: 'own-list' }, ...s.own.map((c) => h('label', { class: 'check' },
         h('input', { type: 'checkbox', checked: s.picked.has(c.id), onchange: (ev) => { if (ev.target.checked) s.picked.add(c.id); else s.picked.delete(c.id); } }),
