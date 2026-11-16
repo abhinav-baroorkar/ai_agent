@@ -78,13 +78,18 @@ def seed_preferences(root: Path) -> None:
     """Turn off Chrome's network prediction (`net.network_prediction_options` = 2,
     never) in our own profile before each start: otherwise Chrome preconnects to hosts
     it expects to load, and the guard counts those as refusals the page never made.
+    The setting is only for those counts, so any error is logged and Chrome starts anyway.
     Written through a temporary file and os.replace, so a link is replaced, never
     followed; skipped (logged) if `Default` isn't a plain folder in the profile."""
     default = root / "Default"
     if default.is_symlink():
         log.warning("Browser preferences not set: Default is a link")
         return
-    default.mkdir(mode=0o700, exist_ok=True)
+    try:
+        default.mkdir(mode=0o700, exist_ok=True)
+    except OSError as exc:
+        log.warning("Browser preferences not set (%s)", type(exc).__name__)
+        return
     if default.resolve(strict=True) != default:
         log.warning("Browser preferences not set: Default is under a link")
         return
@@ -97,9 +102,12 @@ def seed_preferences(root: Path) -> None:
     net = prefs.get("net")
     prefs["net"] = {**(net if isinstance(net, dict) else {}), "network_prediction_options": 2}
     tmp = default / ".Preferences.sasha-tmp"
-    tmp.unlink(missing_ok=True)
-    tmp.write_text(json.dumps(prefs), encoding="utf-8")
-    os.replace(tmp, path)
+    try:
+        tmp.unlink(missing_ok=True)
+        tmp.write_text(json.dumps(prefs), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError as exc:  # e.g. a folder in the way, read-only: start anyway
+        log.warning("Browser preferences not set (%s)", type(exc).__name__)
 
 
 def _pids() -> list[int]:

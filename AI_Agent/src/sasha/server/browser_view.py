@@ -12,7 +12,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections import Counter
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -204,18 +203,14 @@ class BrowserView:
 def _guard_counts(proxy: FilteringProxy, page_hosts: set[str]) -> dict[str, Any]:
     """`refused`: refusals of hosts one of the agent's pages asked for, by category.
     `background_refused`: everything else refused (Chrome's own background calls, by
-    name or by the guard), which the owner shouldn't read as "the page tried this"."""
-    page: Counter[str] = Counter()
-    other = 0
-    for host, category in list(proxy.refusals):
-        if host in page_hosts:
-            page[category] += 1
-        else:
-            other += 1
+    name or by the guard), which the owner shouldn't read as "the page tried this".
+    Running totals since the browser started; a refusal is counted about a second after
+    it happened (`FilteringProxy.settle`)."""
+    proxy.settle(page_hosts)
     return {
         "allowed": proxy.stats.allowed,
-        "refused": dict(page),
-        "background_refused": proxy.stats.background_refused + other,
+        "refused": dict(proxy.page_refused),
+        "background_refused": proxy.stats.background_refused + proxy.other_refused,
     }
 
 
