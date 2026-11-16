@@ -28,7 +28,7 @@ from typing import Any
 from sasha.config import CONTROLLABLE_DOMAINS, WakeConfig
 from sasha.tools import Tool, ToolError, ToolRegistry
 
-READ_ONLY_TOOLS = ("list_devices", "get_state", "get_current_time")
+READ_ONLY_TOOLS = ("list_devices", "get_state", "get_current_time", "calculate", "convert")
 CONTROL_TOOL = "call_service"
 _CLEAN = re.compile(r"[^\w .-]+")
 

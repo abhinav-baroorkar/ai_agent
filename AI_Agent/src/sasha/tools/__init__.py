@@ -12,8 +12,10 @@ __all__ = ["Tool", "ToolError", "ToolRegistry", "ToolResult", "build_tools"]
 def build_tools(settings: Settings) -> tuple[ToolRegistry, list[str]]:
     """Return the registry and human-readable warnings about disabled tools."""
     from sasha.tools.clock import clock_tool
+    from sasha.tools.numbers import number_tools
 
-    registry = ToolRegistry([clock_tool()])  # read-only, always available
+    # read-only, always available
+    registry = ToolRegistry([clock_tool(), *number_tools(settings.paths.config_dir)])
     warnings: list[str] = []
     ha = settings.tools.home_assistant
     if ha.enabled:

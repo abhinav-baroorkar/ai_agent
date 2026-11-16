@@ -18,6 +18,10 @@ class Tool:
     description: str
     parameters: dict[str, Any]  # JSON Schema object
     handler: Callable[..., Any]
+    # Changing tools fail closed (review P3): a tool changes things unless marked here.
+    read_only: bool = False
+    # Its result is outside text (a web page) that may try to steer the model (P1).
+    taints: bool = False
 
     def spec(self) -> dict[str, Any]:
         """Tool spec in the OpenAI/Ollama function-calling format."""

@@ -9,7 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from sasha.bots import Bot, BotStore
+from sasha.bots import BUILTIN_IDS, Bot, BotStore
 from sasha.config import Settings, reload_secrets
 from sasha.connectors import ConnectorRegistry, HomeAssistantConnector, build_connectors
 from sasha.conversation import building_for_bot
@@ -33,6 +33,7 @@ from sasha.server.warmup import (
 from sasha.state import JsonStore
 from sasha.telemetry import TelemetryWriter
 from sasha.tools.clock import CLOCK_TOOL, clock_tool
+from sasha.tools.numbers import number_tools
 
 log = logging.getLogger(__name__)
 
@@ -68,6 +69,10 @@ class ServerDeps:
             building_for_bot.reset(token)
         if CLOCK_TOOL not in tools:
             tools.register(clock_tool())  # every bot: read-only, so no guessed times
+        if bot.id in BUILTIN_IDS:  # the main and voice bots: exact sums and units
+            for tool in number_tools(self.settings.paths.config_dir):
+                if tool.name not in tools:
+                    tools.register(tool)
         assistant = Assistant(
             self.settings,
             self.make_llm(bot.model),
