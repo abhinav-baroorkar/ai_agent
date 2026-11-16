@@ -3,6 +3,7 @@ import { h, icon, setText } from './dom.js';
 import { Conversation } from './socket.js';
 import { initial } from './clean.js';
 import { renderMarkdown } from './md.js';
+import { lookedUp } from './clean.js';
 import { VoiceInput, voiceSupported } from './voice-input.js';
 import { cssColor } from './bot-look.js';
 import { miniOrb, wakeOrbs, setOrb } from './faces/mini-orb.js';
@@ -81,9 +82,9 @@ export class ChatView {
         this.setBusy(m.state !== 'idle' && m.state !== 'listening');
         this.showState(m.state === 'speaking' || m.state === 'thinking' ? m.state : this.voice.recording ? 'listening' : m.state);
       })
-      .on('reply_delta', () => this.showState('speaking')) // the reply is arriving: it is talking
+      .on('reply_delta', () => { this.showState('speaking'); this.lookupNote(false); }) // the reply is arriving: it is talking
       .on('transcript', (m) => { if (m.final && String(m.text ?? '').trim()) this.addMine(String(m.text)); })
-      .on('tool', (m) => this.reply().chips.append(chip(m)))
+      .on('tool', (m) => { this.reply().chips.append(chip(m)); this.lookupNote(m.name === 'browse'); })
       .on('reply_delta', (m) => { const r = this.reply(); r.text += String(m.text ?? ''); this.paintSoon(r); })
       .on('reply', (m) => this.finish(m))
       .on('error', (m) => {
@@ -191,6 +192,9 @@ export class ChatView {
     r.text = String(m.text ?? '');
     if (Array.isArray(m.tool_calls)) r.chips.replaceChildren(...m.tool_calls.map(chip));
     r.dots.remove();
+    this.lookupNote(false);
+    const sites = lookedUp(m.sites);
+    if (sites) r.col.append(h('span', { class: 'looked-up' }, `looked up: ${sites}`)); // text only, never links
     if (m.timing && m.timing.total_ms != null) {
       const speed = m.timing.tokens_per_s ? ` · ${Math.round(m.timing.tokens_per_s)} tokens/s` : '';
       r.col.append(h('span', { class: 'timing' }, `${(m.timing.total_ms / 1000).toFixed(1)} s${speed}`));
@@ -220,6 +224,17 @@ export class ChatView {
     this.orbState = next;
     const canvas = this.orb.firstChild;
     if (canvas) setOrb(canvas, { state: next });
+  }
+
+  // "Looking it up…" while a web lookup runs and no answer has started yet.
+  lookupNote(on) {
+    const r = this.pending;
+    if (!r) return;
+    if (!r.note) {
+      r.note = h('span', { class: 'lookup-note' }, 'Looking it up…');
+      r.col.insertBefore(r.note, r.dots);
+    }
+    r.note.hidden = !on;
   }
 
   addMine(text) {

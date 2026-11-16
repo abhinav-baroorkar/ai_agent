@@ -98,6 +98,7 @@ class BrowserConversation:
     steps: int = 0
     started: float = 0.0
     chrome_id: int = field(default=0)
+    epoch: int = -1  # the service's holder_epoch our tabs belong to
     queries: list[str] = field(default_factory=list)  # this turn's searches
     owner_stops: int = 0  # the service's count when this turn began
 
@@ -111,26 +112,32 @@ class BrowserConversation:
             self.turn_id, self.steps, self.started = ctx.turn_id, 0, time.monotonic()
             self.queries = []
             self.owner_stops = self.bridge.service.owner_stops
-            # "working" in the live view from this first step until the turn ends
-            service, holder = self.bridge.service, self.holder
-            self.bridge.call_soon(service.begin_turn, holder)
-            on_turn_end(ctx.turn_id, lambda: self.bridge.call_soon(service.end_turn, holder))
+            # the turn holds the browser from its first step (acquire) until it ends
+            on_turn_end(ctx.turn_id, self._release)
         if self.bridge.service.owner_stops != self.owner_stops:
             raise ToolError("The owner stopped the browser")
         self.steps += 1
         if self.steps > STEPS_PER_TURN:
+            self._release()  # it can't use the browser again this turn: let others in
             raise ToolError(f"Browser step limit reached ({STEPS_PER_TURN} per request)")
         if time.monotonic() - self.started > SECONDS_PER_TURN:
+            self._release()
             raise ToolError(f"Browser time limit reached ({SECONDS_PER_TURN:.0f} s per request)")
         return ctx.user_messages
+
+    def _release(self) -> None:
+        self.bridge.call_soon(self.bridge.service.end_turn, self.holder)
 
     def _op(self, use: Callable[[BrowserTabs], Awaitable[dict[str, Any]]]) -> dict[str, Any]:
         async def run() -> dict[str, Any]:
             service = self.bridge.service
-            async with service.acquire(self.holder, owner_stops=self.owner_stops) as chrome:
-                if self.tabs is None or id(chrome) != self.chrome_id:  # (re)started browser
+            async with service.acquire(
+                self.holder, owner_stops=self.owner_stops, turn=True
+            ) as chrome:
+                fresh = (id(chrome), service.holder_epoch) != (self.chrome_id, self.epoch)
+                if self.tabs is None or fresh:  # (re)started, or handed to someone else
                     self.tabs = BrowserTabs(chrome, self.bridge.backstop, self.bridge.on_tab)
-                    self.chrome_id = id(chrome)
+                    self.chrome_id, self.epoch = id(chrome), service.holder_epoch
                 # result links on the current engine's site are unwrapped (redirects.py)
                 self.tabs.engine_host = urlsplit(self.search_template or "").hostname
                 return await use(self.tabs)
@@ -166,7 +173,7 @@ class BrowserConversation:
             target = search_url(self.search_template, str(q))
         except SearchRefusedError as e:
             raise ToolError(str(e)) from None
-        return self._op(lambda tabs: tabs.navigate(target))
+        return self._op(lambda tabs: tabs.search_results(target))
 
     def read_page(self, part: int = 1) -> dict[str, Any]:
         self._turn()
