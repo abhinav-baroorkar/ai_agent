@@ -73,6 +73,7 @@ class Assistant:
         self.system_prompt = system_prompt or settings.assistant.render_system_prompt()
         self._history: list[Message] = []
         self.last_tool_calls: list[dict[str, Any]] = []
+        self.turn_kept = False  # the last turn is in the history (see replace_reply)
 
     @property
     def name(self) -> str:
@@ -86,14 +87,24 @@ class Assistant:
     # history: the request, what was said of the reply (capped), and a short note only
     # the model sees. So "continue" or "go on" picks it up. Telemetry only records that
     # it was cancelled, never the text.
-    def _keep_stopped(self, text: str, partial: str) -> None:
+    def _stopped_reply(self, partial: str) -> str:
         cfg = self.settings.profile.llm
         kept = partial.strip()[: cfg.interrupted_keep_chars]
-        reply = f"{kept} {cfg.interrupted_note}".strip()
+        return f"{kept} {cfg.interrupted_note}".strip()
+
+    def _keep_stopped(self, text: str, partial: str) -> None:
         self._history += [
             {"role": "user", "content": text},
-            {"role": "assistant", "content": reply},
+            {"role": "assistant", "content": self._stopped_reply(partial)},
         ]
+        self.turn_kept = True
+
+    def replace_reply(self, said: str, stopped: bool = False) -> None:
+        """The history keeps what the person was really shown and told, not the model's
+        raw text: the socket's released text (a held-back false claim, markdown taken
+        out of speech). Only this turn's entry: nothing if the turn wasn't kept."""
+        if self.turn_kept and self._history and self._history[-1]["role"] == "assistant":
+            self._history[-1]["content"] = self._stopped_reply(said) if stopped else said
 
     def mark_interrupted(self) -> None:
         """The last reply was finished but its speech was cut: the model should know
@@ -116,6 +127,7 @@ class Assistant:
         self, text: str, hooks: TurnHooks | None = None, input_mode: str = "text"
     ) -> Reply:
         hooks = hooks or TurnHooks()
+        self.turn_kept = False  # is this turn in the history (for replace_reply)?
         streamed: list[str] = []  # what reached the person so far, for a stopped turn
         if hooks.on_delta is not None:
             shown = hooks.on_delta
@@ -151,6 +163,7 @@ class Assistant:
             {"role": "user", "content": text},
             {"role": "assistant", "content": reply.text},
         ]
+        self.turn_kept = True
         return reply
 
     def _ask(

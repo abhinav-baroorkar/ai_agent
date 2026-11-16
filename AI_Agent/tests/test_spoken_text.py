@@ -159,7 +159,7 @@ def test_tools_become_abilities_and_lift_limits() -> None:
     assert "date and time" in section and section.count("search the web") == 1
     assert "internet" not in section and "weather" not in section  # the browser can
     assert "set timers, alarms or reminders" in section  # still a limit
-    assert "use the tool frobnicate" in capability_section(["frobnicate"], lines)
+    assert "frobnicate" not in capability_section(["frobnicate"], lines)  # not named
 
 
 def test_spoken_note_only_for_spoken_conversations() -> None:

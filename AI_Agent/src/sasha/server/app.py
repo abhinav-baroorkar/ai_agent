@@ -18,6 +18,7 @@ from sasha.bots import BOT_ID_RE, MAIN_ID, VOICE_ID, BotError, BotNotFound, pars
 from sasha.browser.hooks import attach_browser
 from sasha.connectors import ConnectorError
 from sasha.pipeline.llm import OllamaError
+from sasha.prompting import prompt_lines
 from sasha.server.browser_view import BROWSER_SOCKETS, add_browser_routes
 from sasha.server.deps import ServerDeps
 from sasha.server.security import LocalOnlyMiddleware, allowed_hosts, allowed_origins
@@ -240,7 +241,9 @@ def create_app(deps: ServerDeps, web_dir: Path | None = WEB_DIR) -> FastAPI:
         for warning in warnings:
             log.warning("Bot %s: %s", chosen.id, warning)
         language = settings.assistant.languages.default
-        await Conversation(websocket, assistant, voice, speak == "1", language).run()
+        conv = Conversation(websocket, assistant, voice, speak == "1", language)
+        conv.times_word = prompt_lines(settings).times_word
+        await conv.run()
 
     if web_dir is not None and web_dir.is_dir():
         app.mount("/", StaticFiles(directory=web_dir, html=True), name="web")

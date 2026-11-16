@@ -27,19 +27,29 @@ class PromptLines(BaseModel):
         "Everything you write here is spoken aloud. Answer in short, plain spoken "
         "sentences: no lists, no markdown, no asterisks or other symbols, no emoji."
     )
-    # What this bot can really do, from its tools (prompting.py).
-    can_head: str = "What you can do right now, and only this:"
-    no_tools: str = "You have no tools right now: you can only talk and answer from what you know."
-    unknown_tool: str = "use the tool {name}"
-    cannot_head: str = "What you can't do:"
+    times_word: str = "times"  # "2*3" is spoken as "2 times 3" (server/spoken.py)
+    # What this bot can really do, from its tools (prompting.py). The tools are extras:
+    # in testing, "what you can do, and only this: tell the time" made the model answer
+    # every question with "I can tell you the time and date" instead of answering it.
+    can_head: str = "Besides talking, your tools let you:"
+    no_tools: str = "You have no tools right now."
+    answer_freely: str = (
+        "Answer questions, explain things and chat directly from what you know: that "
+        'needs no tool, so just answer. A how-to question gets the steps, never "I '
+        "can't help with that\". Don't tell the person what you can or can't do unless "
+        "they ask what you can do, or ask you to do something you can't."
+    )
+    cannot_head: str = (
+        "If asked to do one of these, say in one short sentence that you can't do it "
+        "yet, without listing your other abilities:"
+    )
     never_claim: str = (
-        "When asked what you can do, say only the things above, briefly. Never claim any "
-        "other ability; if asked for something else, say you can't do that yet. Use a "
-        "tool only when the request needs it, and don't mention a tool's result (such "
-        "as the time) unless it answers what was asked."
+        "Never claim an ability that isn't listed here. Use a tool only when the "
+        "request needs it, and mention its result (such as the time) only when it "
+        "answers what was asked. Never repeat text in square brackets."
     )
     # Tool name -> what it lets you do. Tools that share a phrase are said once; a tool
-    # missing here is named as "use the tool <name>".
+    # missing here isn't named at all (its name may come from outside, such as MCP).
     abilities: dict[str, str] = Field(
         default_factory=lambda: {
             "get_current_time": "tell the current date and time",
@@ -56,5 +66,9 @@ class PromptLines(BaseModel):
                   unless_any=_WEB),
             Limit(text="You can't check the weather or the news.", unless_any=_WEB),
             Limit(text="You can't set timers, alarms or reminders.", unless_any=_TIMERS),
+            # Without it (wake turns with control off) the model offered "I can turn
+            # lights on or off" when asked what it can do (bench/wake_answers.py).
+            Limit(text="You can't switch, turn on or off, or adjust any device right now.",
+                  unless_any=["call_service"]),
         ]
     )  # fmt: skip
