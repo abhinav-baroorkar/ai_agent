@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -134,3 +135,21 @@ def test_bot_style_is_typed_as_the_style_list() -> None:
         }
     )
     assert loaded.style == "glow"  # the before-validator still keeps an odd file loading
+
+
+SETUP_JS = Path(__file__).resolve().parents[1] / "src/sasha/avatar/web/js/setup.js"
+
+
+def test_the_bot_form_still_recognises_both_style_refusals(client: TestClient) -> None:
+    """The form turns two server refusals into plain words by matching their text
+    (`plain()` in setup.js). If the server's wording changes, this fails, instead of
+    the form quietly showing the developer's message."""
+    source = SETUP_JS.read_text(encoding="utf-8")
+    body = source.split("function plain(message)", 1)[1].split("\n  }\n", 1)[0]
+    found = re.findall(r"if \(/(.+?)/\.test\(message\)\)", body)
+    assert len(found) == 2, found
+    unknown, wake = (re.compile(p) for p in found)
+    voice = client.patch("/api/bots/voice", json={"style": "bloom"}).json()["error"]
+    bad = client.patch("/api/bots/main", json={"style": "neon"}).json()["error"]
+    assert wake.search(voice) and not unknown.search(voice)
+    assert unknown.search(bad) and not wake.search(bad)
