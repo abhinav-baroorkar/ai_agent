@@ -2,10 +2,15 @@
 // "web pages" on a canvas, so no image files are needed. Switches:
 //   ?mock=1&browser=running   already running when the panel opens
 //   ?mock=1&browser=off       the browser connector is switched off in Settings
+//   ?mock=1&browser=noscreen  taking over is refused: no screen (409)
+//   ?mock=1&browser=old       a server before take-over (no mode in the state)
 //   ?mock=1&browser=busy      another viewer already has the picture (close code 1013)
 //   ?mock=1&browser=down      the connection keeps failing (the offline state)
 // Otherwise it starts when a message goes to a bot that has the browser connector.
-const mode = new URLSearchParams(location.search).get('browser') || '';
+// several switches can be given with commas, e.g. ?browser=running,noscreen
+const flags = (new URLSearchParams(location.search).get('browser') || '').split(',');
+const has = (f) => flags.includes(f);
+const mode = flags.find((f) => ['off', 'busy', 'down', 'running'].includes(f)) || '';
 const viewers = new Set();
 const PAGES = [
   // The title looks like markup on purpose: the panel must show it as plain text.
@@ -17,6 +22,7 @@ const PAGES = [
 ];
 const state = {
   enabled: mode !== 'off', running: false, agent: 'idle', holder: null, holder_bot: null, tabs: [],
+  mode: 'assistant', owner_until: null, owner_refused: {},
   guard: { allowed: 0, refused: {}, background_refused: 0 },
 };
 let current = 0;
@@ -27,7 +33,45 @@ const canvas = document.createElement('canvas');
 canvas.width = 960;
 canvas.height = 600;
 
-const snapshot = () => JSON.parse(JSON.stringify(state));
+const snapshot = () => {
+  const out = JSON.parse(JSON.stringify(state));
+  if (has('old')) { delete out.mode; delete out.owner_until; delete out.owner_refused; if (out.holder_bot) delete out.holder_bot.via; }
+  return out;
+};
+const assistantName = () => new URLSearchParams(location.search).get('name') || 'Assistant';
+let ownerTimer = null;
+
+// Take-over, as the server does it: wait for a running step, switch, hand the window over.
+function takeover(action, fail) {
+  if (action === 'take_over') {
+    if (!state.enabled) throw fail(409, 'The browser is off in Settings');
+    if (has('noscreen')) throw fail(409, 'No screen is available for the browser window');
+    if (state.mode !== 'assistant') throw fail(409, 'The owner is already driving the browser');
+    state.mode = state.agent === 'working' ? 'waiting' : 'switching';
+    changed();
+    if (state.mode === 'switching') setTimeout(ownerDrives, 900);
+    return { ok: true };
+  }
+  if (action === 'stop_turn') {
+    if (state.mode === 'waiting') { state.agent = 'idle'; state.holder = null; state.holder_bot = null; state.mode = 'switching'; changed(); setTimeout(ownerDrives, 900); }
+    return { ok: true };
+  }
+  handBack();
+  return { ok: true };
+}
+
+function ownerDrives() {
+  Object.assign(state, { mode: 'owner', owner_until: new Date(Date.now() + 15 * 60000).toISOString(), owner_refused: { private_network: 1 }, tabs: [] });
+  changed();
+  clearTimeout(ownerTimer);
+  ownerTimer = setTimeout(handBack, 15 * 60000);
+}
+
+function handBack() {
+  clearTimeout(ownerTimer);
+  Object.assign(state, { mode: 'assistant', owner_until: null, owner_refused: {}, tabs: state.running ? tabs() : [] });
+  changed();
+}
 const tell = (msg) => viewers.forEach((v) => v.emit(msg));
 const changed = () => tell({ type: 'browser_state', ...snapshot() });
 
@@ -64,17 +108,18 @@ function paint() {
 }
 
 function sendFrame(viewer) {
-  if (!state.running || !viewer.watching || viewer.waiting) return;
+  if (!state.running || state.mode === 'owner' || !viewer.watching || viewer.waiting) return;
   viewer.waiting = true;
   seq += 1;
   viewer.emit({ type: 'browser_frame', tab: current + 1, seq, w: 960, h: 600, jpeg: paint() });
 }
 
 // The browser is used for a turn: it starts if needed, works for a while, then idles out.
-export function use() {
+// helper: the main assistant's web lookup holds the browser (v0.5.1), not a bot of its own
+export function use(helper = false) {
   if (!state.enabled || mode === 'busy') return;
   clearTimeout(stopTimer);
-  const holder_bot = { id: 'b-web', name: 'Web researcher' };
+  const holder_bot = helper ? { id: 'main', name: assistantName(), via: 'helper' } : { id: 'b-web', name: 'Web researcher', via: 'direct' };
   Object.assign(state, { running: true, agent: 'working', holder: 'conversation-1', holder_bot, tabs: tabs() });
   state.guard.allowed += 7;
   state.guard.refused = { private_network: 2, not_https: 1 };
@@ -88,6 +133,7 @@ export function use() {
 }
 
 export function stop(reason) {
+  if (state.mode !== 'assistant') return handBack(); // stopping during a take-over hands back
   clearTimeout(stopTimer);
   const was = state.running;
   Object.assign(state, { running: false, agent: 'idle', holder: null, holder_bot: null, tabs: [], guard: { allowed: 0, refused: {}, background_refused: 0 } });
@@ -97,8 +143,9 @@ export function stop(reason) {
 
 setInterval(() => viewers.forEach(sendFrame), 220);
 
-export function browserFetch(method, action) {
+export function browserFetch(method, action, fail) {
   if (method === 'GET' && !action) return snapshot();
+  if (method === 'POST' && ['take_over', 'hand_back', 'stop_turn'].includes(action)) return takeover(action, fail);
   if (method === 'POST' && action === 'stop') {
     stop('owner');
     return { ok: true };

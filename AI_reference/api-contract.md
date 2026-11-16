@@ -21,6 +21,11 @@ per-device token; v0 has no auth because it only listens on localhost.
 | `GET /api/connectors` | `{connectors:[Connector]}` |
 | `PUT /api/connectors/{id}` | body `{enabled?, settings?}`; returns the updated Connector; secrets are never returned |
 | `POST /api/connectors/{id}/test` | `{ok, message}` connectivity check |
+| `GET /api/timers` | `{now, timers:[Timer]}` (v0.3; missed and done items are kept 7 days) |
+| `DELETE /api/timers/{id}` | cancel a scheduled item, or remove a missed or done one; `{ok:true}`. A ringing or pending item answers 409: end it with dismiss |
+| `POST /api/timers/{id}/dismiss` | stop a ringing or pending item; returns the Timer |
+| `POST /api/timers/{id}/snooze` | a ringing or pending item, or a missed timer or reminder (not a missed alarm: 409); body `{minutes: 1–60}` (the UI sends 5, 10 or 15); returns the Timer |
+| `POST /api/timers/{id}/say` | speak this item's text now (the owner tapped it); `{ok:true}` |
 
 `Bot` = `{id, name, model, system_prompt, connectors:[connector ids], builtin:bool,
 wake_device_control:bool, style}`.
@@ -145,6 +150,67 @@ the `voice` bot's connectors say):
   from wake turns.
 - 3 s cool-down after any turn on this server before the next wake is accepted.
 
+## Timers, alarms and reminders (v0.3)
+
+Items are made by talking (the model's timer tools); the UI lists, counts down,
+dismisses, snoozes and replays them. There is no create route in v0.3.
+
+`Timer` = `{id, kind:"timer"|"alarm"|"reminder", label, text, due_at, repeat:
+"none"|"daily"|"weekdays"|"weekends", state:"scheduled"|"ringing"|"pending"|"missed"|
+"done", late_s, snoozes, created_by:"chat"|"wake"}`.
+- `due_at` is ISO 8601 local time with offset; `now` (same format) comes with every
+  list, so the card counts down locally from `due_at` against `now`; there are no
+  per-second frames.
+- `text` is the reminder's text (empty for timers and alarms); `label` is optional.
+  Both are user text: show them as plain text, never as markup.
+- `pending`: it came due while nothing was connected; `late_s`: how late it fired.
+  When a socket connects, a pending alarm at most 10 min late rings then (`ringing`,
+  tones, the generic `say`); every other pending item becomes `missed`, announced with
+  the generic line (a repeating alarm moves on to its next occurrence instead).
+- A `missed` timer or reminder can be snoozed (card or chat), so the card may offer
+  snooze on it; a `missed` alarm can only be dismissed or removed.
+- `created_by:"wake"` items are marked as voice-made on the card.
+
+All HTTP routes above sit behind the same Host, Origin and JSON content-type checks
+as every other route. `dismiss` and `say` may be sent with no body at all; any body
+that is sent must be JSON (`415` otherwise).
+
+WebSocket, server → every socket:
+- `{type:"timers", now, timers:[Timer]}`: on connect, and after every change (create,
+  cancel, snooze, dismiss, removal, any state change). A snapshot always follows
+  `timer_stopped`, so the UI takes real values (such as the new `due_at` after a
+  snooze) from it.
+- `{type:"timer_ringing", id, kind, created_by, say}`: an item rings. `say` is the
+  plain-text sentence being spoken. For late and pending items it is only the generic
+  line (e.g. "You have 2 missed reminders.") and never contains the label or text;
+  their text is spoken only on `POST …/say`. The UI shows `say` as given and never
+  builds its own sentence from `text`.
+- `{type:"timer_stopped", id, how:"dismissed"|"snoozed"|"cancelled"|"timeout"}`.
+Exactly one socket speaks a ring: the Home socket (`speak=1`) if open, else the
+listener. The announcement and the repeating tone (every 10 s; up to 2 min, alarms 5
+min) arrive as ordinary `tts_start` / speech frames / `tts_end` on that socket, so the
+brain-wide `pause_capture` / `resume_capture` closes the listener's microphone for each.
+
+Client → server (any socket): `{type:"timer_dismiss", id}`, `{type:"timer_snooze",
+id, minutes}`.
+
+Listener only, while an item rings on the listener:
+- `{type:"stop_window", id, timeout_s}`: sent after a tone's playback has ended (after
+  `resume_capture`), at most 8 s, until the next tone. The listener may open its
+  microphone for one short segment, only if capture is allowed anyway, showing
+  listening, and sends it as a normal `audio_start {wake:true}` segment. It closes the
+  window at once on `timer_stopped` for that id (the server closes its side too).
+- `{type:"stop_result", id, accepted:bool, action:"dismiss"|"snooze"|null}`: the
+  segment counted only if it is at most 2 words and starts with exactly `stop`,
+  `dismiss` or `snooze`. Its text is discarded like other wake audio. A bare `snooze`
+  works at most 3 times per item.
+
+Wake turns: the timer tools work without `wake_device_control`, within limits (5
+created per 10 min, 10 voice-made items active). A wake turn can't cancel or snooze an
+item made in a chat without the spoken `confirm`, except what is ringing now, on any
+socket: "<name>, stop" stops (or snoozes) every ringing item with no yes. Bots with a
+`browser` connector get no timer tools.
+
 ## Browser live view (v0.4)
 
 The window can watch the assistant's own browser and stop it. Watching only: the
@@ -267,6 +333,9 @@ web lookup holds the browser (suggested text: "In use by <name> (web lookup)");
   `audio_start.wake`; `listener_state`, `listener_stats`; `wake`, `armed_expired`,
   `confirm`, `confirm_result`, `pause_capture`, `resume_capture`; built-in `voice` bot and
   `Bot.wake_device_control`; health `wake.available` and `limits.reserved_sockets`.
+- v0.3 (2026-11-15): timers, alarms and reminders: `/api/timers` routes; `timers`,
+  `timer_ringing`, `timer_stopped`, `stop_window`, `stop_result`; `timer_dismiss`,
+  `timer_snooze`.
 - v0.4 (2026-11-15): browser live view: `GET /api/browser`,
   `POST /api/browser/stop`; `/ws/browser` with `browser_state`, `browser_frame`,
   `browser_stopped`, `browser_watch`, `browser_ack`, `browser_stop`; health

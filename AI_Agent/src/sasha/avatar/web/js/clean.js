@@ -55,6 +55,11 @@ export function cleanBrowserState(b) {
   const g = s.guard && typeof s.guard === 'object' ? s.guard : {};
   const count = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Math.floor(Number(v)) : 0);
   const who = s.holder_bot && typeof s.holder_bot === 'object' ? str(s.holder_bot.name).slice(0, 60) : '';
+  const via = s.holder_bot && s.holder_bot.via === 'helper' ? 'helper' : 'direct'; // v0.5.1: the main assistant's web lookup
+  const MODES = ['assistant', 'waiting', 'switching', 'owner'];
+  const until = Date.parse(str(s.owner_until));
+  const ownerRefused = {};
+  if (s.owner_refused && typeof s.owner_refused === 'object') for (const [k, v] of Object.entries(s.owner_refused)) ownerRefused[str(k)] = count(v);
   const refused = {};
   if (g.refused && typeof g.refused === 'object') for (const [k, v] of Object.entries(g.refused)) refused[str(k)] = count(v);
   return {
@@ -63,7 +68,18 @@ export function cleanBrowserState(b) {
       tab: count(t.tab), site: safeSite(str(t.site).slice(0, 255)), title: str(t.title).slice(0, 80), current: t.current === true,
     })),
     guard: { allowed: count(g.allowed), refused, background_refused: count(g.background_refused) },
+    via,
+    // take-over (v0.5); mode stays null for a server without it, so nothing about it shows
+    mode: MODES.includes(s.mode) ? s.mode : null, owner_until: Number.isFinite(until) ? until : 0, owner_refused: ownerRefused,
   };
+}
+
+// reply.sites (v0.5.1): the hostnames a web lookup really used, joined for one line of
+// text. Only plain hostnames are kept, at most five; null when there are none.
+export function lookedUp(sites) {
+  const list = (Array.isArray(sites) ? sites : []).map((x) => str(x).slice(0, 255)).map(safeSite)
+    .filter((x) => x && x !== '(unusual address)').slice(0, 5);
+  return list.length ? list.join(', ') : null;
 }
 
 const KINDS = ['timer', 'alarm', 'reminder'];

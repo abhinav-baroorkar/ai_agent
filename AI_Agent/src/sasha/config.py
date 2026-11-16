@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field, SecretStr, field_validator
 
 from sasha.config_app import AppText, WakeWord, WindowConfig
 from sasha.config_prompts import PromptLines
+from sasha.config_timers import TimersConfig
 from sasha.config_wake import ReplyLines as ReplyLines  # re-exported: moved, not renamed
 from sasha.config_wake import WakeConfig as WakeConfig
 
@@ -147,6 +148,7 @@ class Profile(BaseModel):
     tts: TTSConfig = Field(default_factory=TTSConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     wake: WakeConfig = Field(default_factory=WakeConfig)
+    timers: TimersConfig = Field(default_factory=TimersConfig)
     window: WindowConfig = Field(default_factory=WindowConfig)
     prompt_lines: dict[str, PromptLines] = Field(default_factory=lambda: {"en": PromptLines()})
 

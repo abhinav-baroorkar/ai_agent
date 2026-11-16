@@ -11,10 +11,16 @@ from typing import Any
 
 from sasha.bots import MAIN_ID, Bot, BotStore
 from sasha.browser.helper import BROWSE_TOOL, BrowseHelper, browse_tool
+from sasha.browser.policy import BROWSER
 from sasha.config import Settings, reload_secrets
-from sasha.connectors import ConnectorRegistry, HomeAssistantConnector, build_connectors
+from sasha.connectors import (
+    ConnectorError,
+    ConnectorRegistry,
+    HomeAssistantConnector,
+    build_connectors,
+)
 from sasha.connectors.browser import BrowserConnector
-from sasha.conversation import building_for_bot
+from sasha.conversation import building_for_bot, current_turn
 from sasha.orchestrator import Assistant
 from sasha.pipeline.llm import LLM, OllamaLLM
 from sasha.pipeline.stt import SpeechToText
@@ -22,6 +28,8 @@ from sasha.pipeline.tts import TextToSpeech
 from sasha.prompting import build_prompt, prompt_lines
 from sasha.said import SaidGuard
 from sasha.server.speaking import ListenerPresence
+from sasha.server.timers.service import TimerService
+from sasha.server.timers.tools import add_timer_tools
 from sasha.server.voice import load_voice_stages
 from sasha.server.wake_policy import RateLimiter
 from sasha.server.wake_truth import wake_control_allowed
@@ -56,14 +64,16 @@ class ServerDeps:
     presence: ListenerPresence = field(default_factory=ListenerPresence)
     wake_limiter: RateLimiter | None = None
     recheck_placement: Callable[[], None] = lambda: None
+    timers: TimerService | None = None  # None: no timer tools, routes or frames
 
     def __post_init__(self) -> None:
         if self.wake_limiter is None:
             self.wake_limiter = RateLimiter(self.settings.profile.wake.max_calls_per_minute)
 
     def make_assistant(self, bot: Bot, spoken: bool = False) -> tuple[Assistant, list[str]]:
-        """A fresh conversation for `bot`, with its connectors' tools and the clock. Its
-        prompt says what those tools can really do; `spoken` adds the spoken style."""
+        """A fresh conversation for `bot`, with its connectors' tools, the clock, the
+        timer tools and (the main assistant, browser on) web lookups. Its prompt says what
+        those tools can really do; `spoken` adds the spoken style."""
         llm = self.make_llm(bot.model)
         token = building_for_bot.set(bot.id)  # the browser notes whose conversation it is
         try:
@@ -72,8 +82,12 @@ class ServerDeps:
                 tools.register(browse_tool(helper))
         finally:
             building_for_bot.reset(token)
-        if CLOCK_TOOL not in tools:
-            tools.register(clock_tool())  # every bot: read-only, so no guessed times
+        if CLOCK_TOOL not in tools:  # every bot: read-only, so no guessed times
+            # The timers' clock and zone, so "now" and a resolved alarm time agree.
+            tools.register(clock_tool(self.timers.now_local) if self.timers else clock_tool())
+        if self.timers is not None and not self.has_browser(bot):  # D3: never with a browser
+            # Before the prompt, so the generated abilities list the timer tools too.
+            tools = add_timer_tools(tools, self.timers, said=current_turn.get)
         lister = tools.get("list_devices").handler if "list_devices" in tools else None
         assistant = Assistant(
             self.settings,
@@ -127,6 +141,24 @@ class ServerDeps:
         """The bot's own prompt plus the facts about these tools (prompting.py)."""
         lines = prompt_lines(self.settings)
         return build_prompt(self.bots.prompt_for(bot), tool_names, lines, spoken)
+
+    def has_browser(self, bot: Bot) -> bool:
+        """D3: a bot with any `browser` connector gets no timer tools (web pages could
+        otherwise set things that speak in the house). The same test as the browser's
+        own allowlist (browser/policy.py): its kind, or an id that looks like one."""
+        for cid in bot.connectors:
+            try:
+                kind: str | None = self.connectors.get(cid).kind
+            except ConnectorError:
+                kind = None  # gone or unknown: judged by its id, like the allowlist
+            if kind == BROWSER or cid.split(":", 1)[0] == BROWSER:
+                return True
+        return False
+
+
+def make_timers(settings: Settings, telemetry: TelemetryWriter) -> TimerService:
+    store = JsonStore(settings.paths.state_dir / "timers.json")
+    return TimerService(settings.profile.timers, store, telemetry)
 
 
 def make_telemetry(settings: Settings) -> PlacementTelemetry:
@@ -232,4 +264,5 @@ def build_deps(settings: Settings, reload_env: bool = True) -> ServerDeps:
         warnings=warnings,
         presence=presence,
         recheck_placement=recheck_placement,
+        timers=make_timers(settings, telemetry),
     )

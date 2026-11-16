@@ -1,0 +1,100 @@
+"""A conversation socket's timer side (mixed into server/ws.py's Conversation, which is
+near the 400-line limit): what the hub calls from any thread, the `timer_dismiss` /
+`timer_snooze` frames, and the typed-path check for claimed timer changes."""
+
+from __future__ import annotations
+
+import asyncio
+import contextlib
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
+
+from sasha.server.timers.service import TimerError
+from sasha.server.timers.status import kinds_asked, status_line
+from sasha.server.timers.tools import TIMER_TOOLS
+from sasha.server.timers.truth import TimerTruth, asks_for_timer
+
+if TYPE_CHECKING:
+    from sasha.orchestrator import Assistant
+    from sasha.server.timers.hub import Hub
+    from sasha.server.timers.ring import RingPlayer
+
+
+class TimerSocket:
+    # Provided by the Conversation this is mixed into.
+    timers: Hub | None
+    ringer: RingPlayer | None
+    loop: asyncio.AbstractEventLoop
+    assistant: Assistant
+    speak: bool
+    timer_claims: bool  # check replies for claimed timer changes (False on the listener)
+    emit_threadsafe: Callable[[Any], None]
+    error: Callable[[str], None]
+
+    # --- the hub calls these from any thread ---------------------------------------
+    def push_threadsafe(self, frame: dict[str, Any]) -> None:
+        self.emit_threadsafe(frame)
+
+    def ring_threadsafe(self, item_id: str, say: str, tone: bool, check: bool = True) -> None:
+        if self.ringer is not None:
+            self.ringer.ring_threadsafe(item_id, say, tone, check)
+
+    def stop_ring_threadsafe(self, item_id: str) -> None:
+        with contextlib.suppress(RuntimeError):  # the loop is gone: nothing to stop
+            self.loop.call_soon_threadsafe(self.ring_stopped, item_id)
+
+    def ring_stopped(self, item_id: str) -> None:
+        """The item ended: its ring speech stops (the listener also closes its window)."""
+        if self.ringer is not None:
+            self.ringer.stop(item_id)
+
+    def ring_started(self, item_id: str) -> None:
+        """A ring's speech is about to start on this socket (the listener overrides)."""
+
+    async def ring_played(self, item_id: str) -> None:
+        """A ring's speech was sent (the listener opens its stop window)."""
+
+    # --- frames and replies ------------------------------------------------------------
+    async def _on_timer_frame(self, kind: str, msg: dict[str, Any]) -> None:
+        if self.timers is None:
+            self.error("Timers are not available")
+            return
+        service, item_id = self.timers.service, msg.get("id")
+        minutes = msg.get("minutes", service.config.snooze_minutes)
+        if not isinstance(item_id, str) or (
+            kind == "timer_snooze" and (isinstance(minutes, bool) or not isinstance(minutes, int))
+        ):
+            self.error("Bad timer message")
+            return
+        try:
+            if kind == "timer_dismiss":
+                await asyncio.to_thread(service.dismiss, item_id)
+            else:
+                await asyncio.to_thread(service.snooze, item_id, minutes)
+        except TimerError as exc:
+            self.error(str(exc))
+
+    def _timer_truth(self, command: str) -> TimerTruth | None:
+        """Typed and window turns of a bot with timer tools (wake turns have their own
+        truthful reply, so the listener turns this off)."""
+        names = self.assistant.tools.names
+        if not self.timer_claims or self.timers is None or not set(TIMER_TOOLS) & set(names):
+            return None
+        cfg, assistant = self.timers.config, self.assistant
+        # An answer to a timer question ("Morning.") is part of that request (the
+        # said-check's span-2 rule): held on a spoken turn and judged like the request.
+        previous, since = assistant.previous_request(), assistant.since_previous()
+        answering = (
+            previous is not None
+            and assistant.previous_reply_asked()
+            and asks_for_timer(previous, cfg)
+            and (since is None or since <= cfg.answer_window_s)
+        )
+        service = self.timers.service
+        return TimerTruth(
+            cfg,
+            command,
+            spoken=self.speak,
+            answering=answering,
+            state=lambda words: status_line(service, kinds_asked(words)),
+        )

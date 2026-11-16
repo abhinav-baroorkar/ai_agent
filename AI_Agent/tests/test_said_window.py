@@ -158,3 +158,18 @@ def test_the_only_device_of_its_kind_may_be_named_by_kind() -> None:
     two = {**one, "media_player.den": "Den TV"}
     assert not device_change_said("turn the tv volume up", tv, two)  # which one?
     assert device_change_said("turn the living room tv volume up", tv, two)
+
+
+# --- the merge with timers: the marks ------------------------------------------------
+def test_timer_tool_marks(tmp_path: Path) -> None:
+    from sasha.server.timers.tools import add_timer_tools
+    from tests.timer_fakes import make_service
+
+    service, _, _ = make_service(tmp_path)
+    tools = add_timer_tools(ToolRegistry(), service)
+    marks = {n: (tools.get(n).read_only, tools.get(n).said_checked) for n in tools.names}
+    assert marks["list_timers"] == (True, False)
+    for name in ("set_timer", "set_alarm", "set_reminder"):
+        assert marks[name] == (False, True), name  # their own said-check
+    for name in ("cancel_timer", "snooze_timer"):
+        assert marks[name] == (False, False), name  # no own check: the guard, fail closed

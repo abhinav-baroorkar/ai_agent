@@ -45,6 +45,8 @@
 .msg.bot .body pre code { padding: 0; background: none; font-size: .86rem; white-space: pre; }
 .msg.bot .body .md-url { color: var(--muted); font-size: .9em; }
 
+.msg.bot .looked-up { font: .74rem var(--mono); color: #6c7a8b; overflow-wrap: anywhere; }
+.msg.bot .lookup-note { font-size: .84rem; color: var(--think); }
 .typing { display: inline-flex; gap: 5px; padding: .45rem 0; }
 .typing i { width: 7px; height: 7px; border-radius: 50%; background: var(--think); animation: pulse 1.2s infinite; }
 .typing i:nth-child(2) { animation-delay: .2s; }

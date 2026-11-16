@@ -10,7 +10,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from sasha.config import Settings
-from sasha.conversation import current_turn, finish_turn, new_turn
+from sasha.conversation import asks_back, current_turn, finish_turn, new_turn
 from sasha.pipeline.llm import LLM, LLMCancelled, LLMResponse, Message, StreamingLLM
 from sasha.said import DEVICE_TOOL
 from sasha.telemetry import RequestTrace, TelemetryWriter
@@ -121,16 +121,35 @@ class Assistant:
         self._ended: list[float] = []  # per kept turn: when it ended (`clock`)
         self._turn_browsed = False
         self.last_tool_calls: list[dict[str, Any]] = []
+        self._last_turn_end: float | None = None
         self.turn_kept = False  # the last turn is in the history (see replace_reply)
 
     @property
     def name(self) -> str:
         return self.settings.assistant.name
 
+    def previous_reply_asked(self) -> bool:
+        """Did the last reply ask the owner something? Only the fact. A question whose
+        speech was cut isn't counted: the answer is read alone and asks again (the safe
+        failure, by design)."""
+        replies = [m["content"] for m in self._history if m["role"] == "assistant"]
+        last = str(replies[-1]) if replies else ""
+        return asks_back(last) and not last.endswith(self.settings.profile.llm.interrupted_note)
+
+    def previous_request(self) -> str | None:
+        """The owner's previous message in this conversation (None at the start)."""
+        said = [m["content"] for m in self._history if m["role"] == "user"]
+        return str(said[-1]) if said else None
+
+    def since_previous(self) -> float | None:
+        """Seconds since the previous turn ended (None at the start)."""
+        return None if self._last_turn_end is None else self.clock() - self._last_turn_end
+
     def reset(self) -> None:
         self._history.clear()
         self._browsed.clear()
         self._ended.clear()
+        self._last_turn_end = None
 
     @property
     def tainted(self) -> bool:
@@ -144,6 +163,7 @@ class Assistant:
         ]
         self._browsed.append(self._turn_browsed)
         self._ended.append(self.clock())
+        self._last_turn_end = self._ended[-1]
         self.turn_kept = True
 
     # --- stopped turns ---------------------------------------------------------------
@@ -213,8 +233,9 @@ class Assistant:
         if inherit_turn and inherited is None:
             raise RuntimeError("inherit_turn needs a running turn")
         owner_said = (*(m["content"] for m in self._history if m["role"] == "user"), text)
-        turn = inherited or new_turn(owner_said, input_mode, hooks.should_stop)
-        token = current_turn.set(turn)  # for tools (B1)
+        asked, since = self.previous_reply_asked(), self.since_previous()
+        turn = inherited or new_turn(owner_said, input_mode, asked, since, hooks.should_stop)
+        token = current_turn.set(turn)  # for tools (B1; the timers' said-check)
         try:
             reply = self._run(text, trace, calls_made, hooks)
         except BaseException as exc:  # includes Ctrl-C: still write the telemetry line
@@ -274,7 +295,10 @@ class Assistant:
                 if result.ok and self._taints(call.name):
                     self._turn_browsed = True
                     _add_sites(sites, result.content)
-                calls_made.append({"name": call.name, "arguments": call.arguments, "ok": result.ok})
+                made = {"name": call.name, "arguments": call.arguments, "ok": result.ok}
+                if result.asks:
+                    made["asks"] = result.asks  # a reason label only (truth.py)
+                calls_made.append(made)
                 if hooks.on_tool:
                     hooks.on_tool(call.name, result.ok)
                 content = wrap_untrusted(call.name, result.content)
