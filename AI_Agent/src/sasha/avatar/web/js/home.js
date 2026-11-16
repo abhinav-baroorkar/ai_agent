@@ -355,5 +355,5 @@ export async function initHome(health, onOnline) {
   render();
   // Mock mode plays one spoken turn by itself so all four states can be seen.
   if (MOCK && canListen && !blocked && params.get('demo') !== '0') setTimeout(() => !recording && conv.ws && conv.ws.demo && conv.ws.demo(), 1400);
-  return { conv, face };
+  return { conv, face, history };
 }

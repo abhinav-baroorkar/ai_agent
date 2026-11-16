@@ -86,6 +86,7 @@ export class ChatView {
       .on('tool', (m) => this.reply().chips.append(chip(m)))
       .on('reply_delta', (m) => { const r = this.reply(); r.text += String(m.text ?? ''); this.paintSoon(r); })
       .on('reply', (m) => this.finish(m))
+      .on('forgot', (m) => this.forgetSince(Number(m.since_s)))
       .on('error', (m) => {
         const text = String(m.message ?? 'Something went wrong.');
         if (this.voice.on) {
@@ -151,9 +152,19 @@ export class ChatView {
   add(node) {
     const empty = this.log.querySelector('.log-empty');
     if (empty) empty.remove();
+    node.dataset.at ||= String(Date.now());
     this.log.append(node);
     this.log.scrollTop = this.log.scrollHeight;
     return node;
+  }
+
+  // Memory's `forgot` frame: the server dropped this chat's turns from the last
+  // `since_s` seconds; drop them from the screen too (a reply in progress included).
+  forgetSince(sinceS) {
+    if (!(sinceS > 0)) return;
+    const cutoff = Date.now() - sinceS * 1000;
+    for (const m of this.log.querySelectorAll('.msg')) if (Number(m.dataset.at) >= cutoff) m.remove();
+    if (this.pending && !this.pending.el.isConnected) this.pending = null;
   }
 
   // The assistant message currently being built (created on first use).

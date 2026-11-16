@@ -5,9 +5,10 @@ import { cleanHealth } from './clean.js';
 import { initHome } from './home.js';
 import { initBots } from './bots.js';
 import { initSettings } from './settings.js';
+import { initMemory } from './memory.js';
 import { miniOrb } from './faces/mini-orb.js';
 
-const VIEWS = ['home', 'bots', 'setup', 'chat', 'settings'];
+const VIEWS = ['home', 'bots', 'setup', 'chat', 'settings', 'memory'];
 const offline = $('#offline');
 
 function setOffline(isOffline, text = 'Offline. Trying to reconnect…') {
@@ -40,15 +41,20 @@ bots.onChange((list) => {
   if (main && main.hasStyle && home.face.setStyle) home.face.setStyle(main.style);
 });
 const settings = initSettings(info, bots);
+const memory = initMemory({ conv: home.conv, history: home.history, bots, onReady: () => route() });
 
 function route() {
   let view = VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : 'home';
   if (view === 'chat' && !bots.hasChat) view = 'bots'; // no chat in front: show the bots instead
+  if (view === 'memory' && !memory.supported) view = 'home'; // a server without memory
   $('#home').hidden = view !== 'home';
   $('#work').hidden = view === 'home';
-  for (const id of ['bots', 'setup', 'chat', 'settings']) $(`#${id}`).hidden = view !== id;
+  const wasMemory = !$('#memory').hidden;
+  for (const id of ['bots', 'setup', 'chat', 'settings', 'memory']) $(`#${id}`).hidden = view !== id;
   $('#to-bots').hidden = view === 'bots';
   $('#to-settings').hidden = view === 'settings';
+  $('#to-memory').hidden = view === 'memory' || !memory.supported;
+  if (view === 'memory') memory.show(); else if (wasMemory) memory.leave();
   if (view === 'home' || view === 'bots') bots.load();
   if (view === 'setup') bots.showSetup(); else bots.leaveSetup();
   if (view === 'settings') bots.load().then(settings.load);
