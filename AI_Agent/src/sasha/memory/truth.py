@@ -37,16 +37,6 @@ class MemoryTruth:
             return ""
         return piece
 
-    def frames(self, tool_calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """`forgot` for a forget(minutes) that worked: the page drops its own turns of
-        that window too (the server already dropped them from the conversation)."""
-        out = []
-        for call in tool_calls:
-            minutes = (call.get("arguments") or {}).get("minutes")
-            if call.get("name") == "forget" and call.get("ok") and isinstance(minutes, int):
-                out.append({"type": "forgot", "since_s": minutes * 60})
-        return out
-
     def finish(self, text: str, tool_calls: list[dict[str, Any]]) -> tuple[str, str]:
         ok = {c.get("name") for c in tool_calls if c.get("ok")}
         mine = [c for c in tool_calls if c.get("name") in ("remember", "forget")]

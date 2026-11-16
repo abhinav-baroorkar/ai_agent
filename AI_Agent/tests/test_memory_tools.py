@@ -119,7 +119,14 @@ def test_forget_minutes_must_be_said(tmp_path: Path) -> None:
     store.add("new", "chat", "main")
     memory = tools(store)
     dropped: list[float] = []
-    memory.forget_turns = lambda s: dropped.append(s) or 2
+
+    class Conversation:  # an open conversation's own forget (weakly held by the store)
+        def forget_turns(self, seconds: float) -> int:
+            dropped.append(seconds)
+            return 2
+
+    home = Conversation()
+    store.add_conversation("home", home.forget_turns)
     with turn("Forget the last 5 minutes."):
         assert reason(memory.forget, minutes=60) == "bad_minutes"  # "60" wasn't said
         got = memory.forget(minutes=5)

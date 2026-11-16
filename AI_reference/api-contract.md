@@ -283,8 +283,10 @@ aloud", deletes any, and forgets a time window or everything.
 
 `Note` = `{id, text, created_at, source:"chat"|"window"|"wake", bot_id, lang,
 status:"active"|"pending", say_aloud:bool}`.
-- `created_at` is epoch seconds (UTC). `text` is the owner's own words (at most 300
-  characters): show it as plain text, never as markup.
+- `created_at` is epoch seconds (UTC). `text` is the owner's own words as said, first
+  person ("I take the 8:10 bus"; at most 300 characters): show it as plain text, never
+  as markup. `bot_id` is the bot whose conversation made it: take its name from
+  `/api/bots`.
 - `pending`: made on a wake turn (anyone in earshot). It is in no prompt until kept;
   the UI shows it as "added by voice" with keep and delete. Keeping it makes it
   `active` and `say_aloud: true`.
@@ -300,18 +302,23 @@ body must be JSON, `415` otherwise):
 - `PATCH /api/memory/{id}` `{say_aloud: bool}` (nothing else) → `Note`. `409` on a
   pending note (keep it first).
 - `DELETE /api/memory/{id}` → `{ok:true}`.
-- `POST /api/memory/forget` `{minutes: 1..1440}` → `{forgot: n}`: every note made in the
-  last N minutes. Over HTTP this removes notes only; the conversations keep their
-  turns (say so in the UI). `{everything: true}` → `{forgot: n}`: all notes, the file
-  rewritten empty. The page asks the owner to confirm before sending either.
+- `POST /api/memory/forget` `{minutes: 1..1440}` → `ForgetReport`: every note made in
+  the last N minutes (waiting ones too) and every open conversation's turns from that
+  window (Home, the listener, every chat), so the model can't quote them any more.
+  `{everything: true}` → `ForgetReport` with `turns: {}`: all notes, the file rewritten
+  empty (conversations keep their turns). The page asks the owner to confirm before
+  sending either.
+- `ForgetReport` = `{count, items:[{id, text}], turns:{place: n}}`: exactly what went.
+  `place` is `"home"` (the Home window), `"listener"` (wake turns) or a bot id (that
+  bot's chat); a place with no turns removed is left out.
 
 WebSocket, server → every socket:
 - `{type:"memory", notes:[Note], count, max}`: on connect and after every change
   (made, kept, marked, deleted, forgotten).
-- `{type:"forgot", since_s}`: on the conversation whose owner said "forget the last N
-  minutes" by talking: the server already dropped that conversation's turns from the
-  last `since_s` seconds (the model can't quote them); the UI drops its own on-screen
-  turns from that window too.
+- `{type:"forgot", since_s}`: to every socket, after a time window was forgotten (by
+  talking, "forget the last 5 minutes", or from the Memory screen). The server already
+  dropped every conversation's turns from the last `since_s` seconds; each page drops
+  its own on-screen turns from that window too.
 
 Server lines (from `profile.memory.lines`, never the model): a claimed save or forget
 that no tool made gets "I didn't save that." / "Nothing was forgotten."; a password,

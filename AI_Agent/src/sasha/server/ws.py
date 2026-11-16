@@ -305,8 +305,6 @@ class Conversation(TimerSocket):  # the timer side: server/timers/socket.py
             self.timer_truth = None
         if truth is not None:  # no claimed timer change without a tool that made it
             tail, reply.text = truth.finish(reply.text, reply.tool_calls)
-            for frame in truth.frames(reply.tool_calls):  # memory's `forgot`
-                self.emit(frame)
             if tail:
                 self._on_delta(tail)
         return reply

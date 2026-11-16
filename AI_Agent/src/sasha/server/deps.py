@@ -99,7 +99,10 @@ class ServerDeps:
         if memory is not None and self.memory is not None:
             store, lines = self.memory, prompt_lines(self.settings)
             assistant.prompt_extra = lambda: memory_section(store, lines)  # every turn
-            memory.forget_turns = assistant.forget_turns
+            place = {("main", True): "home", ("voice", True): "listener"}.get(
+                (bot.id, spoken), bot.id
+            )
+            store.add_conversation(place, assistant.forget_turns)
         return assistant, warnings
 
     def prompt_for(self, bot: Bot, tool_names: list[str], spoken: bool = False) -> str:

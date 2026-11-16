@@ -13,6 +13,7 @@ import contextlib
 import secrets
 import threading
 import time
+import weakref
 from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
@@ -63,6 +64,9 @@ class MemoryStore:
         self.lock = threading.RLock()
         self.notify: Callable[[dict[str, Any]], None] = lambda _frame: None  # set by the app
         self.notes: dict[str, Note] = {}
+        # Every open conversation's own "drop my turns from the last N seconds", so a
+        # forgotten window takes what was said in it too (weak: a closed one drops out).
+        self._conversations: list[tuple[str, weakref.WeakMethod[Callable[[float], int]]]] = []
         for raw in store.load().get("notes") or []:
             try:
                 note = Note.model_validate(raw)
@@ -168,6 +172,29 @@ class MemoryStore:
             if gone:
                 self._save("forgotten:minutes", len(gone))
             return gone
+
+    def add_conversation(self, place: str, forget_turns: Callable[[float], int]) -> None:
+        """`place`: "home", "listener" or a bot id, for the forget report."""
+        with self.lock:
+            self._conversations = [(p, r) for p, r in self._conversations if r() is not None]
+            self._conversations.append((place, weakref.WeakMethod(forget_turns)))
+
+    def forget_window(self, seconds: float) -> dict[str, Any]:
+        """ "Forget the last N minutes": the notes made in that window (waiting ones too)
+        and every open conversation's turns from it (Home, the listener, every chat).
+        Every socket gets `forgot`, so the pages drop their own turns of that window."""
+        gone = self.forget_since(self.clock() - seconds)
+        turns: dict[str, int] = {}
+        with self.lock:
+            conversations = list(self._conversations)
+        for place, ref in conversations:
+            forget_turns = ref()
+            if forget_turns is not None and (count := forget_turns(seconds)):
+                turns[place] = turns.get(place, 0) + count
+        with contextlib.suppress(Exception):
+            self.notify({"type": "forgot", "since_s": round(seconds)})
+        items = [{"id": n.id, "text": n.text} for n in gone]
+        return {"count": len(gone), "items": items, "turns": turns}
 
     def clear(self) -> int:
         """Forget everything: the file is rewritten empty, not hidden."""

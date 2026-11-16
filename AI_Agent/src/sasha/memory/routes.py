@@ -46,16 +46,17 @@ def add_memory_routes(app: FastAPI, store: MemoryStore, json_body: JsonBody) -> 
 
     @app.post("/api/memory/forget")
     async def forget(request: Request) -> dict[str, Any]:
-        """{"minutes": N}: the notes made in the last N minutes (the conversations keep
-        their turns; the UI says so); {"everything": true}: all notes. The page asks
-        the owner to confirm first."""
+        """{"minutes": N}: the notes made in the last N minutes and every open
+        conversation's turns from then; {"everything": true}: all notes. The page asks
+        the owner to confirm first. The report lists exactly what went."""
         body = await json_body(request)
         if body == {"everything": True}:
-            return {"forgot": await run_in_threadpool(store.clear)}
+            items = [{"id": n.id, "text": n.text} for n in store.all()]
+            await run_in_threadpool(store.clear)
+            return {"count": len(items), "items": items, "turns": {}}
         minutes = body.get("minutes")
         if set(body) != {"minutes"} or isinstance(minutes, bool) or not isinstance(minutes, int):
             return JSONResponse({"error": 'Send {"minutes": N} or {"everything": true}'}, 400)  # type: ignore[return-value]
         if not 1 <= minutes <= store.config.max_forget_minutes:
             return JSONResponse({"error": "minutes is out of range"}, 400)  # type: ignore[return-value]
-        gone = await run_in_threadpool(store.forget_since, store.clock() - minutes * 60)
-        return {"forgot": len(gone)}
+        return await run_in_threadpool(store.forget_window, minutes * 60.0)

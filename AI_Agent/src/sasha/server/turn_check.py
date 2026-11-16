@@ -30,12 +30,6 @@ class ChainCheck:
             return ""
         return piece
 
-    def frames(self, tool_calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Frames the parts send after the turn (memory's `forgot`)."""
-        return [
-            f for part in self.checks for f in getattr(part, "frames", lambda _c: [])(tool_calls)
-        ]
-
     def finish(self, text: str, tool_calls: list[dict[str, Any]]) -> tuple[str, str]:
         """(text still to send and speak, the final reply text)."""
         final = text

@@ -3,7 +3,8 @@
 - M4: the owner's message asks to remember (or to forget), with a broad phrase list;
   a question about notes ("what do you remember about my bus?") asks for neither.
 - M3, all or nothing: every content word of the note is in the owner's own words of
-  this turn (stop words, inflections and the "I" -> "the owner" rewrites aside), and
+  this turn (stop words and inflections aside; notes are kept first person, as said,
+  though "the owner" for the owner's "I" is still accepted), and
   every number in it is one the owner said, with the same value. "Remember that" with
   nothing of its own is refused, so a note can't be filled from a reply or a page.
 - M7: passwords, PINs, codes, card or account numbers, long digit runs, key-like

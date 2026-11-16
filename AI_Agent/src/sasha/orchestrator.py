@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -78,6 +79,8 @@ class Assistant:
         self._last_turn_end: float | None = None
         self.turn_kept = False  # the last turn is in the history (see replace_reply)
         self._kept_at: list[float] = []  # per kept turn: when it ended (the turn clock)
+        # forget_turns may come from another thread (the Memory screen) mid-turn.
+        self._history_lock = threading.Lock()
         # A section rebuilt for every turn after the system prompt (memory/prompt.py).
         self.prompt_extra: Callable[[], str] | None = None
 
@@ -111,10 +114,11 @@ class Assistant:
         """Drop this conversation's turns that ended in the last `seconds` (memory's
         forget(minutes)): the model can't quote them any more. Returns how many."""
         since = self.clock() - seconds
-        keep = [i for i, at in enumerate(self._kept_at) if at < since]
-        gone = len(self._kept_at) - len(keep)
-        self._history = [m for i in keep for m in self._history[2 * i : 2 * i + 2]]
-        self._kept_at = [self._kept_at[i] for i in keep]
+        with self._history_lock:
+            keep = [i for i, at in enumerate(self._kept_at) if at < since]
+            gone = len(self._kept_at) - len(keep)
+            self._history = [m for i in keep for m in self._history[2 * i : 2 * i + 2]]
+            self._kept_at = [self._kept_at[i] for i in keep]
         return gone
 
     def redact_request(self, redact: Callable[[str], str]) -> None:
@@ -134,11 +138,12 @@ class Assistant:
         return f"{kept} {cfg.interrupted_note}".strip()
 
     def _keep_stopped(self, text: str, partial: str) -> None:
-        self._history += [
-            {"role": "user", "content": text},
-            {"role": "assistant", "content": self._stopped_reply(partial)},
-        ]
-        self._kept_at.append(self.clock())
+        with self._history_lock:
+            self._history += [
+                {"role": "user", "content": text},
+                {"role": "assistant", "content": self._stopped_reply(partial)},
+            ]
+            self._kept_at.append(self.clock())
         self.turn_kept = True
 
     def replace_reply(self, said: str, stopped: bool = False) -> None:
@@ -204,12 +209,13 @@ class Assistant:
             finish_turn(turn.turn_id)  # e.g. the browser shows "idle" again
         trace.record_text("assistant", reply.text)
         reply.telemetry = trace.finish(success=True)
-        self._history += [
-            {"role": "user", "content": text},
-            {"role": "assistant", "content": reply.text},
-        ]
-        self._last_turn_end = self.clock()
-        self._kept_at.append(self._last_turn_end)
+        with self._history_lock:
+            self._history += [
+                {"role": "user", "content": text},
+                {"role": "assistant", "content": reply.text},
+            ]
+            self._last_turn_end = self.clock()
+            self._kept_at.append(self._last_turn_end)
         self.turn_kept = True
         return reply
 

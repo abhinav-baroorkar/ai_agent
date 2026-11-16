@@ -45,7 +45,7 @@ def system_of(h: Harness) -> str:
 def test_a_note_reaches_the_next_prompt_as_data(settings: Settings, tmp_path: Path) -> None:
     h, store = harness(settings, tmp_path)
     h.llm("big-model").responses = [
-        resp("", [ToolCall("remember", {"text": "the owner takes the 8:10 bus"})]),
+        resp("", [ToolCall("remember", {"text": "I take the 8:10 bus"})]),  # first person
         resp("Okay, I'll remember that."),
         resp("You take the 8:10 bus."),
     ]
@@ -60,7 +60,7 @@ def test_a_note_reaches_the_next_prompt_as_data(settings: Settings, tmp_path: Pa
     assert any(isinstance(f, dict) and f.get("type") == "memory" and f["count"] == 1 for f in got)
     system = system_of(h)
     head = prompt_lines(h.settings).memory_head
-    assert head in system and '"untrusted_data": ["the owner takes the 8:10 bus"]' in system
+    assert head in system and '"untrusted_data": ["I take the 8:10 bus"]' in system
     assert len(store.notes) == 1
 
 
@@ -211,7 +211,8 @@ def test_routes(settings: Settings, tmp_path: Path) -> None:
     )
     assert client.post(
         "/api/memory/forget", headers=JSON, content='{"everything": true}'
-    ).json() == {"forgot": 1}
+    ).json() == {"count": 1, "items": [{"id": pending.id, "text": "the plants need water"}],
+                 "turns": {}}  # fmt: skip
     form = client.post("/api/memory/forget", content="everything=true",
                        headers={"Content-Type": "application/x-www-form-urlencoded"})  # fmt: skip
     assert form.status_code == 415
@@ -241,3 +242,32 @@ def test_memory_can_be_switched_off_per_bot(settings: Settings, tmp_path: Path) 
     assert r.status_code == 200 and r.json()["memory"] is False
     assistant, _ = h.deps.make_assistant(h.bots.get("main"))
     assert "remember" not in assistant.tools.names and assistant.prompt_extra is None
+
+
+def test_forget_a_window_from_the_screen_takes_every_conversation(
+    settings: Settings, tmp_path: Path
+) -> None:
+    """From the Memory screen, "the last 5 minutes" also means everything said then, in
+    every open conversation (Home and each chat), and the report lists what went."""
+    h, store = harness(settings, tmp_path)
+    h.llm("big-model").responses = [resp("Hi."), resp("Hello."), resp("ok"), resp("ok")]
+    note = store.add("the plants need water", "wake", "voice")
+    client = h.client()
+    with (
+        client.websocket_connect(f"{WS}/ws") as chat,
+        client.websocket_connect(f"{WS}/ws?speak=1") as home,
+    ):
+        opened(chat), opened(home)
+        for ws, text in ((chat, "SENTINEL-CHAT-TURN"), (home, "SENTINEL-HOME-TURN")):
+            ws.send_json({"type": "text", "text": text})
+            frames(ws, "state", "idle")
+        r = client.post("/api/memory/forget", headers=JSON, content='{"minutes": 5}')
+        assert r.json() == {
+            "count": 1,
+            "items": [{"id": note.id, "text": "the plants need water"}],
+            "turns": {"main": 1, "home": 1},
+        }
+        assert {"type": "forgot", "since_s": 300} in [chat.receive_json() for _ in range(2)]
+        chat.send_json({"type": "text", "text": "Again."})
+        frames(chat, "state", "idle")
+    assert "SENTINEL-CHAT-TURN" not in str(h.llm("big-model").seen[-1][0])

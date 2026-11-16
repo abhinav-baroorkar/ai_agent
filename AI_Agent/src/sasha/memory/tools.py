@@ -48,9 +48,6 @@ class MemoryTools:
         self.cfg: MemoryConfig = store.config
         self.made: list[tuple[str, int, int]] = []  # (note id, user-message count, turn id)
         self.confirm_at: int | None = None  # user-message count when "everything" was asked
-        # Set by the server once the conversation exists: drop its own turns from the
-        # last N seconds (forget(minutes)); returns how many turns went.
-        self.forget_turns: Callable[[float], int] = lambda _seconds: 0
         self.wake_made: list[float] = []
 
     # --- helpers -------------------------------------------------------------------
@@ -169,9 +166,12 @@ class MemoryTools:
             raise self._refuse("bad_minutes", "The owner didn't say that number. Ask.")
         if wake:
             raise self._refuse("on_screen", "Forgetting a time window is for the screen.")
-        gone = self.store.forget_since(self.store.clock() - value * 60)
-        turns = self.forget_turns(value * 60.0)
-        return {**self._forgot(gone, wake), "turns": turns}
+        report = self.store.forget_window(value * 60.0)  # every conversation's turns too
+        turns = sum(report["turns"].values())
+        if not report["count"] and not turns:
+            raise self._refuse("no_notes", "Nothing was said or noted in that window.")
+        return {"forgot": report["count"], "notes": [i["text"] for i in report["items"]],
+                "turns": turns}  # fmt: skip
 
     def _everything(
         self, turn: TurnContext, owner: str, wake: bool, confirming: bool
@@ -216,7 +216,7 @@ class MemoryTools:
         obj = {"type": "object", "properties": {}}
         return [
             Tool("remember", "Keep a note the owner asked you to remember, in the owner's "
-                 "own words (short; 'I'/'my' may become 'the owner'). Only when asked.",
+                 "own words as said, first person ('I take the 8:10 bus'). Only when asked.",
                  {"type": "object", "properties": {"text": {"type": "string"}},
                   "required": ["text"]}, self.remember),
             Tool("forget", "Forget notes when the owner asks: which='last' (the one just "
