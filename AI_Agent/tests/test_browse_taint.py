@@ -299,5 +299,8 @@ def test_the_connector_list_says_when_web_lookups_are_offered(harness: Harness) 
     assert "search" in browser_tools()  # the direct browser's own tools stay listed
     fake = next(r for r in client.get("/api/connectors").json()["connectors"] if r["id"] == "fake")
     assert BROWSE_TOOL not in fake["tools"]
-    harness.bots.update(MAIN_ID, parse_fields({"connectors": ["browser"]}))
-    assert BROWSE_TOOL not in browser_tools()  # the main bot browses directly: no helper
+    from sasha.bots import BotError
+
+    with pytest.raises(BotError, match="web lookups"):  # the built-in bots never browse
+        harness.bots.update(MAIN_ID, parse_fields({"connectors": ["browser"]}))  # directly
+    assert BROWSE_TOOL in browser_tools()

@@ -124,8 +124,9 @@ def test_d3_no_timer_tools_with_a_browser_connector(settings: Settings, tmp_path
         ws.receive_json()
         ws.send_json({"type": "text", "text": "hello"})
         turn_frames(ws)
-    h.bots.update("main", _fields({"connectors": ["web"]}))  # B4: the browser alone
-    with client.websocket_connect(f"{WS}/ws") as ws:
+    # B4: the browser alone, on a bot of its own (the built-in bots never take it)
+    web = h.bots.create(_fields({"name": "Web", "connectors": ["web"]}))
+    with client.websocket_connect(f"{WS}/ws?bot={web.id}") as ws:
         ws.receive_json()
         ws.send_json({"type": "text", "text": "hello"})
         turn_frames(ws)

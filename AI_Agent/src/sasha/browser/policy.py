@@ -21,9 +21,12 @@ class BrowserCombinationError(ValueError):
     """A bot asked for the browser together with a connector not marked safe for it."""
 
 
-def _is_browser(connector_id: str, kind: str | None) -> bool:
+def is_browser(connector_id: str, kind: str | None) -> bool:
     # an id that looks like a browser counts as one even if its kind isn't known
     return kind == BROWSER or connector_id.split(":", 1)[0] == BROWSER
+
+
+_is_browser = is_browser  # the older name
 
 
 def check_combination(kinds: Mapping[str, str | None]) -> None:

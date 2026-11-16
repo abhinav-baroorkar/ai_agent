@@ -29,7 +29,7 @@ from urllib.parse import urlsplit
 from sasha.browser.backstop import LogOnlyBackstop
 from sasha.browser.leaks import QueryLeakError, check_query
 from sasha.browser.origin import SearchRefusedError, check_open_url, search_url
-from sasha.browser.pages import BrowserTabs, PageError, TabHook
+from sasha.browser.pages import PERSON_CHECK, BrowserTabs, PageError, TabHook
 from sasha.browser.service import BrowserBusyError, BrowserService, BrowserStoppedError
 from sasha.browser.task_check import MAX_PAGE_WORDS, check_search_words
 from sasha.conversation import current_turn, on_turn_end
@@ -110,6 +110,7 @@ class BrowserConversation:
     helper_task: str | None = None
     page_words: set[str] = field(default_factory=set)
     blocked_queries: int = 0  # searches the query-word rule refused (a count only)
+    person_check: bool = False  # a search met a person check (cleared per lookup)
 
     def _turn(self) -> tuple[str, ...]:
         ctx = current_turn.get()
@@ -195,7 +196,12 @@ class BrowserConversation:
             target = search_url(self.search_template, str(q))
         except SearchRefusedError as e:
             raise ToolError(str(e)) from None
-        return self._op(lambda tabs: tabs.search_results(target))
+        try:
+            return self._op(lambda tabs: tabs.search_results(target))
+        except ToolError as e:
+            if str(e) == PERSON_CHECK:
+                self.person_check = True  # the helper then says so plainly
+            raise
 
     def read_page(self, part: int = 1) -> dict[str, Any]:
         self._turn()

@@ -73,7 +73,12 @@ class BrowserConnector:
         unknown = set(settings) - {"search_template"}
         if unknown:
             raise ConnectorError(f"Unknown setting(s): {', '.join(sorted(unknown))}")
-        return {"search_template": check_template(settings.get("search_template"))}
+        # A missing or empty setting is the default engine, so a fresh install searches
+        # (the stored file of an install that never set it held "", and search said
+        # "no search engine set").
+        return {
+            "search_template": check_template(settings.get("search_template")) or DEFAULT_SEARCH
+        }
 
     def setup(self) -> SetupCheck:
         if find_chrome() is None:

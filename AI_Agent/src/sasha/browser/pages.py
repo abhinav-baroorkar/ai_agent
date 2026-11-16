@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -22,10 +23,29 @@ from sasha.browser.reader import PageView, clean, read_tree
 from sasha.browser.redirects import looks_like_results, site_of, unwrap
 
 LOAD_TIMEOUT_S = 20.0
-NOT_RESULTS = (
-    "No results, or the search engine is asking the owner to confirm a person is "
-    "searching: ask the owner to take over the browser; don't try anything else."
+# The owner's own words, to be relayed as they are (the model says them to him).
+PERSON_CHECK = (
+    "The search site wants to check you're a person. Press Take over in the browser "
+    "panel and solve it once."
 )
+NOT_RESULTS = (
+    "No results came back. If this keeps happening, the search site may want to check "
+    "you're a person: press Take over in the browser panel and solve it once."
+)
+# Words a person check uses (DuckDuckGo: "bots use DuckDuckGo too ... confirm this
+# search was made by a human"); matched on the page only by the server, never shown.
+_ASKS_FOR_A_PERSON = re.compile(
+    r"captcha|not a robot|are you (a )?(human|robot)|unusual traffic|made by a human|"
+    r"bots use|are a person|you're a person|verify you are|human verification|"
+    r"security check|complete the following challenge",
+    re.IGNORECASE,
+)
+
+
+def asks_for_a_person(page_text: str) -> bool:
+    return bool(_ASKS_FOR_A_PERSON.search(page_text[:20_000]))
+
+
 MAX_PAGE_HOSTS = 4096  # hosts remembered per run; refusals of hosts first seen after
 # the cap count as background (harmless: it only shifts the live view's counts)
 MAX_DESTINATIONS = 150  # links whose destination is looked up per read
@@ -216,7 +236,8 @@ class BrowserTabs:
         result = await self.navigate(url)
         tab = await self.tab()
         if not looks_like_results(self.engine_host, tab.unwrapped_links, tab.offsite_links):
-            raise PageError(NOT_RESULTS)
+            text = str(result.get("page", ""))
+            raise PageError(PERSON_CHECK if asks_for_a_person(text) else NOT_RESULTS)
         return result
 
     async def _href(self, tab: Tab, backend_node_id: int) -> str:

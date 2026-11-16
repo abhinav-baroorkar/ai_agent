@@ -25,6 +25,8 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from sasha.browser.origin import owner_addresses
+from sasha.browser.pages import PERSON_CHECK
 from sasha.browser.task_check import check_task, clean
 from sasha.browser.tools import BrowserConversation, browser_tools
 from sasha.config import Settings
@@ -45,6 +47,19 @@ DESCRIPTION = (
     "words (what to find, and the address if the owner gave one). Returns a short "
     "answer with the sites it came from."
 )
+
+
+OPEN_FIRST = "Open {url} with open_url first; search only if that page doesn't answer it."
+
+
+def named_address(task: str, owner_text: str) -> str | None:
+    """An address the owner wrote in his current message that the task is about: the
+    helper opens it rather than searching for it (B1 still checks it in open_url)."""
+    for address in owner_addresses((owner_text,)):
+        host = address.host.split(":", 1)[0]
+        if host and host in task.lower():
+            return address.url()
+    return None
 
 
 def helper_prompt(lines: PromptLines) -> str:
@@ -129,7 +144,11 @@ class BrowseHelper:
             return self.clock() >= deadline or bool(outer and outer())
 
         self.conv.sites, self.conv.page_words = [], set()
+        self.conv.person_check = False
         self.conv.helper_task = checked  # its searches: the query-word rule (10.2)
+        named = named_address(checked, turn.user_messages[-1] if turn.user_messages else "")
+        if named is not None:  # the owner named a site: open it, don't search for it
+            checked = f"{checked}\n{OPEN_FIRST.format(url=named)}"
         # Streaming with a quiet `on_delta`, so a timeout cancels the LLM call (P7).
         hooks = TurnHooks(on_delta=lambda _: None, should_stop=stop)
         try:
@@ -139,7 +158,11 @@ class BrowseHelper:
                 stopped = outer is not None and outer()
                 raise ToolError("The owner stopped the request" if stopped else TOO_LONG) from None
             raise ToolError("The web lookup failed") from None
-        return shape_result(reply.text, list(self.conv.sites))
+        result = shape_result(reply.text, list(self.conv.sites))
+        if self.conv.person_check and not result["facts"] and not result["sites"]:
+            # the search was blocked: say so in the owner's words, not "no results"
+            result = {"answer": PERSON_CHECK, "facts": [], "sites": [], "blocked": "person_check"}
+        return result
 
 
 def browse_tool(helper: BrowseHelper) -> Tool:
