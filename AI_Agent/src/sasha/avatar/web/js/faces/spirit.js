@@ -34,17 +34,18 @@ class Spirit extends Stage {
 
   // The wake phrase brought the window up: play the entrance (not under reduced motion).
   // (Stage.wake() is the frame loop's restart; this is a different thing.)
-  enter() {
+  // `full`: the window has just been shown (gather and grow); otherwise only brighten.
+  enter(full = true) {
     this.wake(); // make sure the frame loop runs: the window may just have appeared
     if (this.calm) return;
-    this.entering = performance.now();
+    this.entering = { at: performance.now(), full };
   }
 
   setState(state) {
     const from = this.state;
     super.setState(state);
     if (this.state === from) return;
-    this.mist.kick();
+    if (this.entering == null) this.mist.kick(); // one motion at a time: not during the entrance
     if (this.calm) return;
     if (this.state === 'listening') this.size.vel += 0.9; // perks up
     if (this.state === 'thinking') this.size.vel -= 0.7; // draws inward
@@ -89,11 +90,13 @@ class Spirit extends Stage {
     const px = this.x.step(away ? this.goal.x : 0, dt) + Math.sin(t * 0.43) * 0.04 * still;
     const py = this.y.step(away ? this.goal.y : 0.04 * w.thinking, dt) + Math.sin(t * 0.9) * 0.035 * still - 0.05 * this.glee * Math.abs(Math.sin(t * 9));
     const scale = this.size.step(1 + 0.08 * w.listening - 0.06 * w.thinking + 0.05 * lvl * w.speaking, dt);
-    const enter = this.entering == null ? null : entranceAt(this.entering, now);
+    const enter = this.entering == null ? null : entranceAt(this.entering.at, now, this.entering.full);
     if (enter && enter.done) this.entering = null;
     this.gather = enter ? 1 - enter.k : 0; // 1 = fully scattered, 0 = in place
     const R = R0 * scale * (enter ? ENTRANCE.startScale + (1 - ENTRANCE.startScale) * enter.k : 1);
-    ctx.globalAlpha = enter ? enter.alpha : 1; // the canvas keeps it between frames
+    // Brightness, not alpha: under the additive drawing an alpha fade looks grey, a
+    // brightness ramp keeps the early frames glowing in their own colour.
+    ctx.filter = enter && enter.bright < 1 ? `brightness(${enter.bright.toFixed(3)})` : 'none';
     const speed = Math.hypot(this.x.vel, this.y.vel);
 
     // light on the floor stays put while the being moves above it

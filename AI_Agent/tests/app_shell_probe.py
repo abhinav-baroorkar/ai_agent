@@ -108,7 +108,8 @@ def run(profile: Path) -> dict[str, Any]:
             result["after_wake"] = value
             app.quit()
 
-        shell.page.runJavaScript("(window.assistantWokeAt > 0) + ' ' + location.hash", 0, got)
+        js = "(window.assistantWake.at > 0) + ' ' + location.hash"
+        shell.page.runJavaScript(js, 0, got)
 
     shell.page.titleChanged.connect(title)
     QTimer.singleShot(15000, app.quit)

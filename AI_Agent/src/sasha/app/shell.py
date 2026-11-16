@@ -31,13 +31,23 @@ CHROMIUM_FLAGS = (
     "--disable-domain-reliability",
     "--no-pings",
 )
-# Home plays the entrance on this event; the time is left for a page still starting
-# (Home reads it when it is ready), so a cold start shows the entrance too.
-WAKE_JS = (
-    "window.assistantWokeAt = performance.now();"
-    "location.hash = 'home';"
-    "window.dispatchEvent(new CustomEvent('assistant-wake'));"
-)
+
+
+# Home plays the entrance on this event; `window.assistantWake` is left for a page still
+# starting (Home reads it when it is ready), so a cold start shows the entrance too.
+def wake_js(just_shown: bool) -> str:
+    """Tell the page a wake came. `entrance`: play the full entrance, because the window
+    was just shown (cold start, or brought up from hidden or behind) or Home wasn't the
+    screen in view; otherwise the orb only brightens (design review)."""
+    shown = "true" if just_shown else "false"
+    return (
+        "(() => { const wasHome = (location.hash || '#home') === '#home';"
+        f" const entrance = {shown} || !wasHome;"
+        " window.assistantWake = { at: performance.now(), entrance };"
+        " location.hash = 'home';"
+        " window.dispatchEvent(new CustomEvent('assistant-wake', { detail: { entrance } }));"
+        " })();"
+    )
 
 
 def chromium_flags(dead_proxy: int, port: int) -> str:
@@ -160,7 +170,7 @@ def build(
         shell.loaded = True
         if shell.pending_wake:
             shell.pending_wake = False
-            page.runJavaScript(WAKE_JS)
+            page.runJavaScript(wake_js(True))  # a cold start: always just shown
 
     page.loadFinished.connect(loaded)
     page.load(QUrl(policy.own_origin(port) + (start if start.startswith("/") else "/")))
@@ -173,12 +183,15 @@ def bring_up(app: Any, shell: Shell, wake: bool, notice: str) -> None:
     whose click opens the app (through its menu entry) is the fallback."""
     from PySide6.QtCore import QTimer
 
-    shell.window.showNormal()
-    shell.window.raise_()
-    shell.window.activateWindow()
+    win = shell.window
+    # In view and in front already? Then the orb only brightens; otherwise it enters.
+    just_shown = not win.isVisible() or win.isMinimized() or not win.isActiveWindow()
+    win.showNormal()
+    win.raise_()
+    win.activateWindow()
     if wake:
         if shell.loaded:
-            shell.page.runJavaScript(WAKE_JS)
+            shell.page.runJavaScript(wake_js(just_shown))
         else:  # a cold start: once the page is there
             shell.pending_wake = True
 
