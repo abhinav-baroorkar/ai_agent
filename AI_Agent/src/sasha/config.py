@@ -93,6 +93,9 @@ class LLMConfig(BaseModel):
     # Kept in the history (the model sees it, nobody else) when a reply was stopped.
     interrupted_note: str = "[The owner stopped this reply here; it was not finished.]"
     interrupted_keep_chars: int = 2000  # at most this much of a stopped reply is kept
+    # The said-check (sasha/said.py) may take a change's target from the owner's messages
+    # of the last 2 kept turns that ended within this many seconds ("turn it off").
+    target_window_s: float = Field(default=180.0, ge=0)
 
 
 class TelemetryConfig(BaseModel):

@@ -14,7 +14,7 @@ import itertools
 import logging
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 _turn_ids = itertools.count(1)
 log = logging.getLogger(__name__)
@@ -30,6 +30,8 @@ class TurnContext:
     # answer such as "Morning." with the question's turn).
     previous_reply_asked: bool = False
     since_previous_s: float | None = None  # seconds since the previous turn ended
+    # The turn's own stop (the Stop button), so a helper inside a tool can see it too.
+    should_stop: Callable[[], bool] | None = field(default=None, compare=False)
 
 
 current_turn: contextvars.ContextVar[TurnContext | None] = contextvars.ContextVar(
@@ -42,9 +44,15 @@ def new_turn(
     input_mode: str,
     previous_reply_asked: bool = False,
     since_previous_s: float | None = None,
+    should_stop: Callable[[], bool] | None = None,
 ) -> TurnContext:
     return TurnContext(
-        user_messages, input_mode, next(_turn_ids), previous_reply_asked, since_previous_s
+        user_messages,
+        input_mode,
+        next(_turn_ids),
+        previous_reply_asked,
+        since_previous_s,
+        should_stop,
     )
 
 
