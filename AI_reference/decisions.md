@@ -827,18 +827,23 @@ list them as changed. Decisions, with reasons:
   vanishing is the memory version of a silent wrong time. At most 5 new notes per turn, and 10 per 10
   minutes from wake turns.
 - **Forgetting is done by the server from structured fields, and it reports exactly what was removed.**
-  There are three levels: by note ("forget that", by id or by words; if more than one note matches,
-  it asks); by time window ("forget the last 5 minutes"), which removes the notes made in that window
+  There are three levels: by note ("forget that", the one just made, or a note the owner names in the
+  owner's own words; if more than one note matches, it asks; talking never forgets by id, because an id
+  from the model is asked back; on screen, any note by its Delete button); by time window ("forget the last 5 minutes"), which removes the notes made in that window
   and also every open conversation's own turns from it (Home, the listener, every chat), so the model
   cannot quote them; and everything, only when the owner's message says "everything" or "all", and
-  only after a confirm. By voice the number of minutes must have been said, so a made-up "60" cannot
-  wipe an hour. Forgotten means gone: removed from the store and the prompt, nothing kept in a trash.
+  only after a confirm, confirmed only by a plain yes in the very next message ("yes but ..." or "ok
+  wait no" do not count). When a time window is asked for in a message, the number of minutes must be
+  one the owner said, so a made-up "60" cannot wipe an hour; wake turns refuse a time window entirely.
+  Forgotten means gone: removed from the store and the prompt, nothing kept in a trash.
 - **Wake turns cannot forget beyond their own voice notes.** Forgetting anything else, a time window or
   everything is refused by voice with "Do that on the screen, please." Why: the safer side, and no
   spoken confirm is needed on the wake path.
 - **M1: a note can never cause a change.** On every turn of a bot with memory on, a changing call
   (device control, scenes, timer set, change or cancel) is allowed only when the owner's own words
-  name both the target and the action; the action must be in the current message, and the target may
+  name both the target and the action (exact for devices, cancel and snooze; for setting a timer the
+  server checks that the time is one the owner said, and a reminder's text and a label are checked word
+  by word only while a web result is in the context); the action must be in the current message, and the target may
   come from the owner's last 2 messages within 3 minutes (never for locks, alarm panels or covers; see
   the relaxation entry above). Notes, tool results and the model's replies never count. Why: that is
   what makes a stored note harmless. For cancel and snooze, an item id from the model counts as named
@@ -847,11 +852,13 @@ list them as changed. Decisions, with reasons:
 - **The memory section is shown to the model as data, never as instructions,** in a fixed-heading
   block, newest first and bounded to about 1500 characters; it is never part of the browse helper's
   context, and browser bots get no memory at all. Memory is on by default for the main assistant and
-  the window, off for new bots.
+  the wake-word bot, off for new bots; the owner can switch it per bot.
 - **Truthfulness:** a reply that claims "I'll remember that" or "I've forgotten that" when no memory
   tool succeeded gets the server's own line, as for timers; the history keeps what was really said.
 - **Household:** one shared memory for now (one per person needs speaker identification, Phase 3).
-- **Known limits (from the reviews):** on wake turns the target of a change may be taken from an
+- **Known limits (from the reviews):** the word-for-word check takes the owner's words but not their
+  order, so "a friend owes me 50" could be kept as "I owe a friend 50" (the "Noted: <text>." line
+  shows the stored text so the owner can see it); and on wake turns the target of a change may be taken from an
   earlier wake transcript, which anyone in the room could have said; locks and similar never carry a
   target over, and lights and media are low-harm. A review nit is open: when an item is ringing, its id
   passes even if the owner named a different item's label.

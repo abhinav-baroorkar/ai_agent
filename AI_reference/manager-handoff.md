@@ -47,7 +47,7 @@ only for now; satellites on other devices come later.
 
 ## Resume here: work in flight (2026-11-16)
 
-Written so work can restart cleanly if sessions stop. `main` is `fc10776` (before the docs merge). Branch heads are the
+Written so work can restart cleanly if sessions stop. `main` is `ea3166a`. Branch heads are the
 commits named in the reviews at the time of writing; check `git log` before relying on one.
 
 **Merged and pushed since the last handoff:** `feat/autostart-window` (`c88784f`),
@@ -65,8 +65,9 @@ reminder text keeps the owner's negations; both open items from the browse-helpe
 **Memory merged:** `feat/memory-server` (`a46a7a4`) and `feat/memory-ui` (`a552f46`), then `main` is
 `fc10776` with 1555 passed (contract v0.6). The reviewer's queue is empty as far as I was told. A
 review nit on memory is open (an item's id passes while it rings even if the owner named a different
-item's label). `orchestrator.py` is at 396 of 400 lines: the next change there needs a split first
-(for example moving the turn history helpers into their own file); `ws.py` is at 387.
+item's label). `refactor/orchestrator-split` (`a708488`, merged; `main` `ea3166a`, 1555 passed) moved
+the turn history helpers out of `orchestrator.py`, so that file-size warning is cleared; `ws.py` was at
+387 of 400 lines.
 
 **Design only (no code):** `media-design.md` (media control through MPRIS). Owner defaults: a
 `wpctl` fallback capped at 0.6, no titles in v1, "stop" means pause.
@@ -83,7 +84,7 @@ item's label). `orchestrator.py` is at 396 of 400 lines: the next change there n
 
 ## State of `main`
 
-- `main` is `fc10776` plus the docs merge (2026-11-16; all pushed): 1555 passed; contract v0.6. (At
+- `main` is `ea3166a` (2026-11-16; all pushed): 1555 passed; contract v0.6. (At
   `49d14c7`: 1427 passed; at `b6a754a`: 1318 passed, 6 skipped, 2 deselected, the real-Chrome file.) At `fe710d8` timers had merged with 1213 passed. Timers, alarms and reminders (`feat/timers-server`,
   `fix/timer-days`) and `fix/narrow-topbar` merged on 2026-11-16; see `devlog/2026-11-16.md`. Earlier: `f316d6f` had 840 passed. API contract is v0.4.4 (bots carry a breathing style). Merged since `5e89c34` (details in `devlog/2026-11-15.md`):
   Talk ends by itself; plain-text spoken replies and real-ability prompts; wake phrase "hey" plus
