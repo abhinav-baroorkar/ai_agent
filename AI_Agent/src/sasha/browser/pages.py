@@ -24,13 +24,16 @@ from sasha.browser.redirects import looks_like_results, site_of, unwrap
 
 LOAD_TIMEOUT_S = 20.0
 # The owner's own words, to be relayed as they are (the model says them to him).
-PERSON_CHECK = (
-    "The search site wants to check you're a person. Press Take over in the browser "
+# Where Take over is: the browser panel lives in the main assistant's chat under Your
+# bots (Home has none), so the line says how to get there.
+WHERE_TAKE_OVER = (
+    "open Your bots, then the main assistant's chat, press Take over in its browser "
     "panel and solve it once."
 )
+PERSON_CHECK = f"The search site wants to check you're a person: {WHERE_TAKE_OVER}"
 NOT_RESULTS = (
     "No results came back. If this keeps happening, the search site may want to check "
-    "you're a person: press Take over in the browser panel and solve it once."
+    f"you're a person: {WHERE_TAKE_OVER}"
 )
 # Words a person check uses (DuckDuckGo: "bots use DuckDuckGo too ... confirm this
 # search was made by a human"); matched on the page only by the server, never shown.
