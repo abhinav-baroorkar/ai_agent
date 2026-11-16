@@ -219,6 +219,13 @@ browser connector is on (Settings). The page text stays inside an isolated helpe
 main conversation only gets a short answer and the sites it came from. A bot with the
 direct browser (the `browser` connector in its own `connectors`) works as before.
 
+Connectors:
+- `GET /api/connectors` (and the answer to `PUT /api/connectors/browser`): the browser
+  connector's `tools` include `"browse"` exactly while the main assistant is offered
+  web lookups (the connector is on and set up, and the main bot doesn't have the
+  direct browser in its own `connectors`). The window keys its "Web lookups" wording
+  on that; without it, it keeps today's wording.
+
 Main socket (`/ws`):
 - `reply` adds `sites:[string]`: the hostnames the turn's web results really came
   from, in order, at most 5, from the server's own record of what the tabs loaded
@@ -271,8 +278,9 @@ web lookup holds the browser (suggested text: "In use by <name> (web lookup)");
 - v0.4.3 (2026-11-15): `wake` misses carry `reason` (a label, never text). The wake
   phrase is "hey" plus the name (assistant.yaml), not the name alone.
 - v0.4.4 (2026-11-15): `Bot.style` (the orb's breathing style), default `glow`.
-- v0.5.1 (2026-11-15): web lookups: `reply.sites`; on `speak=1` the answer after a
-  `browse` is capped at 500 characters and ends with "From <site>." unless it named
-  it; `holder_bot.via`; the UI's "looked up" line and bot form wording.
+- v0.5.1 (2026-11-15): web lookups: `browse` in the browser connector's `tools`;
+  `reply.sites`; on `speak=1` the answer after a `browse` is capped at 500 characters
+  and ends with "From <site>." unless it named it; `holder_bot.via`; the UI's "looked
+  up" line and bot form wording.
 - Planned for v0.5 (not built yet): `POST /api/connectors` and
   `DELETE /api/connectors/{id}` to add and remove MCP connectors from Settings.

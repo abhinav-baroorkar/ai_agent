@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from sasha.bots import MAIN_ID, Bot, BotStore
-from sasha.browser.helper import BrowseHelper, browse_tool
+from sasha.browser.helper import BROWSE_TOOL, BrowseHelper, browse_tool
 from sasha.config import Settings, reload_secrets
 from sasha.connectors import ConnectorRegistry, HomeAssistantConnector, build_connectors
 from sasha.connectors.browser import BrowserConnector
@@ -85,9 +85,10 @@ class ServerDeps:
         )
         return assistant, warnings
 
-    def _browse_helper(self, bot: Bot, llm: LLM) -> BrowseHelper | None:
-        """Web lookups for the main assistant while the browser connector is on (design
-        10.1). A bot with the direct browser has the browser only (B4), so no helper."""
+    def _browse_source(self, bot: Bot) -> tuple[BrowserConnector, dict[str, Any]] | None:
+        """The browser connector and its settings if `bot` gets web lookups: the main
+        assistant while the connector is on and set up (design 10.1). A bot with the
+        direct browser has the browser only (B4), so no helper."""
         kinds = self.connectors.kinds
         if bot.id != MAIN_ID or any(kinds.get(c) == "browser" for c in bot.connectors):
             return None
@@ -98,6 +99,25 @@ class ServerDeps:
         connector = self.connectors.get(browser)
         if not isinstance(connector, BrowserConnector):
             return None
+        return connector, settings
+
+    def connector_view(self, view: dict[str, Any]) -> dict[str, Any]:
+        """The API's Connector, plus `browse` in the browser connector's `tools` while
+        the main assistant is offered web lookups (contract v0.5.1)."""
+        if view.get("kind") != "browser":
+            return view
+        try:
+            offered = self._browse_source(self.bots.get(MAIN_ID)) is not None
+        except Exception:  # never break the connectors list
+            offered = False
+        if offered and BROWSE_TOOL not in view["tools"]:
+            return {**view, "tools": [*view["tools"], BROWSE_TOOL]}
+        return view
+
+    def _browse_helper(self, bot: Bot, llm: LLM) -> BrowseHelper | None:
+        if (source := self._browse_source(bot)) is None:
+            return None
+        connector, settings = source
         conv = connector.conversation(settings, helper=True)  # one per conversation (P6)
         lines = prompt_lines(self.settings)
         return BrowseHelper(conv, self.settings, llm, self.telemetry, lines)

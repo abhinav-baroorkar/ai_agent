@@ -281,3 +281,23 @@ def test_main_gets_browse_while_the_browser_is_on(harness: Harness) -> None:
     raw = main.model_copy(update={"connectors": ["browser"]})
     direct, _ = deps.make_assistant(raw)
     assert BROWSE_TOOL not in direct.tools and "search" in direct.tools
+
+
+def test_the_connector_list_says_when_web_lookups_are_offered(harness: Harness) -> None:
+    """Contract v0.5.1: the window keys on `browse` in the browser connector's tools."""
+    from sasha.bots import parse_fields
+
+    client = harness.client()
+
+    def browser_tools() -> list[str]:
+        rows = client.get("/api/connectors").json()["connectors"]
+        return next(r["tools"] for r in rows if r["id"] == "browser")
+
+    assert BROWSE_TOOL not in browser_tools()  # off by default
+    put = client.put("/api/connectors/browser", json={"enabled": True}).json()
+    assert BROWSE_TOOL in put["tools"] and BROWSE_TOOL in browser_tools()
+    assert "search" in browser_tools()  # the direct browser's own tools stay listed
+    fake = next(r for r in client.get("/api/connectors").json()["connectors"] if r["id"] == "fake")
+    assert BROWSE_TOOL not in fake["tools"]
+    harness.bots.update(MAIN_ID, parse_fields({"connectors": ["browser"]}))
+    assert BROWSE_TOOL not in browser_tools()  # the main bot browses directly: no helper
