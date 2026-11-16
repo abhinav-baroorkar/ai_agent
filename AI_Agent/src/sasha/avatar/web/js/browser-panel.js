@@ -67,6 +67,7 @@ export function initBrowserPanel(health) {
     if (!state.enabled) return 'The browser is off. Turn it on in Settings.';
     if (state.mode === 'owner') return 'The browser is in its own window on your screen. Nothing of it is shown here.';
     if (state.mode === 'switching') return 'Opening the browser in its own window…';
+    if (state.mode === 'restoring') return 'Cleaning up after your window…';
     if (!state.running) return [lastStop, WAITING].filter(Boolean).join(' ');
     return el.img.hidden ? 'Waiting for the first picture…' : '';
   }
@@ -81,14 +82,14 @@ export function initBrowserPanel(health) {
     el.body.classList.toggle('with-browser', wanted);
     if (!wanted) return dropPicture();
     takeover.show(link.status === 'open' ? state : null);
-    const live = hasConnector && link.status === 'open' && state.running && state.mode !== 'owner';
+    const live = hasConnector && link.status === 'open' && state.running && state.mode !== 'owner' && state.mode !== 'restoring';
     if (!live) dropPicture();
     el.address.hidden = !live;
     el.stop.disabled = !live;
     el.agent.hidden = !(hasConnector && link.status === 'open');
-    el.agent.dataset.tone = !state.running ? 'off' : state.agent === 'working' ? 'thinking' : 'ok';
+    el.agent.dataset.tone = state.mode === 'restoring' ? 'thinking' : !state.running ? 'off' : state.agent === 'working' ? 'thinking' : 'ok';
     const inUse = !state.user ? 'In use now' : state.via === 'helper' ? `${state.user} is looking something up` : `In use by ${state.user}`;
-    el.agent.textContent = state.mode === 'owner' ? 'You’re driving' : !state.running ? 'Not running' : state.agent === 'working' ? inUse : 'Open, idle';
+    el.agent.textContent = state.mode === 'owner' ? 'You’re driving' : state.mode === 'restoring' ? 'Cleaning up' : !state.running ? 'Not running' : state.agent === 'working' ? inUse : 'Open, idle';
     const text = failed || message();
     el.msg.textContent = text;
     el.msg.hidden = !text;
@@ -114,7 +115,7 @@ export function initBrowserPanel(health) {
   async function onFrame(m) {
     const seq = m.seq;
     // no picture while the owner drives: his window is his, even if a frame arrives late
-    const ok = visible() && state.running && state.mode !== 'owner' && typeof m.jpeg === 'string' && m.jpeg.length <= MAX_JPEG_CHARS &&
+    const ok = visible() && state.running && state.mode !== 'owner' && state.mode !== 'restoring' && typeof m.jpeg === 'string' && m.jpeg.length <= MAX_JPEG_CHARS &&
       m.jpeg.startsWith(JPEG_START) && BASE64.test(m.jpeg);
     if (ok) {
       const w = Number(m.w);

@@ -56,7 +56,7 @@ export function cleanBrowserState(b) {
   const count = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Math.floor(Number(v)) : 0);
   const who = s.holder_bot && typeof s.holder_bot === 'object' ? str(s.holder_bot.name).slice(0, 60) : '';
   const via = s.holder_bot && s.holder_bot.via === 'helper' ? 'helper' : 'direct'; // v0.5.1: the main assistant's web lookup
-  const MODES = ['assistant', 'waiting', 'switching', 'owner'];
+  const MODES = ['assistant', 'waiting', 'switching', 'owner', 'restoring'];
   const until = Date.parse(str(s.owner_until));
   const ownerRefused = {};
   if (s.owner_refused && typeof s.owner_refused === 'object') for (const [k, v] of Object.entries(s.owner_refused)) ownerRefused[str(k)] = count(v);
@@ -71,6 +71,8 @@ export function cleanBrowserState(b) {
     via,
     // take-over (v0.5); mode stays null for a server without it, so nothing about it shows
     mode: MODES.includes(s.mode) ? s.mode : null, owner_until: Number.isFinite(until) ? until : 0, owner_refused: ownerRefused,
+    // `restoring`: why the clean-up after his window keeps failing (after 3 tries), in plain words
+    restore_problem: typeof s.restore_problem === 'string' ? s.restore_problem.slice(0, 200) : '',
   };
 }
 
