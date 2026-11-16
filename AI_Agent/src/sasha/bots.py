@@ -38,7 +38,7 @@ SAFETY_NOTE = (
 # How a bot's orb breathes (the web side draws them). The one list of styles.
 BotStyle = Literal["glow", "ember", "tide", "gale", "storm", "mist", "bloom", "stone"]
 BOT_STYLES: tuple[str, ...] = get_args(BotStyle)
-DEFAULT_STYLE = "glow"
+DEFAULT_STYLE: BotStyle = "glow"
 
 
 class BotError(ValueError):
@@ -57,11 +57,11 @@ class Bot(BaseModel):
     connectors: list[str]
     builtin: bool = False
     wake_device_control: bool = False
-    style: str = DEFAULT_STYLE
+    style: BotStyle = DEFAULT_STYLE
 
     @field_validator("style", mode="before")
     @classmethod
-    def _known_style(cls, value: Any) -> str:
+    def _known_style(cls, value: Any) -> Any:
         # a state file from before styles, or hand-edited: glow, never a dropped bot
         return value if value in BOT_STYLES else DEFAULT_STYLE
 

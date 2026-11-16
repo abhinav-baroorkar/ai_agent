@@ -81,7 +81,7 @@ LONG_TALK = [
 # Set "extra": private names (e.g. of people nearby), each said these four ways. They come
 # only from a file the owner writes himself (Data/private/soundalikes.txt, git-ignored,
 # one per line) or a variable he sets in his own terminal; never from the command line
-# (shell history, /proc), and they are never printed or saved in clear. Run it from the
+# (shell history, /proc), and no transcript of them is printed or saved. Run it from the
 # owner's own terminal, not from an assistant session.
 EXTRA_FORMS = ["{first} {n}.", "{first} {n}, turn on the light.", "{n}.", "I told {n} about it."]
 PRIVATE_FILE = "private/soundalikes.txt"
@@ -213,8 +213,9 @@ def main() -> int:
         rows.append(
             {
                 **row,
-                # private names never leave in clear: replaced by <extra-1>, <extra-2>, …
-                "text": redact(heard.text, private) if private else heard.text,
+                # for private names no transcript is kept at all: redaction catches the
+                # exact spelling only, and a near-spelling would stay in clear
+                **({} if private else {"text": heard.text}),
                 "name_written": written,
                 "confidence": heard.confidence,
                 "outcome": d.outcome,
