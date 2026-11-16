@@ -1,4 +1,4 @@
-# Brain API contract v0.5.1 (server, UI and listener all build against this)
+# Brain API contract v0.6 (server, UI and listener all build against this)
 
 Owner of this file: Primary. Staff SDE copies it to `AI_reference/api-contract.md`
 in the server branch. To change it, ask Primary; don't change it on your own.
@@ -359,6 +359,77 @@ Live view: `holder_bot` adds `via:"helper"|"direct"`. `helper`: the main assista
 web lookup holds the browser (suggested text: "In use by <name> (web lookup)");
 `direct`: a bot with the direct browser. Frames, Stop and take-over work the same.
 
+## Memory (v0.6)
+
+Notes the owner asked the assistant to remember, across days (design:
+`Dependencies/team/memory-design.md`). Notes are made and forgotten by talking (the
+model's `remember` / `forget` tools, checked by the server against the owner's own
+words); the UI lists them, keeps or deletes voice-made ones, marks a note "ok to say
+aloud", deletes any, and forgets a time window or everything.
+
+`Note` = `{id, text, created_at, source:"chat"|"window"|"wake", bot_id, lang,
+status:"active"|"pending", say_aloud:bool}`.
+- `created_at` is epoch seconds (UTC). `text` is the owner's own words as said, first
+  person ("I take the 8:10 bus"; at most 300 characters): show it as plain text, never
+  as markup. `bot_id` is the bot whose conversation made it: take its name from
+  `/api/bots`.
+- `pending`: made on a wake turn (anyone in earshot). It is in no prompt until kept;
+  the UI shows it as "added by voice" with keep and delete. Keeping it makes it
+  `active` and `say_aloud: true`.
+- `say_aloud`: wake turns (answered aloud to the room) see only these notes.
+- `Bot.memory: bool`: on for the built-in bots, off for new bots (settable with PATCH
+  and on create). A bot with a `browser` connector never gets memory, whatever this
+  says.
+- No note can cause a change (M1): on a memory-on bot every change (a device, a timer
+  cancel or snooze) runs only when the owner's own words name it: the action in the
+  current message, the target now or in the owner's last 2 messages within 3 minutes
+  ("turn on the kitchen light" … "turn it off"). Otherwise the tool is refused and the
+  assistant asks the owner to say it.
+
+HTTP (all behind the usual Host, Origin and JSON content-type checks; a POST/PATCH
+body must be JSON, `415` otherwise):
+- `GET /api/memory` → `{notes:[Note], count, max}`, newest first.
+- `POST /api/memory/{id}/keep` (body `{}`) → `Note`. `404` unknown id; `409` if the note
+  isn't waiting (only a voice-made note can be kept, so a stale click never makes a
+  private note readable on wake turns).
+- `PATCH /api/memory/{id}` `{say_aloud: bool}` (nothing else) → `Note`. `409` on a
+  pending note (keep it first).
+- `DELETE /api/memory/{id}` → `{ok:true}`.
+- `POST /api/memory/forget` `{minutes: 1..1440}` → `ForgetReport`: every note made in
+  the last N minutes (waiting ones too) and every open conversation's turns from that
+  window (Home, the listener, every chat), so the model can't quote them any more.
+  `{everything: true}` → `ForgetReport` with `turns: {}`: all notes, the file rewritten
+  empty (conversations keep their turns). The page asks the owner to confirm before
+  sending either.
+- `ForgetReport` = `{count, items:[{id, text}], turns:{place: n}}`: exactly what went.
+  `place` is `"home"` (the Home window), `"listener"` (wake turns) or a bot id (that
+  bot's chat); a place with no turns removed is left out.
+
+WebSocket, server → every socket:
+- `{type:"memory", notes:[Note], count, max}`: on connect and after every change
+  (made, kept, marked, deleted, forgotten).
+- `{type:"forgot", since_s}`: to every socket, after a time window was forgotten (by
+  talking, "forget the last 5 minutes", or from the Memory screen). The server already
+  dropped every conversation's turns from the last `since_s` seconds; each page drops
+  its own on-screen turns from that window too.
+
+Server lines (from `profile.memory.lines`, never the model):
+- a claimed save or forget that no tool made gets "I didn't save that." / "Nothing was
+  forgotten.";
+- a note that was kept is shown back: "Noted: I take the 8:10 bus." (spoken: long notes
+  just "Noted.");
+- a forget by talking is answered by the server from the counts ("Forgot 1 note and 2
+  earlier turns."), never with a note's text;
+- "forget everything" by talking always shows "Forget all your notes? Say yes to
+  confirm."; only a plain yes in the very next message clears them;
+- a password, PIN, code, combination or long number is refused with "I don't store
+  passwords, PINs, codes or long numbers.": that reply replaces the model's on every
+  path, wake turns included (held, so the secret is never shown or spoken), and the
+  history keeps the owner's messages with the secret and every number masked.
+A wake turn can forget only voice-made notes; the rest, a time window and everything
+are for the screen. By talking, a note is named by the owner's own words ("forget the
+note about the bus"), never by an id.
+
 ## Changes
 - v0.1 (2026-11-14): `speak` query parameter; one conversation per socket stated;
   `PUT /api/connectors/{id}` returns the Connector; `pronouns` is an object;
@@ -391,5 +462,7 @@ web lookup holds the browser (suggested text: "In use by <name> (web lookup)");
   `reply.sites`; on `speak=1` the answer after a `browse` is capped at 500 characters
   and ends with "From <site>." unless it named it; `holder_bot.via`; the UI's "looked
   up" line and bot form wording.
-- Planned for v0.6 (not built yet): `POST /api/connectors` and
+- v0.6 (2026-11-16): memory: `/api/memory` routes; `memory` and `forgot` frames;
+  `Bot.memory`.
+- Planned for v0.7 (not built yet): `POST /api/connectors` and
   `DELETE /api/connectors/{id}` to add and remove MCP connectors from Settings.

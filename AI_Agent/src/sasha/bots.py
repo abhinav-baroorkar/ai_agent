@@ -58,6 +58,9 @@ class Bot(BaseModel):
     builtin: bool = False
     wake_device_control: bool = False
     style: BotStyle = DEFAULT_STYLE
+    # Notes across days (memory/): on for the built-in bots, off for new ones; never for
+    # a bot with a browser connector, whatever this says (server/deps.py).
+    memory: bool = False
 
     @field_validator("style", mode="before")
     @classmethod
@@ -77,6 +80,7 @@ class BotFields(BaseModel):
     connectors: list[str] | None = None
     wake_device_control: bool | None = None  # only on the `voice` bot
     style: BotStyle | None = None  # not on `voice`: it shows the main bot's style
+    memory: bool | None = None
 
     @field_validator("name", "model")
     @classmethod
@@ -133,6 +137,7 @@ class BotStore:
             connectors=list(saved.get("connectors", self.main_connectors)),
             builtin=True,
             style=saved.get("style", DEFAULT_STYLE),
+            memory=saved.get("memory", True) is not False,
         )
 
     def _voice(self, data: dict[str, Any]) -> Bot:
@@ -147,6 +152,7 @@ class BotStore:
             builtin=True,
             wake_device_control=saved.get("wake_device_control") is True,
             style=main.style,  # no style of its own: the main bot's
+            memory=saved.get("memory", True) is not False,
         )
 
     def _user_bots(self, data: dict[str, Any]) -> list[Bot]:
@@ -210,6 +216,7 @@ class BotStore:
                 system_prompt=fields.system_prompt or "",
                 connectors=self._check_connectors(fields.connectors or []),
                 style=fields.style or DEFAULT_STYLE,
+                memory=fields.memory is True,
             )
             stored = bot.model_dump(exclude={"builtin", "wake_device_control"})
             data["bots"] = [*(data.get("bots") or []), stored]

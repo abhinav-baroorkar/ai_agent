@@ -21,6 +21,9 @@ from sasha.connectors import (
 )
 from sasha.connectors.browser import BrowserConnector
 from sasha.conversation import building_for_bot, current_turn
+from sasha.memory.prompt import memory_section
+from sasha.memory.store import MemoryStore
+from sasha.memory.tools import add_memory_tools
 from sasha.orchestrator import Assistant
 from sasha.pipeline.llm import LLM, OllamaLLM
 from sasha.pipeline.stt import SpeechToText
@@ -68,6 +71,7 @@ class ServerDeps:
     recheck_placement: Callable[[], None] = lambda: None
     window_token: WindowToken = field(default_factory=WindowToken)  # per launch (9.1, C4)
     timers: TimerService | None = None  # None: no timer tools, routes or frames
+    memory: MemoryStore | None = None  # None: no memory tools, section or routes
 
     def __post_init__(self) -> None:
         if self.wake_limiter is None:
@@ -95,6 +99,9 @@ class ServerDeps:
         if self.timers is not None and not self.has_browser(bot):  # D3: never with a browser
             # Before the prompt, so the generated abilities list the timer tools too.
             tools = add_timer_tools(tools, self.timers, said=current_turn.get)
+        memory = None
+        if self.memory is not None and bot.memory and not self.has_browser(bot):  # B4/D3
+            tools, memory = add_memory_tools(tools, self.memory, current_turn.get, bot.id)
         lister = tools.get("list_devices").handler if "list_devices" in tools else None
         assistant = Assistant(
             self.settings,
@@ -104,7 +111,17 @@ class ServerDeps:
             system_prompt=self.prompt_for(bot, tools.names, spoken),
             # P1: changes after a web lookup; negations in the bot's language (G1)
             change_guard=SaidGuard(lister, tuple(prompt_lines(self.settings).negations)),
+            # M1: on a memory-on bot no change runs unless the owner said it, every turn
+            # (a note in the prompt can never be the reason for one).
+            always_guard=memory is not None,
         )
+        if memory is not None and self.memory is not None:
+            store, lines = self.memory, prompt_lines(self.settings)
+            assistant.prompt_extra = lambda: memory_section(store, lines)  # every turn
+            place = {("main", True): "home", ("voice", True): "listener"}.get(
+                (bot.id, spoken), bot.id
+            )
+            store.add_conversation(place, assistant.forget_turns)
         return assistant, warnings
 
     def _browse_source(self, bot: Bot) -> tuple[BrowserConnector, dict[str, Any]] | None:
@@ -166,6 +183,13 @@ class ServerDeps:
 def make_timers(settings: Settings, telemetry: TelemetryWriter) -> TimerService:
     store = JsonStore(settings.paths.state_dir / "timers.json")
     return TimerService(settings.profile.timers, store, telemetry)
+
+
+def make_memory(settings: Settings, telemetry: TelemetryWriter) -> MemoryStore | None:
+    if not settings.profile.memory.enabled:
+        return None
+    store = JsonStore(settings.paths.state_dir / "memory.json")
+    return MemoryStore(settings.profile.memory, store, telemetry)
 
 
 def make_telemetry(settings: Settings) -> PlacementTelemetry:
@@ -272,4 +296,5 @@ def build_deps(settings: Settings, reload_env: bool = True) -> ServerDeps:
         presence=presence,
         recheck_placement=recheck_placement,
         timers=make_timers(settings, telemetry),
+        memory=make_memory(settings, telemetry),
     )

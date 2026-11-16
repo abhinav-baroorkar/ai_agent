@@ -50,6 +50,9 @@ class ToolResult:
     ok: bool
     content: str  # JSON text passed back to the LLM
     asks: str = ""  # the tool asked the person back: a reason label (ToolError.asks)
+    # A tool's own short summary for the server (its result's `report`: numbers, or the
+    # text it kept), so the server can say what happened instead of the model.
+    report: dict[str, int | str] | None = None
 
 
 class ToolRegistry:
@@ -96,7 +99,20 @@ class ToolRegistry:
             return _error(str(exc), exc.asks)
         except Exception as exc:
             return _error(f"{type(exc).__name__}: {exc}")
-        return ToolResult(ok=True, content=json.dumps(result, ensure_ascii=False, default=str))
+        content = json.dumps(result, ensure_ascii=False, default=str)
+        return ToolResult(ok=True, content=content, report=_report(result))
+
+
+def _report(result: Any) -> dict[str, int | str] | None:
+    raw = result.get("report") if isinstance(result, dict) else None
+    if not isinstance(raw, dict):
+        return None
+    return {
+        str(k): v
+        for k, v in raw.items()
+        if (isinstance(v, int) and not isinstance(v, bool))
+        or (isinstance(v, str) and len(v) <= 300)
+    }
 
 
 def _error(message: str, asks: str = "") -> ToolResult:

@@ -172,9 +172,13 @@ def test_timer_tool_marks(tmp_path: Path) -> None:
     for name in ("set_timer", "set_alarm", "set_reminder"):
         assert marks[name] == (False, True), name  # their own said-check
     for name in ("cancel_timer", "snooze_timer"):
-        assert marks[name] == (False, False), name  # no own check: the guard, fail closed
-    fields = {n: tools.get(n).said_fields for n in ("set_timer", "set_alarm", "set_reminder")}
-    assert fields == {"set_timer": ("label",), "set_alarm": ("label",), "set_reminder": ("text",)}
+        # Their own owner-words check since memory's M1 (always_guard on memory bots),
+        # so the device-only guard would otherwise refuse "cancel my timer" every time.
+        assert marks[name] == (False, True), name
+    names = ("set_timer", "set_alarm", "set_reminder", "cancel_timer", "snooze_timer")
+    fields = {n: tools.get(n).said_fields for n in names}
+    assert fields == {"set_timer": ("label",), "set_alarm": ("label",), "set_reminder": ("text",),
+                      "cancel_timer": ("which",), "snooze_timer": ("which",)}  # fmt: skip
 
 
 # --- delta review E1-E3, and G1 with earlier targets -----------------------------------

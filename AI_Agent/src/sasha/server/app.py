@@ -17,6 +17,7 @@ from sasha import __version__
 from sasha.bots import BOT_ID_RE, MAIN_ID, VOICE_ID, BotError, BotNotFound, parse_fields
 from sasha.browser.hooks import attach_browser
 from sasha.connectors import ConnectorError
+from sasha.memory.routes import add_memory_routes
 from sasha.pipeline.llm import OllamaError
 from sasha.prompting import prompt_lines
 from sasha.server.browser_view import BROWSER_SOCKETS, add_browser_routes, attach_window_token
@@ -195,6 +196,12 @@ def create_app(deps: ServerDeps, web_dir: Path | None = WEB_DIR) -> FastAPI:
     if deps.timers is not None and hub is not None:
         hub.service, deps.timers.hub = deps.timers, hub
         add_timer_routes(app, deps.timers, hub, _json_body)
+    # --- memory (contract v0.6) -------------------------------------------------------
+    if (memory := deps.memory) is not None:
+        add_memory_routes(app, memory, _json_body)
+        if hub is not None:  # every socket gets the list, and each change to it
+            memory.notify = hub.push_all
+            hub.on_add.append(lambda: {"type": "memory", **memory.snapshot()})
     app.state.browser_view = add_browser_routes(app, deps)  # v0.4, before the static mount
     attach_window_token(app, deps.window_token, settings.paths.state_dir)
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 import math
 import struct
 import threading
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any, Protocol
 
@@ -52,6 +53,7 @@ class Hub:
         self.config = config
         self.service: Any = None  # TimerService, set by the app
         self._targets: list[RingTarget] = []
+        self.on_add: list[Callable[[], dict[str, Any]]] = []  # more state for a new socket
         self._device: dict[str, RingTarget] = {}  # item id -> the socket it rings on
         self._lock = threading.RLock()
 
@@ -62,6 +64,8 @@ class Hub:
         if self.service is None:
             return
         target.push_threadsafe({"type": "timers", **self.service.snapshot()})
+        for snapshot in self.on_add:  # other state every socket starts with (memory)
+            target.push_threadsafe(snapshot())
         missed = self.service.deliver_pending()
         if missed:
             self._announce_missed(missed)
@@ -81,6 +85,10 @@ class Hub:
                     if target.ring_role == role:
                         return target
         return None
+
+    def push_all(self, frame: dict[str, Any]) -> None:
+        """A frame for every open socket (the memory list, memory/store.py)."""
+        self._all(frame)
 
     def _all(self, frame: dict[str, Any]) -> bool:
         with self._lock:

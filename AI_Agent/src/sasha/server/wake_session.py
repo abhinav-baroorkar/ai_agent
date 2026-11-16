@@ -190,7 +190,7 @@ class ListenerConversation(Conversation):
             reply = await super()._ask(text, input_mode)
         finally:
             self.truth = None
-        if reply is not None and truth is not None:
+        if reply is not None and truth is not None and not self.turn_replaced:  # R3
             tail, reply.text = truth.finish(reply.text)
             if tail:
                 self._on_delta(tail)  # sent and spoken like any streamed text
