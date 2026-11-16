@@ -220,15 +220,17 @@ class MemoryTools:
             Tool("remember", "Keep a note the owner asked you to remember, in the owner's "
                  "own words as said, first person ('I take the 8:10 bus'). Only when asked.",
                  {"type": "object", "properties": {"text": {"type": "string"}},
-                  "required": ["text"]}, self.remember),
+                  "required": ["text"]}, self.remember,
+                 said_checked=True, said_fields=("text",)),  # M3: its own words check
             Tool("forget", "Forget notes when the owner asks: which='last' (the one just "
-                 "made), a note id or its words; or minutes (the last N minutes); or "
+                 "made) or the owner's words for it; or minutes (the last N minutes); or "
                  "everything=true (needs the owner's yes).",
                  {"type": "object", "properties": {
                      "which": {"type": "string"}, "minutes": {"type": "integer"},
-                     "everything": {"type": "boolean"}}}, self.forget),
+                     "everything": {"type": "boolean"}}}, self.forget,
+                 said_checked=True, said_fields=("which",)),  # R6: named by the owner
             Tool("list_memories", "The notes the owner asked you to remember.", obj,
-                 self.list_memories),
+                 self.list_memories, read_only=True),
         ]  # fmt: skip
 
 

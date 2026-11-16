@@ -344,6 +344,11 @@ status:"active"|"pending", say_aloud:bool}`.
 - `Bot.memory: bool`: on for the built-in bots, off for new bots (settable with PATCH
   and on create). A bot with a `browser` connector never gets memory, whatever this
   says.
+- No note can cause a change (M1): on a memory-on bot every change (a device, a timer
+  cancel or snooze) runs only when the owner's own words name it: the action in the
+  current message, the target now or in the owner's last 2 messages within 3 minutes
+  ("turn on the kitchen light" … "turn it off"). Otherwise the tool is refused and the
+  assistant asks the owner to say it.
 
 HTTP (all behind the usual Host, Origin and JSON content-type checks; a POST/PATCH
 body must be JSON, `415` otherwise):

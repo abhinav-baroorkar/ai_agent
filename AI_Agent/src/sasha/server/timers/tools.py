@@ -29,6 +29,7 @@ from sasha.server.timers.resolve import (
     next_repeat,
     whole,
 )
+from sasha.server.timers.said import tokens
 from sasha.server.timers.said_check import SaidCheck, UserTurn
 from sasha.server.timers.service import TimerError, TimerService
 from sasha.tools.base import Tool, ToolError, ToolRegistry
@@ -70,6 +71,11 @@ class TimerRefused(ToolError):
         self.reason = reason
 
 
+# Words in `which` that don't name an item themselves ("the tea timer": "tea" does).
+_FILLER = {"the", "a", "an", "my", "of", "for", "on", "in", "at", "one", "that", "this", "it",
+           "timer", "timers", "alarm", "alarms", "reminder", "reminders"}  # fmt: skip
+
+
 class TimerTools:
     def __init__(
         self,
@@ -84,9 +90,33 @@ class TimerTools:
         # The turn's own user text, checked against the fields (server/timers/said.py).
         cfg = service.config
         self.check = SaidCheck(said, cfg.cues.values(), cfg.answer_window_s)
+        self.said = said
         self.max_text = service.config.max_text
 
     # --- helpers -------------------------------------------------------------
+    def _owner_says(self, which: str, actions: set[str]) -> None:
+        """M1 for cancel and snooze: the owner's current message has the action ("cancel",
+        "stop", "off", "snooze"...) and names the target: `which`'s own words, a timer
+        word for an id, "all" for all, or nothing (the one ringing). Never a note's."""
+        turn = self.said() if self.said is not None else None
+        if self.said is None:
+            return  # direct calls in tests only; every real caller passes `said`
+        said = set(tokens(turn.user_messages[-1])) if turn and turn.user_messages else set()
+        said |= {w[:-1] for w in said if w.endswith("s")}  # "alarms" names "alarm"
+        if not said & actions:
+            raise Ask("The owner didn't say to do that. Ask.", "not_said")
+        key = which.strip().lower()
+        cfg = self.service.config
+        if key == "all":
+            named = bool(said & {"all", "every", "everything"})
+        elif key in self.service.items:
+            named = bool(said & set(cfg.timer_words))
+        else:
+            words = {w for w in tokens(key) if w not in _FILLER}
+            named = words <= said
+        if not named:
+            raise Ask("Which one? Ask the owner to name it.", "ambiguous_item")
+
     def _guarded(self, fn: Callable[..., dict[str, Any]]) -> Callable[..., dict[str, Any]]:
         def run(**kwargs: Any) -> dict[str, Any]:
             try:
@@ -252,6 +282,7 @@ class TimerTools:
 
     def cancel_timer(self, which: Any = "") -> dict[str, Any]:
         """Cancel (or, if it is ringing, dismiss) one item, or "all"."""
+        self._owner_says(str(which or ""), set(self.service.config.cancel_words))
         items = self._pick(str(which or ""), ("scheduled", "ringing", "pending"))
         self._approve(items, "cancel")
         stopped, failed = [], 0
@@ -270,6 +301,7 @@ class TimerTools:
 
     def snooze_timer(self, which: Any = "", minutes: Any = None) -> dict[str, Any]:
         # T3: a missed timer or reminder can be snoozed from a chat ("again in 10").
+        self._owner_says(str(which or ""), {"snooze", "again", "later"})
         items = self._pick(str(which or ""), ("ringing", "pending", "missed"))
         self._approve(items, "snooze")
         mins = whole(minutes, "minutes", 1, 60) if minutes not in (None, "") else None
@@ -279,12 +311,12 @@ class TimerTools:
 
     # --- specs -------------------------------------------------------------------
     def tools(self) -> list[Tool]:
-        """`said_checked`: the three that make an item run the timers' own said-check (its
-        times from the owner's words), so the orchestrator's guard defers to them. After a
-        web lookup their `said_fields` (a label, a reminder's text) must be the owner's own
-        words too, which the orchestrator checks. Cancel and snooze have no check of their
-        own, so after a lookup they go through the guard and fail closed. `list_timers`
-        changes nothing."""
+        """`said_checked`: every changing tool runs its own owner-words check (the three
+        that make an item: the timers' said-check on their times; cancel and snooze:
+        `_owner_says`, memory M1), so the orchestrator's guard defers to them. After a web
+        lookup their `said_fields` (a label, a reminder's text, `which`) must be the
+        owner's own words too, which the orchestrator checks. `list_timers` changes
+        nothing."""
         g = self._guarded
         return [
             Tool("set_timer", "Start a countdown timer. Use separate whole numbers: "
@@ -311,11 +343,12 @@ class TimerTools:
                  {"type": "object", "properties": {}}, g(self.list_timers), read_only=True),
             Tool("cancel_timer", "Cancel or stop a timer, alarm or reminder: its id, its "
                  "label, or 'all'. Empty = the one ringing now.",
-                 {"type": "object", "properties": {"which": _STR}}, g(self.cancel_timer)),
+                 {"type": "object", "properties": {"which": _STR}}, g(self.cancel_timer),
+                 said_checked=True, said_fields=("which",)),
             Tool("snooze_timer", "Snooze the ringing item (or the one named) for some "
                  "minutes (default 5).",
                  {"type": "object", "properties": {"which": _STR, "minutes": _INT}},
-                 g(self.snooze_timer)),
+                 g(self.snooze_timer), said_checked=True, said_fields=("which",)),
         ]  # fmt: skip
 
 
