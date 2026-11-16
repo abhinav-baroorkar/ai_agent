@@ -268,10 +268,10 @@ web lookup holds the browser (suggested text: "In use by <name> (web lookup)");
   the window only over `/ws/browser`. `agent` is `working` for the whole turn and pushed
   at once; `guard.refused` counts only the pages' own refusals, the rest is
   `background_refused`.
-- v0.4.3 (2026-11-16): `wake` misses carry `reason` (a label, never text). The wake
+- v0.4.3 (2026-11-15): `wake` misses carry `reason` (a label, never text). The wake
   phrase is "hey" plus the name (assistant.yaml), not the name alone.
-- v0.4.4 (2026-11-16): `Bot.style` (the orb's breathing style), default `glow`.
-- v0.5.1 (2026-11-16): web lookups: `reply.sites`; on `speak=1` the answer after a
+- v0.4.4 (2026-11-15): `Bot.style` (the orb's breathing style), default `glow`.
+- v0.5.1 (2026-11-15): web lookups: `reply.sites`; on `speak=1` the answer after a
   `browse` is capped at 500 characters and ends with "From <site>." unless it named
   it; `holder_bot.via`; the UI's "looked up" line and bot form wording.
 - Planned for v0.5 (not built yet): `POST /api/connectors` and
