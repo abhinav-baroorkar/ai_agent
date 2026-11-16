@@ -25,6 +25,7 @@ from sasha.app.waiting import ATTACH_WAIT_S
 from sasha.config import Settings
 
 Spawn = Callable[..., Any]
+UNIT_START_S = 5.0  # how long systemd-run may take to start the window unit
 SESSION_VARIABLES = ("DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY", "DBUS_SESSION_BUS_ADDRESS")
 ICON = Path(__file__).resolve().parents[1] / "avatar" / "web" / "assets" / "icon.svg"
 
@@ -120,7 +121,14 @@ def open_shell(
             "--property=StandardOutput=null",
             f"--property=StandardError=append:{log}",
         ]
-        spawn([*unit, *props, *cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # Wait for systemd-run itself: it returns once the unit has started. Checking the
+        # unit before that read "inactive", so every wake-open was called a failure and
+        # the Chrome window opened next to a shell that was still starting (2026-11-16).
+        proc = spawn([*unit, *props, *cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        rc = _wait(proc)
+        if rc != 0:
+            start_check.note(settings, f"systemd-run could not start the window unit (exit {rc})")
+            return "failed"
         alive = unit_alive or _unit_alive
     else:
         fd = start_check.open_log(settings)
@@ -140,6 +148,16 @@ def open_shell(
 
     up = start_check.confirm(lambda: ask(path, "ping"), alive, timeout=check_s)
     return "started" if up else "failed"
+
+
+def _wait(proc: Any, timeout: float = UNIT_START_S) -> int:
+    """systemd-run's exit code (0 for a stand-in spawn that returns no process)."""
+    if proc is None or not hasattr(proc, "wait"):
+        return 0
+    try:
+        return int(proc.wait(timeout=timeout))
+    except subprocess.TimeoutExpired:
+        return 0  # still waiting on the user manager: the start check decides
 
 
 def _unit_alive(run: Callable[..., Any] = subprocess.run) -> bool:
