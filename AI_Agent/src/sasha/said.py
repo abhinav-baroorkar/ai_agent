@@ -80,30 +80,74 @@ def words(text: str) -> set[str]:
 GLUE = {"a", "an", "the", "to", "my", "of", "for", "and", "at", "on", "in"}
 
 
-def said_by_owner(field: str, owner_text: str) -> bool:
+# Review nit: a leading "no," or "no." is a correction ("no, turn off the kitchen
+# light"), not a negation of what follows.
+_LEADING_NO = re.compile(r"^\s*no\s*[,.!;:]\s*", re.IGNORECASE)
+# Review S1: these before a target leave it out ("..., not the bedroom").
+EXCLUSIONS = {"except", "excluding", "without", "but"}
+EXCLUSION_REACH = 2
+
+
+def _tokens(text: str) -> list[str]:
+    plain = _LEADING_NO.sub("", text.replace("\u2019", "'"))
+    return [t.lower() for t in _TOKEN.findall(plain)]
+
+
+def _negation_hits(tokens: list[str], i: int, reach: int, negations: tuple[str, ...]) -> bool:
+    before = tokens[max(0, i - reach) : i]
+    single = {n for n in negations if " " not in n}
+    pairs = {tuple(n.split()) for n in negations if " " in n}
+    if single & set(before):
+        return True
+    return any(tuple(before[j : j + 2]) in pairs for j in range(len(before) - 1))
+
+
+def negation_count(text: str, negations: tuple[str, ...] = NEGATIONS) -> int:
+    """How many negations a text holds ("do not" counts once)."""
+    tokens = _tokens(text)
+    single = {n for n in negations if " " not in n}
+    pairs = [tuple(n.split()) for n in negations if " " in n]
+    count = sum(t in single for t in tokens)
+    return count + sum(tuple(tokens[i : i + 2]) in pairs for i in range(len(tokens) - 1))
+
+
+def said_by_owner(field: str, owner_text: str, negation_text: str | None = None) -> bool:
     """Every word of a free-text field (a reminder's text, a label) is the owner's own,
-    or glue; a plural of his word counts. An empty field passes."""
+    or glue; a plural of his word counts. An empty field passes. Review S2: the field
+    keeps exactly the owner's negations (`negation_text`, default `owner_text`), so
+    "call the bank" never stands for "remind me to not call the bank"."""
+    if not field.strip():
+        return True
     allowed = words(owner_text) | GLUE
     for word in raw_words(field.replace("\u2019", "'")):
         if word not in allowed and not (word.endswith("s") and {word[:-1], word[:-2]} & allowed):
             return False
-    return True
+    source = owner_text if negation_text is None else negation_text
+    return negation_count(field) == negation_count(source)
 
 
 def negated(owner_text: str, action_words: set[str], negations: tuple[str, ...]) -> bool:
     """A negation within `NEGATION_REACH` words before a verb or an action word."""
-    tokens = [t.lower() for t in _TOKEN.findall(owner_text.replace("\u2019", "'"))]
-    single = {n for n in negations if " " not in n}
-    pairs = {tuple(n.split()) for n in negations if " " in n}
+    tokens = _tokens(owner_text)
     for i, token in enumerate(tokens):
         if token not in VERBS and token not in action_words:
             continue
-        before = tokens[max(0, i - NEGATION_REACH) : i]
-        if single & set(before):
-            return True
-        if any(tuple(before[j : j + 2]) in pairs for j in range(len(before) - 1)):
+        if _negation_hits(tokens, i, NEGATION_REACH, negations):
             return True
     return False
+
+
+def named_words(text: str, negations: tuple[str, ...] = NEGATIONS) -> set[str]:
+    """Review S1: the words of `text` (and plurals' singulars) that occur at least once
+    not left out by a negation or "except" within 2 words before them: "turn the kitchen
+    light off, not the bedroom" names the kitchen, not the bedroom."""
+    tokens = _tokens(text)
+    leave_out = (*negations, *EXCLUSIONS)
+    found: set[str] = set()
+    for i, token in enumerate(tokens):
+        if not _negation_hits(tokens, i, EXCLUSION_REACH, leave_out):
+            found.add(token)
+    return found | {w[:-1] for w in found if w.endswith("s") and len(w) > 3}
 
 
 # Review E2: for these the target must be in the current message ("unlock it" never
@@ -161,9 +205,9 @@ def device_change_said(
     from `owner_text`."""
     said = words(owner_text)
     domain, service = str(arguments.get("domain", "")), str(arguments.get("service", ""))
-    targets = said
+    targets = named_words(owner_text, negations)  # S1: a left-out device doesn't count
     if earlier and domain not in NO_CARRY_OVER and not names_a_target(said, names):
-        targets = said | words(earlier)  # "turn it off": the target he just asked about
+        targets |= named_words(earlier, negations)  # "turn it off": the one he asked about
     entities = _entities(arguments.get("entity_id"))
     if not entities:
         return False

@@ -337,7 +337,9 @@ class Assistant:
             # the free text a page could choose: every word of its `said_fields` must
             # also be the owner's, this turn or the previous one within the window.
             own = f"{text} {self.earlier_owner_text(turns=1)}"
-            if all(said_by_owner(str(arguments.get(f) or ""), own) for f in tool.said_fields):
+            fields = (str(arguments.get(f) or "") for f in tool.said_fields)
+            # S2: a field keeps exactly the negations of his current message
+            if all(said_by_owner(field, own, negation_text=text) for field in fields):
                 return None
             message = SAY_IT
         else:
