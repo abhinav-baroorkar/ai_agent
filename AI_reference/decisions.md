@@ -607,18 +607,26 @@ Summary of the design that passed review (two rounds). Opt-in until the measurem
 ## 2026-11-15 — Owner decisions and design choices since the browser phase (appended)
 
 - **The wake phrase is "hey" plus the assistant's name, read from config.** This **supersedes** the
-  2026-11-14 decision that the wake phrase is the name alone. Why: the name alone gave the
-  speech-to-text no context. With the "hey" prefix and a hint, 102 of 108 synthetic samples were
-  recognised, up from 65. No hint is given on the armed follow-up (`fix/wake-hint-armed`).
+  2026-11-14 decision that the wake phrase is the name alone. Why: on the first real-microphone
+  try, nothing happened; the name alone gave the speech-to-text no context and it guessed. With the
+  speech-to-text hint (the wake phrase given as hotwords), 102 of 108 name-alone synthetic samples
+  were accepted, up from 65, with no false wake in 116 ordinary sentences and mentions (the author's
+  synthetic run, section 12 of the wake-word design note kept in the team folder). The false-wake
+  sets passed with 0 hits in sets 1 and 3 (216 samples, the author's run). No hint is given on the
+  armed follow-up (`fix/wake-hint-armed`). Where this stands: device control by voice stays off
+  until a few days of the owner's real-room telemetry. "Sacha" and "Shasha" wake the assistant
+  (36 of 36 synthetic samples; no confidence bar can tell them apart); the owner has checked this
+  known limit.
 - **Start-at-login is turned on** at the owner's request, under the rule in `team.md` (symlinks
   to unit files inside the project only; the undo command is reported).
 - **The window becomes the assistant's own app:** Qt WebEngine through PySide6, in an optional `app`
   extra (PySide6 is LGPL). The Chrome window stays as the fallback (`sasha window --chrome`) until
   the owner's visible check passes. The wake phrase opens or raises the window with a calm orb
   entrance. Limits on the opener: once per 30 s, at most 6 an hour, never when the screen is
-  locked.  Network layers (hardening branch): an interceptor that allows only the own loopback origin, a
-  content security policy with `connect-src 'self'`, and a bypass of loopback through the dead proxy; each is
-  meant to hold on its own.
+  locked. Network layers (hardening branch): an interceptor that allows only the own loopback origin, a
+  content security policy with `connect-src 'self'`, and a bypass of loopback through the dead proxy.
+  The author's tests show each layer holding alone (probes with the interceptor off and with only
+  the content security policy; the headless-Chrome case is the author's run).
 - **Bots area: Concept A** (owner's choice): a "Your bots" page with cards and one labelled entry
   on Home, with a microphone in bot chats. The voice bot is not shown as a second main assistant.
 - **Per-bot breathing styles:** eight original particle styles (glow, ember, tide, gale, storm, mist,
@@ -631,16 +639,48 @@ Summary of the design that passed review (two rounds). Opt-in until the measurem
   only notes marked "ok to say aloud"; every word and number in a note comes from the owner's own
   messages (checked word for word); no silent eviction at 200 notes (at the cap, new notes are
   refused and the reply says so). Why: memory is a lasting prompt channel, so a write that is
-  only mostly checked becomes a lasting injection, and a read on a wake turn can leak.
+  only mostly checked becomes a lasting injection, and a read on a wake turn can leak. Also: a
+  device change needs the owner's current message to name the device and the action, so a stored
+  note can never cause one (this is what makes a stored note harmless); and the memory section is
+  shown to the model as data and never passed to the browse helper.
 - **Manager's defaults:** "next <weekday>" within 2 days asks back; after the owner's own check of
   sound-alike names, no extra confirmation is added to the wake phrase.
-- **Rule kept everywhere: a false claim of an action is never spoken.** For timers, the server
-  says its own "Nothing was set." or its own fixed question instead of the model's claim. Why: the
-  server, not the model, says what really happened.
-- **Spoken text is plain text:** no markdown is read aloud; a web address is never read (a bare URL is
-  said as its host); a hold on the model's text never lasts beyond 200 characters; "2*3" is spoken
+- **Rule: a false claim of an action is never spoken.** Status: in place for wake turns; for
+  timers the rule is in the server code that merged on 2026-11-16 (see the timers section below).
+  The server says its own "Nothing was set." or its own fixed question instead of the model's claim.
+  Why: the server, not the model, says what really happened.
+- **Spoken text is plain text:** no markdown is read aloud; a link or an http or www address is never read (a
+  bare URL is said as its host; an address without a scheme, such as "example.com/path", is still
+  read as written); a hold on the model's text never lasts beyond 200 characters; "2*3" is spoken
   as "2 times 3".
 - **The clock tool is called only when asked;** a stopped turn stays in history with only what was
   released; Talk ends by itself when the owner stops speaking.
 - **Private sound-alike names** for the wake bench are read only from the owner's own file or
   terminal and are never printed or saved in clear.
+
+## 2026-11-16 — Timers, alarms and reminders merged (`feat/timers-server`, `fix/timer-days`; `main` at `fe710d8`)
+
+- **Reviewed:** the re-review of `feat/timers-server` at `d37cc0a` found the earlier blocking item
+  fixed (a false claim of "set" with a trailing question), and `fix/timer-days` at `5fb66d3` passed
+  with nits only. Both merged at 00:18 local time on 2026-11-16. On `main` `fe710d8`: 1213 tests
+  passed, 5 skipped, 2 deselected (the real-Chrome file).
+- **A false "set" claim is never spoken.** On a request for a timer, if nothing was made and no tool
+  asked back, the reply may stand only if every sentence is a question; otherwise the server adds or
+  speaks its own line ("Nothing was set." or "Nothing is set yet."). Why: the model's wording cannot
+  be trusted to match what happened ("Done. Anything else?" with nothing set). This closes the
+  status noted under the 2026-11-15 rule "a false claim of an action is never spoken".
+- **The server's own fixed questions.** When a tool asks back, the server speaks its own fixed
+  question for the reason, not the model's words; the reason is a label, never free text, and the
+  weekday in a question is accepted only if it is one of the seven weekday names. Why: a page or a
+  reminder's text must not be able to put words in the assistant's mouth.
+- **Status questions come from the real state.** "Is my alarm set?", "how long is left on my
+  timer?" and "do I have any reminders?" are answered by the server from its own record, even if the
+  model did not call the list tool; the line is built from kind and time only, never reminder text,
+  so it is safe to say aloud. Mentions of a timer that are not requests ("what's a good timer for
+  tea?", "thanks for the reminder") keep the model's reply. Why: a status answer must be true, and
+  honest answers must not be replaced.
+- **"Next <weekday>" within 2 days asks back** ("This Friday or the one after?"); otherwise it
+  resolves. This is the manager's default, not an owner decision.
+- **Status of the bench numbers:** the bench numbers in `research-notes.md` are the author's (at
+  `b253796`). The reviewer's check of `d37cc0a` re-probed the server logic offline; the fresh
+  real-model run on the final commit was Primary's, and its numbers have not been sent to this file.

@@ -4,7 +4,7 @@ Kept by the manager session ("Primary"). Updated whenever a task is assigned,
 reported, reviewed or merged. If the manager session is lost, a new session can
 pick up from this file plus `plan.md`, `decisions.md` and the newest devlog.
 
-Last updated: 2026-11-15, evening (resume section added for a possible pause in work).
+Last updated: 2026-11-16, just after midnight (timers merged).
 
 ## How the project is run
 
@@ -47,28 +47,30 @@ only for now; satellites on other devices come later.
 
 ## Resume here: work in flight (2026-11-15, evening)
 
-Written so work can restart cleanly if sessions stop (a usage limit is close). `main` is `f316d6f`.
+Written so work can restart cleanly if sessions stop (a usage limit is close). `main` is `fe710d8`.
 Branch heads below are the commits named at the time of writing; check `git log` before relying on one.
 
 **Reviewer's queue, in merge order**
 
 | # | Branch | Head | Note |
 | --- | --- | --- | --- |
-| 1 | `feat/timers-server` | `d37cc0a` | the head moved on from `b253796`, which had one blocking item (a false claim spoken when a reply ends with a question; a fix was in progress); the new head is not yet re-reviewed here |
-| 2 | `fix/timer-days` | `5fb66d3` | on top of timers |
-| 3 | `feat/autostart-window` | `139741a` | the window opens at login through one autostart entry; attach mode never starts a second brain |
-| 4 | `docs/handoff` | this branch | `decisions.md` and `README.md` changes only; the rest is routine |
-| 5 | `fix/style-mock` | `1cd618e` | |
-| 6 | `fix/narrow-topbar` | `fc9e972` | |
-| 7 | `fix/browser-turn-holder` | `c56b234` | the two browser follow-ups (frame cap, one bot at a time) |
-| 8 | `feat/browser-takeover` | `b4ee952` | the take-over: the owner drives the assistant's browser in a visible window |
-| 9 | `feat/browse-helper` | `a029186` | a `browse` helper so the main assistant can browse; Jack of all tasks is adding changes to the spoken-claim guard for memory (`earlier`, `always_guard`, `Tool.said_checked`) |
-| 10 | `feat/browser-ui-v05` | `85dddca` | |
-| 11 | `feat/calc-tools` | `1326899` | calculation tools |
-| 12 | `feat/memory-server` | `3b27083` | memory on the server; it cannot merge without the M1 no-change guard, which comes after the helper merges |
+| 1 | `feat/autostart-window` | `139741a` | the window opens at login through one autostart entry; attach mode never starts a second brain |
+| 2 | `docs/handoff` | this branch | `decisions.md` and `README.md` changes only; the rest is routine; the review `docs-handoff-6888f6d` asked for fixes D1 to D6, applied on this branch |
+| 3 | `fix/style-mock` | `1cd618e` | |
+| 4 | `fix/browser-turn-holder` | `c56b234` | the two browser follow-ups (frame cap, one bot at a time) |
+| 5 | `feat/browser-takeover` | `b4ee952` | the take-over: the owner drives the assistant's browser in a visible window |
+| 6 | `feat/browse-helper` | `a029186` | a `browse` helper so the main assistant can browse; Jack of all tasks is adding changes to the spoken-claim guard for memory (`earlier`, `always_guard`, `Tool.said_checked`) |
+| 7 | `feat/browser-ui-v05` | `85dddca` | |
+| 8 | `feat/calc-tools` | `1326899` | calculation tools |
+| 9 | `feat/memory-server` | `3b27083` | memory on the server; it cannot merge without the M1 no-change guard, which comes after the helper merges |
 
-**Known merge conflicts:** timers vs helper (5 files; merge timers first); take-over vs
-autostart-window (`app/shell.py`); take-over vs timers (`deps.py`); helper vs calc (`deps.py`).
+**Merged since the queue was first written:** `feat/timers-server` (`d37cc0a`), `fix/timer-days`
+(`5fb66d3`) and `fix/narrow-topbar` (`fc9e972`); `main` is `fe710d8` with 1213 passed, 5 skipped,
+2 deselected (the real-Chrome file), merged at 00:18 local time on 2026-11-16.
+
+**Known merge conflicts:** take-over vs autostart-window (`app/shell.py`); helper vs calc (`deps.py`);
+the helper branch must absorb the timers merge that has now landed (it conflicted in 5 files);
+take-over vs timers (`deps.py`) likewise.
 
 **Design only (no code):** `media-design.md` (media control through MPRIS). Owner defaults: a
 `wpctl` fallback capped at 0.6, no titles in v1, "stop" means pause.
@@ -130,8 +132,9 @@ changes are structural and go to the reviewer):
 
 ## State of `main`
 
-- `main` is `f316d6f` (2026-11-15, evening; all pushed). Tests on `f316d6f`: 840 passed, 5 skipped,
-  2 deselected (the real-Chrome file). API contract is v0.4.4 (bots carry a breathing style). Merged since `5e89c34` (details in `devlog/2026-11-15.md`):
+- `main` is `fe710d8` (2026-11-16, just after midnight; all pushed). Tests on `fe710d8`: 1213 passed,
+  5 skipped, 2 deselected (the real-Chrome file). Timers, alarms and reminders (`feat/timers-server`,
+  `fix/timer-days`) and `fix/narrow-topbar` merged at 00:18; see `devlog/2026-11-16.md`. Earlier: `f316d6f` had 840 passed. API contract is v0.4.4 (bots carry a breathing style). Merged since `5e89c34` (details in `devlog/2026-11-15.md`):
   Talk ends by itself; plain-text spoken replies and real-ability prompts; wake phrase "hey" plus
   the name with a speech-to-text hint; truthful wake answers; the app window (Qt WebEngine, optional
   `app` extra, Chrome window as fallback with `sasha window --chrome`, opened by the wake phrase);
@@ -142,11 +145,14 @@ changes are structural and go to the reviewer):
   queued or unstarted recording and sends no stray cancel; the style picker shows Glow for a value
   that is not a style. `chore/review-followups` (`36f5e01`, `main` `f316d6f`): private-name bench
   runs store no transcript; the tray test pins the fast path; `Bot.style` is typed `BotStyle`.
-- **In review:** see "Resume here" above (the queue is now long; timers is first).
+- **In review:** see "Resume here" above (autostart is first in the queue).
 - **Browser work resumed** (the Jack of all tasks session): `fix/browser-turn-holder` first, then
   the take-over, then the browse helper so the main assistant can browse.
 - **Not verified:** the app window has not been looked at on screen (the owner's visible check is
-  still to come); the wake word on a real microphone in the new window; timers with real voice.
+  still to come); timers with real voice. The first real-microphone try of the wake word failed
+  (nothing happened when the name was said alone; cause found on synthetic audio and fixed with the
+  "hey" prefix and a speech-to-text hint). The fix is shown on synthetic audio only; a second real
+  try is not recorded here.
 - **Memory:** the design is approved with conditions and is not built (see `decisions.md`).
 - **Wake word:** all three parts are on `main`. The window runs from `main` with
   `health.wake.available` true. The wake word has not run on a real microphone: real-microphone
@@ -159,7 +165,7 @@ changes are structural and go to the reviewer):
   is a gate in the tests.
 - **Timers, alarms and reminders** (first feature of the build order): the Home timers card is
   merged (`feat/timers-ui`, `6c0a4b3`, contract v0.3; Escape never dismisses an alarm). The server
-  part, `feat/timers-server`, is in its final review round.
+  part, `feat/timers-server` (`d37cc0a`), merged on 2026-11-16 with `fix/timer-days` (`5fb66d3`).
 - **The assistant's own browser, phase 1, is merged** (`feat/browser-core` `96636db`,
   `feat/browser-wiring` `deda9ae`, `feat/browser-live-view` `c462083`, `feat/browser-ui` `011b6f5`,
   then `fix/browser-panel-followups` `deb6b09` and `fix/browser-view-followups` `39af3f3`). What
@@ -207,7 +213,7 @@ changes are structural and go to the reviewer):
 | `feat/browser-core`, `feat/browser-wiring`, `feat/browser-live-view`, `feat/browser-ui`, `fix/browser-panel-followups`, `fix/browser-view-followups` | | the assistant's own browser, phase 1: core, tools, live view in the Bots screen, follow-ups | merged and pushed (`96636db`, `deda9ae`, `c462083`, `011b6f5`, `deb6b09`, `39af3f3`) |
 | `fix/listener-confirm-race`, `fix/listener-followups` | | the tray sign could disagree with the capture process | merged and pushed (`bda9732`, `4968ef5`) |
 | `feat/timers-ui` | | Home timers card | merged and pushed (`6c0a4b3`) |
-| `feat/timers-server` | | timers, alarms and reminders on the server | in review at `b253796`; one blocking item open (a false claim could be spoken when the reply ends with a question); not merged |
+| `feat/timers-server` | | timers, alarms and reminders on the server | merged and pushed (`d37cc0a`, 2026-11-16) after the blocking item (a false claim could be spoken when the reply ends with a question) was fixed; `fix/timer-days` (`5fb66d3`) merged with it |
 | `feat/wake-listener` | Jack of all tasks | `sasha listen` (always-on listener), `sasha autostart` | merged and pushed after two review rounds; follow-up `fix/wake-listener-notes` merged |
 | `feat/wake-indicator` | Design expert | tray icon and chimes | merged and pushed; the send guard is stricter (exemptions pinned to exact lines, mail-sending calls forbidden in every file) |
 | `docs/scope-refresh` | Grunt work | plan.md, decisions.md, linkedin-notes.md, README, .env.example for the new scope | merged and pushed (`6fbc60d`, 86 tests pass) |
@@ -322,8 +328,9 @@ eyes; eyes stay as a switch.
   reaped, checked by a test that tracks the real child process. No real microphone had been
   opened. The manager's pre-push check now shows the names of failing tests and stops on any
   failure (one merge had been pushed on a run with one failure).
-- **Not tested for real yet:** the wake word on a real microphone, the browser on a public site,
-  search on the real engine, and timers with real voice. The search engine (DuckDuckGo) served the headless browser a bot
+- **Not tested for real yet:** the wake word on a real microphone after the fix (the first real try
+  failed, see "State of `main`"), the browser on a public site, search on the real engine, and
+  timers with real voice. The search engine (DuckDuckGo) served the headless browser a bot
   challenge; the owner will solve it through the take-over, which is being designed.
 - **VRAM headroom on the 8 GB laptop card is about 1 GB** (LLM 5.2 GB at 8k context + STT
   0.8 GB = 7.1 of 8.15 GB). A bigger context could push LLM layers to the CPU.
@@ -348,7 +355,7 @@ Build order set by the owner on 2026-11-14 (night). Our own design.
 
 In order, unless the owner changes it:
 
-1. Timers, alarms and reminders (the Home card is merged; the server part is first in the reviewer's queue, not merged).
+1. Timers, alarms and reminders (merged 2026-11-16: the Home card and the server part).
 2. Memory ("remember that...").
 3. A morning brief. It needs calendar and mail, so the parked send-guard question is asked
    before the mail part.

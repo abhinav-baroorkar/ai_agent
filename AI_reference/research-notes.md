@@ -129,11 +129,11 @@ Synthetic speech unless noted; no real-room data yet.
 
 | Measure | Result | Source |
 | --- | --- | --- |
-| Name recognised with a hint vs without (synthetic samples) | 102 of 108 vs 65 of 108 | `fix/wake-real-mic`, merged |
+| Name recognised with a hint vs without (synthetic samples) | 102 of 108 vs 65 of 108 | `fix/wake-real-mic`, merged; the author's synthetic run |
 | False wakes on ordinary samples (sets 1 and 3) | 0 of 216 | `fix/wake-hint-armed`, merged |
 | "Sacha" with the hint vs without | 18 of 18 vs 1 of 18 | same bench |
 | Unasked time or date mentioned on wake answers | 2 of 9 before, 0 of 27 after | `fix/wake-answers`, merged; the author's bench |
-| Timers bench, `qwen3.5:9b`, 77 cases x 2 runs | 0 silent wrong times; right or asked 0.961 | the author's bench at `feat/timers-server` `b253796`; **pending review**: the latest review of that commit has one blocking item and the branch is not merged |
+| Timers bench, `qwen3.5:9b`, 77 cases x 2 runs | 0 silent wrong times; right or asked 0.961 | the author's bench at `feat/timers-server` `b253796`; that commit had one blocking review item, since fixed. The branch merged on 2026-11-16 at `d37cc0a`, which the reviewer re-probed offline (not a model run). The fresh real-model run on the final commit was Primary's; its numbers are not recorded here yet |
 | App shell memory and cold start | 673 MB; about 0.46 s cold start, offscreen | reported with `feat/app-shell`; offscreen, no display, not the visible check |
 
 - "Sacha" and "Shasha" wake the assistant because they sound the same as the name; "Sacha" mostly
