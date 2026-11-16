@@ -1,4 +1,4 @@
-// Bots: the list beside the orb on Home, the "Your bots" page, and the chats.
+// Bots: the way in on Home, the "Your bots" page, and the chats.
 // One chat is in front at a time; a few can stay open behind it.
 import { api } from './api.js';
 import { $, h, icon, clear } from './dom.js';
@@ -9,11 +9,11 @@ import { miniOrb } from './faces/mini-orb.js';
 import { colorOf, usesOf, purposeOf, STARTS } from './bot-look.js';
 import { initSetup } from './setup.js';
 
-const HOME_MAX = 5; // how many bots the list on Home shows before "All bots"
+const HOME_ORBS = 3; // how many bots' orbs the way in on Home shows
 
 export function initBots(health) {
   const el = {
-    homeBox: $('#home-bots'), homeList: $('#home-bot-list'), homeAll: $('#home-all-bots'),
+    homeBox: $('#home-bots'), homeOrbs: $('#home-bot-orbs'), homeCount: $('#home-bot-count'),
     cards: $('#bot-cards'), note: $('#bots-note'), chats: $('#chats'),
   };
   const name = health.assistant.name;
@@ -52,11 +52,10 @@ export function initBots(health) {
 
   function render() {
     const mine = bots.filter((b) => !b.builtin);
-    // Home: the first few, each with its own orb
-    clear(el.homeList).append(...mine.slice(0, HOME_MAX).map((bot) => h('li', {},
-      h('button', { class: 'mate', type: 'button', onclick: () => go(bot.id) }, orb(bot, 40),
-        h('span', {}, h('b', {}, bot.name), h('small', {}, look(bot).uses.text.toLowerCase()))))));
-    el.homeAll.textContent = mine.length > HOME_MAX ? `All ${mine.length} bots` : 'See and change your bots';
+    // Home: one way in, with the first few bots' orbs and how many there are
+    clear(el.homeOrbs).append(...mine.slice(0, HOME_ORBS).map((bot) => orb(bot, 34)));
+    el.homeCount.textContent = !mine.length ? 'Make your first helper'
+      : `${mine.length} ${mine.length === 1 ? 'helper' : 'helpers'} for single jobs`;
     el.homeBox.hidden = false;
 
     // The page: a way to make one, the main assistant, then the rest

@@ -1,27 +1,21 @@
 /* Bots: the list beside the orb on Home, the "Your bots" page, and setting one up. */
 .mini-orb { display: block; flex: none; }
 
-/* ---------- On Home ---------- */
-.home-bots {
-  position: absolute; z-index: 2; right: max(20px, 2.5vw); top: 78px; width: min(15.5rem, 24vw);
-  display: grid; gap: .3rem; padding: .9rem .7rem .7rem; max-height: calc(100% - 230px); overflow-y: auto;
-  background: rgb(22 31 43 / .78); border: 1px solid var(--line); border-radius: 20px;
+/* ---------- On Home: one clear way in ---------- */
+.bots-entry {
+  position: absolute; z-index: 2; right: max(20px, 2.5vw); top: 78px;
+  display: flex; align-items: center; gap: .9rem; padding: .55rem 1.1rem .55rem .65rem; border-radius: 99px;
+  background: rgb(22 31 43 / .85); border: 1px solid color-mix(in srgb, var(--lamp) 40%, var(--line));
+  transition: background .15s, border-color .15s;
 }
-.home-bots .eyebrow, .home-bots .why { padding: 0 .5rem; }
-.home-bots .why { font-size: .8rem; color: var(--muted); line-height: 1.45; margin-bottom: .2rem; }
-.home-bots ul { display: grid; gap: .1rem; }
-.mate { width: 100%; display: flex; align-items: center; gap: .75rem; padding: .4rem .5rem; border-radius: 14px; background: none; border: 0; text-align: left; cursor: pointer; }
-.mate:hover { background: var(--surface-2); }
-.mate b { display: block; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mate small { display: block; color: var(--muted); font-size: .76rem; }
-.mate > span:last-child { min-width: 0; }
-.mate.add { margin-top: .3rem; color: var(--lamp); border: 1px dashed color-mix(in srgb, var(--lamp) 45%, var(--line)); }
-.mate.add small { color: inherit; opacity: .8; }
+.bots-entry:hover { background: var(--surface-2); border-color: var(--lamp); }
+.bots-entry .stack { display: flex; }
+.bots-entry .stack .mini-orb + .mini-orb { margin-left: -12px; }
+.bots-entry .words b { display: block; font-size: 1.02rem; }
+.bots-entry .words small { display: block; color: var(--muted); font-size: .8rem; }
+.bots-entry .arrow { rotate: 180deg; color: var(--lamp); }
 .plus { width: 40px; height: 40px; flex: none; border-radius: 50%; display: grid; place-items: center; border: 1px dashed currentColor; }
-.home-bots .all { justify-self: center; padding: .35rem .8rem; font-size: .82rem; color: var(--muted); border-radius: 99px; }
-.home-bots .all:hover { color: var(--text); background: var(--surface); }
 .only-narrow { display: none; }
-.home:has(.home-bots:not([hidden])) .subtitles { max-width: calc(100vw - 2 * (min(17.5rem, 27vw) + max(20px, 2.5vw) + .75rem)); }
 
 /* ---------- The "Your bots" page ---------- */
 .bots-page { overflow-y: auto; padding: 4px max(28px, 4vw) 40px; display: grid; gap: 1.1rem; align-content: start; }
@@ -90,9 +84,8 @@
 .composer .mic-chat[data-phase="finishing"] { background: color-mix(in srgb, var(--listen) 60%, var(--lamp)); }
 
 @media (max-width: 900px) {
-  .home-bots { display: none; }
+  .bots-entry { display: none; }
   .only-narrow { display: inline-flex; }
-  .home:has(.home-bots:not([hidden])) .subtitles { max-width: none; }
 }
 
 /* Away from Home the microphone sign sits in the empty middle of the top bar, so it

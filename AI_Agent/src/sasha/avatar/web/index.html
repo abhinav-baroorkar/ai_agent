@@ -76,13 +76,11 @@
     <button id="mock-ring" class="btn small quiet" type="button" hidden>Mock: make one ring</button>
   </section>
 
-  <aside id="home-bots" class="home-bots" aria-labelledby="home-bots-title" hidden>
-    <h2 id="home-bots-title" class="eyebrow">Your bots</h2>
-    <p class="why">Helpers with one job each. Pick one to talk to it.</p>
-    <ul id="home-bot-list"></ul>
-    <a class="mate add" href="#setup"><span class="plus"><svg class="ico"><use href="#i-plus"/></svg></span><span><b>New bot</b><small>takes a minute</small></span></a>
-    <a id="home-all-bots" class="all" href="#bots">All bots</a>
-  </aside>
+  <a id="home-bots" class="bots-entry" href="#bots" hidden>
+    <span id="home-bot-orbs" class="stack" aria-hidden="true"></span>
+    <span class="words"><b>Your bots</b><small id="home-bot-count">Helpers for single jobs</small></span>
+    <svg class="ico arrow" aria-hidden="true"><use href="#i-back"/></svg>
+  </a>
 
   <div class="stage">
     <div id="face" class="face" data-state="idle" role="img" aria-label="Assistant">
