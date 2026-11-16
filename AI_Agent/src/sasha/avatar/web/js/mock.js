@@ -63,7 +63,7 @@ export async function mockFetch(method, path, body) {
   }
   if (kind === 'timers') return timers.timersFetch(method, id, action, body, fail);
   if (kind === 'browser') {
-    const answer = browser.browserFetch(method, id);
+    const answer = browser.browserFetch(method, id, fail);
     if (answer) return answer;
   }
   throw fail(404, 'Not found.');
@@ -188,7 +188,8 @@ export class MockSocket {
     await this.later(1300);
     if (step.tool) {
       this.emit({ type: 'tool', ...step.tool });
-      await this.later(600);
+      if (step.tool.name === 'browse') browser.use(true); // a web lookup holds the browser
+      await this.later(step.tool.name === 'browse' ? 3500 : 600);
     }
     const words = step.reply.split(' ');
     for (let i = 0; i < words.length; i++) {
@@ -196,7 +197,7 @@ export class MockSocket {
       await this.later(55);
     }
     const total = Math.round(performance.now() - started);
-    this.emit({ type: 'reply', text: step.reply, tool_calls: step.tool ? [step.tool] : [], timing: { total_ms: total, tokens_per_s: 38.4 } });
+    this.emit({ type: 'reply', text: step.reply, tool_calls: step.tool ? [step.tool] : [], sites: step.sites || [], timing: { total_ms: total, tokens_per_s: 38.4 } });
     const lang = /[\u0900-\u097F]/.test(step.reply) ? 'mr' : 'en';
     if (this.speaks && data.health.voice.tts && data.health.voice.tts_languages.includes(lang)) await this.speak(step.reply);
     this.emit({ type: 'state', state: 'idle' });

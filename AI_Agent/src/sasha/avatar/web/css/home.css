@@ -38,6 +38,7 @@
   max-height: 4.65em; overflow: hidden; overflow-wrap: anywhere; text-wrap: balance;
 }
 .said[data-stopped]::after { content: "  (stopped)"; color: var(--muted); font-size: .8em; font-weight: 400; }
+.looked-up { font: .8rem var(--mono); color: var(--muted); overflow-wrap: anywhere; }
 .notice { align-self: center; max-width: 38rem; padding: .5rem .9rem; border-radius: var(--r); color: var(--warn); font-size: .9rem; line-height: 1.5;
   background: color-mix(in srgb, var(--warn) 9%, transparent); border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent); }
 

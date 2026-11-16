@@ -61,6 +61,8 @@
 .option[aria-checked="true"] .dot { border-color: var(--listen); background: radial-gradient(var(--listen) 45%, transparent 50%); }
 .option:disabled { opacity: .55; cursor: not-allowed; }
 .own-list { display: grid; gap: .2rem; max-width: 46rem; padding-left: 3.3rem; }
+.lookups { max-width: 46rem; font-size: .9rem; color: var(--muted); }
+.lookups b { color: var(--text); font-weight: 500; }
 .why-one { max-width: 46rem; padding: .7rem 1rem; border-radius: 12px; font-size: .88rem; line-height: 1.5;
   background: color-mix(in srgb, var(--listen) 9%, transparent); border: 1px solid color-mix(in srgb, var(--listen) 30%, transparent); }
 .fields { display: grid; gap: .5rem; max-width: 40rem; }
@@ -77,7 +79,8 @@
 /* ---------- In a chat ---------- */
 .chat-head .purpose { font-size: .84rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-head .who { gap: .1rem; }
-.chat-head .title { display: flex; align-items: center; gap: .6rem; font-size: 1.05rem; }
+.chat-head .title { display: flex; flex-wrap: wrap; align-items: center; gap: .15rem .6rem; font-size: 1.05rem; }
+.chat-head .who { min-width: 0; }
 .msg.bot > .avatar { color: var(--hue, var(--lamp)); border-color: color-mix(in srgb, var(--hue, var(--lamp)) 40%, var(--line)); }
 .msg.bot .from { color: var(--hue, var(--lamp)); }
 .composer .mic-chat { width: 38px; min-height: 38px; padding: 0; border-radius: 50%; background: var(--lamp); border-color: var(--lamp); color: #1b1408; }
