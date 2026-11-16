@@ -21,6 +21,7 @@ from typing import Any
 
 from sasha.app import policy
 from sasha.app.single import NoRuntimeDir, notify, socket_path
+from sasha.app.token_watch import WATCH_MS, TokenWatch
 from sasha.app.waiting import BrainWait, brain_up
 from sasha.server.window_token import read_token
 
@@ -269,6 +270,24 @@ def _quiet_after_start() -> None:
     QTimer.singleShot(QUIET_AFTER_MS, quiet_stderr)
 
 
+def reload_on_new_token(shell: Shell, watch: TokenWatch, url: Callable[[str], str]) -> None:
+    """Every WATCH_MS: if the brain has a new token, load the page again with it."""
+    from PySide6.QtCore import QTimer, QUrl
+
+    timer = QTimer(shell.window)
+    timer.setInterval(WATCH_MS)
+
+    def tick() -> None:
+        if shell.stack is not None and shell.stack.currentIndex() == 0:
+            return  # --attach still waiting: it reads the token when the brain answers
+        new = watch.check()
+        if new is not None:
+            shell.page.load(QUrl(url(new)))
+
+    timer.timeout.connect(tick)
+    timer.start()
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="sasha.app.shell")
     p.add_argument("--port", type=int, required=True)
@@ -305,6 +324,7 @@ def main(argv: list[str] | None = None) -> int:
     def token() -> str | None:  # None: the browser panel is refused
         return read_token(a.state_dir) if a.state_dir else None
 
+    watch = TokenWatch(token)
     shell = build(
         app,
         a.port,
@@ -312,16 +332,20 @@ def main(argv: list[str] | None = None) -> int:
         a.title,
         a.icon,
         a.start_path,
-        token=None if attach else token(),
+        token=None if attach else watch.take(),
         waiting=waiting,
     )
     if attach:  # never starts a brain: waits for the service (app/waiting.py)
         wait = BrainWait(lambda: brain_up(a.port), wait_s=a.wait_for_brain)
         # the token is read once the brain answers: the file of a previous run is stale
-        load_when_up(shell, wait, a.late_notice, lambda: start_url(a.port, a.start_path, token()))
+        load_when_up(
+            shell, wait, a.late_notice, lambda: start_url(a.port, a.start_path, watch.take())
+        )
     single.serve(app, lambda command: bring_up(app, shell, command == "wake", a.notice))
     shell.window.show()
     _quiet_after_start()
+    if a.state_dir is not None:  # a restarted brain: reload with its new token
+        reload_on_new_token(shell, watch, lambda t: start_url(a.port, a.start_path, t))
     if a.wake:
         bring_up(app, shell, True, a.notice)
     code = int(app.exec())
