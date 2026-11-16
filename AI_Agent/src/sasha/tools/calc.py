@@ -12,40 +12,54 @@ where the arithmetic is (34 significant digits inside), then shown with up to 15
 
 from __future__ import annotations
 
-import math
 import re
 from dataclasses import dataclass
 from decimal import (
     Context,
     Decimal,
     DivisionByZero,
+    Inexact,
     InvalidOperation,
     Overflow,
+    Subnormal,
+    Underflow,
+    getcontext,
     localcontext,
 )
 from typing import Any
+
+from sasha.tools.calc_trig import TrigError, trig
 
 MAX_CHARS = 300
 MAX_TOKENS = 150
 MAX_DEPTH = 30
 MAX_EXPONENT = 10_000
 SHOW_DIGITS = 15
-_CONTEXT = Context(
-    prec=34, Emax=9_999, Emin=-9_999, traps=[Overflow, DivisionByZero, InvalidOperation]
-)
+PRECISION = 34  # digits inside; a number written with more is refused (review N1)
+CHECK_PRECISION = 80  # the same sum again: if the shown digits differ, it's refused
+_TRAPS = [Overflow, DivisionByZero, InvalidOperation, Underflow, Subnormal]  # N2
+
+
+def _context(prec: int) -> Context:
+    return Context(prec=prec, Emax=9_999, Emin=-9_999, traps=list(_TRAPS))
+
 
 _TOKEN = re.compile(
     r"\s*(?:"
-    r"(?P<num>\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d*)?(?:[eE][+-]?\d{1,4})?|\.\d+)"
+    r"(?P<num>\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d*)?(?:[eE][+-]?\d{1,9})?|\.\d+)"
+    r"|(?P<sup>[\u2070\u00b9\u00b2\u00b3\u2074-\u2079]+)"
     r"|(?P<name>[A-Za-z]+)"
-    r"|(?P<op>\*\*|[-+*/^%()\u00d7\u00f7\u2212\u00b7\u00b2\u00b3])"
+    r"|(?P<op>\*\*|[-+*/^%()\u00d7\u00f7\u2212\u00b7])"
     r")"
 )
 FUNCTIONS = ("sqrt", "cbrt", "abs", "round", "floor", "ceil", "ln", "log", "exp",
              "sin", "cos", "tan")  # fmt: skip
-# times, middle dot, divide, minus sign, squared, cubed: as their ASCII operators
-_SIGNS = {"\u00d7": ["*"], "\u00b7": ["*"], "\u00f7": ["/"], "\u2212": ["-"], "**": ["^"],
-          "\u00b2": ["^", "2"], "\u00b3": ["^", "3"]}  # fmt: skip
+# times, middle dot, divide, minus sign: as their ASCII operators
+_SIGNS = {"\u00d7": ["*"], "\u00b7": ["*"], "\u00f7": ["/"], "\u2212": ["-"], "**": ["^"]}
+# A run of superscript digits is one exponent: 2\u00b3\u00b2 is 2^32 (review S1)
+_SUPERSCRIPT = str.maketrans(
+    "\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079", "0123456789"
+)
 WORDS = {"x": "*", "of": "*", "times": "*", "percent": "%", "plus": "+", "minus": "-"}
 OP_WORDS = {"+": "plus", "-": "minus", "*": "times", "/": "divided by", "^": "to the power of"}
 
@@ -81,8 +95,12 @@ def tokens(text: str) -> list[str]:
         pos = m.end()
         if m.group("num"):
             out.append(m.group("num").replace(",", ""))
+        elif m.group("sup"):
+            out += ["^", m.group("sup").translate(_SUPERSCRIPT)]
         elif m.group("name"):
             word = m.group("name").lower()
+            if word.startswith("x") and out[-1:] == ["0"] and m.start("name") == m.start():
+                raise CalcError("Hex numbers aren't supported")  # 0x10 (review S2)
             if word not in FUNCTIONS and word not in WORDS and word != "pi":
                 raise CalcError(f"Unknown word {word!r}")
             out.append(WORDS.get(word, word))
@@ -176,7 +194,10 @@ class _Parser:
             _, _, exp = item.lower().partition("e")
             if exp and abs(int(exp)) > MAX_EXPONENT:
                 raise CalcError("Number too large")
-            return Node("num", value=Decimal(item))
+            value = Decimal(item)
+            if len(value.normalize(Context(prec=1000)).as_tuple().digits) > PRECISION:
+                raise CalcError(f"Numbers can have at most {PRECISION} digits")  # N1
+            return Node("num", value=value)
         raise CalcError(f"Unexpected {item!r}")
 
 
@@ -188,31 +209,34 @@ def parse(text: str) -> Node:
     return node
 
 
-def _trig(name: str, x: Decimal, approx: list[bool]) -> Decimal:
-    """Through floats, then 12 significant digits: sin(30) is 0.5 exactly; a value
-    that still needs many digits is marked approximate."""
-    if abs(x) > 10**9:
-        raise CalcError("Angle too large")
-    value = Decimal(f"{getattr(math, name)(math.radians(float(x))):.12g}")
-    if abs(value) < Decimal("1e-11"):
-        return Decimal(0)
-    if len(value.normalize().as_tuple().digits) > 9:
-        approx[0] = True
-    return value
+def _cbrt(x: Decimal) -> Decimal:
+    """The cube root; exact when a rounded root cubes back to x (cbrt(1000) is 10)."""
+    ctx = getcontext()
+    inexact_before = ctx.flags[Inexact]
+    root = (abs(x) ** (Decimal(1) / 3)).copy_sign(x)
+    near = root.normalize(Context(prec=ctx.prec - 2))
+    with localcontext(Context(prec=ctx.prec * 3 + 10, traps=[])):
+        exact = near * near * near == x
+    if exact:
+        ctx.flags[Inexact] = inexact_before  # this step lost nothing
+        return near
+    return root
 
 
 def _call(name: str, x: Decimal, approx: list[bool]) -> Decimal:
     if name in ("sin", "cos", "tan"):
-        if name == "tan" and (x - 90) % 180 == 0:
-            raise CalcError("tan is undefined there")
-        return _trig(name, x, approx)
+        try:
+            value, inexact = trig(name, x)
+        except TrigError as e:
+            raise CalcError(str(e)) from None
+        approx[0] = approx[0] or inexact
+        return value
     if name == "sqrt":
         if x < 0:
             raise CalcError("No real square root of a negative number")
         return x.sqrt()
     if name == "cbrt":
-        root = abs(x) ** (Decimal(1) / 3)
-        return root.copy_sign(x)
+        return _cbrt(x)
     if name in ("ln", "log"):
         if x <= 0:
             raise CalcError(f"{name} needs a positive number")
@@ -222,6 +246,8 @@ def _call(name: str, x: Decimal, approx: list[bool]) -> Decimal:
     if name == "abs":
         return abs(x)
     rounding = {"round": "ROUND_HALF_UP", "floor": "ROUND_FLOOR", "ceil": "ROUND_CEILING"}
+    if x.adjusted() >= getcontext().prec:
+        raise CalcError(f"Too large to {name}")
     return x.quantize(Decimal(1), rounding=rounding[name])
 
 
@@ -237,7 +263,7 @@ def _eval(node: Node, approx: list[bool]) -> Decimal:
         return _call(node.op, _eval(node.args[0], approx), approx)
     left_node, right_node = node.args
     left = _eval(left_node, approx)
-    if node.op in "+-" and right_node.kind == "pct":  # 150 + 10% = 165
+    if node.op in "+-" and right_node.kind == "pct" and left_node.kind != "pct":  # 150+10%
         share = left * _eval(right_node, approx)
         return left + share if node.op == "+" else left - share
     right = _eval(right_node, approx)
@@ -282,8 +308,11 @@ SPOKEN_DIGITS = 6  # an approximate answer is said with this many significant di
 
 def short(text: str) -> str:
     """An approximate number for speech: 6 significant digits ("about 37.7778")."""
-    value = Decimal(text)
-    return show(value.normalize(Context(prec=SPOKEN_DIGITS)))[0]
+    value = Decimal(text).normalize(Context(prec=SPOKEN_DIGITS))
+    if abs(value.adjusted()) >= SHOW_DIGITS:  # 1.26765 times 10 to the power of 30
+        digits, _, exp = format(value, "e").partition("e")
+        return f"{digits}e{int(exp):+d}"
+    return show(value)[0]
 
 
 def say_number(text: str) -> str:
@@ -316,24 +345,45 @@ def spoken(node: Node) -> str:
     return f"{spoken(left)} {OP_WORDS[node.op]} {spoken(right)}"
 
 
-def calculate(expression: str) -> dict[str, Any]:
-    text = str(expression)
-    node = parse(text)
+def _run(node: Node, prec: int) -> tuple[Decimal, bool, bool]:
+    """(value, inexact, approximate from a float step) at this precision."""
     approx = [False]
-    with localcontext(_CONTEXT):
+    with localcontext(_context(prec)) as ctx:
         try:
             value = _eval(node, approx)
         except Overflow:
             raise CalcError("The result is too large") from None
+        except (Underflow, Subnormal):
+            raise CalcError("The result is too small") from None  # review N2
         except DivisionByZero:
             raise CalcError("Division by zero") from None
         except InvalidOperation:
             raise CalcError("That has no real result") from None
-    result, rounded = show(value)  # 34 digits inside: a short result is exact
-    approximate = rounded or approx[0]
-    about = "about " if approximate else ""
+        return value, bool(ctx.flags[Inexact]), approx[0]
+
+
+def _short_exact(value: Decimal) -> bool:
+    """Few enough digits that an inexact-flagged step (9^0.5) really was exact."""
+    return len(value.normalize(Context(prec=200)).as_tuple().digits) <= PRECISION
+
+
+def calculate(expression: str) -> dict[str, Any]:
+    """Review N1: worked out at 34 and again at 80 digits. If the shown results differ,
+    rounding inside lost digits (1e40 + 1 - 1e40): refused. Approximate when any step
+    was inexact (unless the result is short enough to be exact) or the text is cut."""
+    node = parse(str(expression))
+    value, _, approx = _run(node, PRECISION)
+    check, check_inexact, _ = _run(node, CHECK_PRECISION)
+    result, rounded = show(value)
+    if show(check)[0] != result:
+        raise CalcError("That loses too many digits to answer exactly")
+    # the 80-digit run decides inexactness (the 34-digit one is at least as lossy)
+    approximate = rounded or approx or (check_inexact and not _short_exact(check))
+    long_whole = not approximate and len(result.lstrip("-")) > SHOW_DIGITS
+    about = "about " if approximate or long_whole else ""
+    said = short(result) if about else result
     return {
         "result": result,
         "approximate": approximate,
-        "said_as": f"{spoken(node)} is {about}{say_number(short(result) if about else result)}",
+        "said_as": f"{spoken(node)} is {about}{say_number(said)}",
     }

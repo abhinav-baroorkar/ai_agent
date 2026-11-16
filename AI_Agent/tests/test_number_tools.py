@@ -59,6 +59,16 @@ CONFIG = Path(__file__).resolve().parents[1] / "config"
         ("1.5e3", "1500", False),
         ("2^100", "1267650600228229401496703205376", False),
         ("2^200", "1.60693804425899e+60", True),
+        # review S1, S3 and nits
+        ("2\u00b3\u00b2", "4294967296", False),
+        ("sin(180)", "0", False),
+        ("cos(270)", "0", False),
+        ("sin(3.8)", "0.0662739004000001", True),
+        ("sin(1e9)", "-0.984807753012208", True),
+        ("cbrt(1000)", "10", False),
+        ("cbrt(1073741824)", "1024", False),
+        ("50% + 50%", "1", False),
+        ("9^0.5", "3", False),
     ],
 )
 def test_calculate(expression: str, result: str, approximate: bool) -> None:
@@ -74,6 +84,22 @@ def test_said_as_reads_naturally() -> None:
     assert calculate("3 - 5")["said_as"] == "3 minus 5 is minus 2"
     assert calculate("2^200")["said_as"].endswith("about 1.60694 times 10 to the power of 60")
     assert calculate("pi * 2")["said_as"].startswith("pi times 2 is about 6.28319")
+    # a whole number too long to say digit by digit
+    assert calculate("2^100")["said_as"].endswith("about 1.26765 times 10 to the power of 30")
+    assert calculate("2^100")["approximate"] is False
+
+
+def test_trig_exactness_follows_niven() -> None:
+    """Review S3: only 0, 1/2 and 1 (and tan 0, 1) are exact; nothing else."""
+    exact = {"0", "0.5", "-0.5", "1", "-1"}
+    for tenths in range(0, 3600, 7):
+        for name in ("sin", "cos", "tan"):
+            if name == "tan" and tenths % 1800 == 900:
+                continue
+            out = calculate(f"{name}({tenths / 10})")
+            if not out["approximate"]:
+                assert out["result"] in exact, (name, tenths, out)
+    assert calculate("sin(1e-10)")["result"] != "0"  # never snapped to zero
 
 
 @pytest.mark.parametrize(
@@ -101,7 +127,17 @@ def test_said_as_reads_naturally() -> None:
         ("(2", "ends too early"),
         ("2 3", "Unexpected"),
         ("", "Nothing"),
-        ("1e99999", "Unexpected"),
+        ("1e99999", "Number too large"),
+        # review N1, N2
+        ("(1e34+1)-1e34", "loses too many digits"),
+        ("1e40+1-1e40", "loses too many digits"),
+        ("12345678901234567890123456789012345-12345678901234567890123456789012340", "34 digits"),
+        ("1/3*3-1", "loses too many digits"),
+        ("1e-9999/1e9999", "too small"),
+        ("exp(-23100)", "too small"),
+        ("1e-5000^2", "too small"),
+        ("0x10", "Hex"),  # S2
+        ("round(1e40)", "Too large to round"),
     ],
 )
 def test_hostile_input_is_refused_quickly(expression: str, message: str) -> None:
@@ -142,7 +178,8 @@ def table() -> Any:
         (250, "ml", "metric cup", "1"),
         (1, "GiB", "MiB", "1024"),
         (1, "Mb", "MB", "0.125"),  # case matters for data sizes
-        (1, "kb", "bytes", "1000"),
+        (1, "KB", "bytes", "1000"),
+        (1, "Kb", "bytes", "125"),  # review S4: Kb is a kilobit, like Mb
         (60, "mph", "km/h", "96.56064"),
         (1, "day", "minutes", "1440"),
         (5, "kg", "lb", "11.0231131092439"),

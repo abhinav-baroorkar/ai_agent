@@ -66,6 +66,6 @@ data:
   mebibyte: [1048576, 0, mebibyte, mebibytes, MiB]
   gibibyte: [1073741824, 0, gibibyte, gibibytes, GiB]
   tebibyte: [1099511627776, 0, tebibyte, tebibytes, TiB]
-  kilobit: [125, 0, kilobit, kilobits, kbit]
+  kilobit: [125, 0, kilobit, kilobits, kbit, Kb]  # Kb: kilobit, like Mb (review S4)
   megabit: [125000, 0, megabit, megabits, Mbit, Mb]
   gigabit: [125000000, 0, gigabit, gigabits, Gbit, Gb]
