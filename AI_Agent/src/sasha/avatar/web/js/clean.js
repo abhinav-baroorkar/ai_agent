@@ -102,3 +102,20 @@ export function cleanTimer(t) {
 }
 
 export const initial = (name) => str(name).trim().charAt(0).toUpperCase() || '?';
+
+// Memory (contract v0.6). A note's text is the owner's own words: shown as text only.
+export function cleanNote(n) {
+  const note = n && typeof n === 'object' ? n : {};
+  const at = Number(note.created_at);
+  return {
+    id: str(note.id), text: str(note.text), created_at: Number.isFinite(at) ? at : 0,
+    source: ['chat', 'window', 'wake'].includes(note.source) ? note.source : 'chat', bot_id: str(note.bot_id),
+    pending: note.status === 'pending', say_aloud: note.say_aloud === true,
+  };
+}
+export function cleanMemory(m) {
+  const mem = m && typeof m === 'object' ? m : {};
+  const notes = Array.isArray(mem.notes) ? mem.notes.map(cleanNote).filter((n) => n.id) : [];
+  const max = Number(mem.max);
+  return { notes, count: Number.isFinite(Number(mem.count)) ? Number(mem.count) : notes.length, max: Number.isFinite(max) && max > 0 ? max : 200 };
+}

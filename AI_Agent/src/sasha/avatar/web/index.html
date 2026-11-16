@@ -13,6 +13,7 @@
 <link rel="stylesheet" href="css/timers.css">
 <link rel="stylesheet" href="css/browser.css">
 <link rel="stylesheet" href="css/bots.css">
+<link rel="stylesheet" href="css/memory.css">
 </head>
 <body>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true">
@@ -76,6 +77,13 @@
     <button id="mock-ring" class="btn small quiet" type="button" hidden>Mock: make one ring</button>
   </section>
 
+  <p id="memory-card-live" class="sr" role="status"></p>
+  <section id="memory-card" class="memory-card" aria-label="A note waiting for you" hidden>
+    <span class="eyebrow">Added by voice · waiting for you</span>
+    <q id="memory-card-text"></q>
+    <small id="memory-card-more" hidden></small>
+    <span class="memory-card-acts"><button class="btn small" type="button" data-act="keep">Keep it</button><button class="btn small" type="button" data-act="delete">Delete</button><a class="btn small quiet" href="#memory">Memory</a></span>
+  </section>
   <a id="home-bots" class="bots-entry" href="#bots" hidden>
     <span id="home-bot-orbs" class="stack" aria-hidden="true"></span>
     <span class="words"><b>Your bots</b><small id="home-bot-count">Helpers for single jobs</small></span>
@@ -129,6 +137,7 @@
     <a class="back-home" href="#home"><span id="mini-face" class="back-orb" data-state="idle"></span><span>Back to <span data-assistant-name>the assistant</span></span></a>
     <a id="to-bots" class="btn quiet" href="#bots"><svg class="ico"><use href="#i-back"/></svg>Your bots</a>
     <span class="grow"></span>
+    <a id="to-memory" class="btn quiet" href="#memory" hidden><svg class="ico"><use href="#i-note"/></svg>Memory</a>
     <a id="to-settings" class="btn quiet" href="#settings"><svg class="ico"><use href="#i-plug"/></svg>Settings</a>
   </header>
 
@@ -188,8 +197,15 @@
     <p class="lede">These let the assistant and your bots do things outside the chat: the web, your home. A bot only gets the ones you choose for it.</p>
     <div id="connector-grid" class="cards"></div>
   </section>
+
+  <section id="memory" class="pane memory" aria-label="Memory" hidden></section>
 </div>
 
+
+<dialog id="memory-confirm"><form method="dialog">
+  <h2></h2><p></p>
+  <div class="dialog-actions"><button class="btn danger solid" value="yes"></button><button class="btn quiet" value="no" autofocus>Cancel</button></div>
+</form></dialog>
 
 <p id="file-warning" class="file-warning" hidden>This page can't run straight from a file. From this folder run <code>python3 -m http.server 8799</code>, then open <code>localhost:8799/?mock=1</code> in the browser.</p>
 <script src="js/file-warning.js"></script>

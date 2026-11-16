@@ -2,6 +2,7 @@
 // Follows Dependencies/team/api-contract.md (v0) message for message.
 import * as data from './mock-data.js';
 import * as timers from './mock-timers.js';
+import * as memory from './mock-memory.js';
 import * as browser from './mock-browser.js';
 
 export { MockBrowserSocket } from './mock-browser.js';
@@ -73,6 +74,7 @@ export async function mockFetch(method, path, body) {
     }
   }
   if (kind === 'timers') return timers.timersFetch(method, id, action, body, fail);
+  if (kind === 'memory') return memory.memoryFetch(method, id, action, body, fail);
   if (kind === 'browser') {
     const answer = browser.browserFetch(method, id, fail);
     if (answer) return answer;
@@ -105,6 +107,7 @@ export class MockSocket {
     this.run = 0;
     setTimeout(() => this.onopen && this.onopen(), 150);
     timers.attach(this);
+    memory.attach(this);
     // ?mock=1&ring=1 makes the first timer ring a few seconds after the page opens.
     if (params.has('ring') && speak) setTimeout(() => timers.ring(params.get('ring')), 3500);
     // ?mock=1&drop=1 drops the first connection once, to show the offline state.
@@ -138,6 +141,7 @@ export class MockSocket {
 
   close() {
     timers.detach(this);
+    memory.detach(this);
     if (this.counted) MockSocket.open--;
     this.counted = false;
     this.stopAll();

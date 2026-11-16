@@ -65,9 +65,10 @@ export function initHistory(name) {
     const heard = h('p', { class: 'h-heard' });
     const chips = h('div', { class: 'h-chips' });
     const said = h('p', { class: 'h-said' });
-    el.list.append(h('li', {}, heard, chips, h('div', {}, h('strong', { class: 'eyebrow' }, name), said)));
+    const li = h('li', { dataset: { at: String(Date.now()) } }, heard, chips, h('div', {}, h('strong', { class: 'eyebrow' }, name), said));
+    el.list.append(li);
     el.empty.hidden = true;
-    turn = { heard, chips, said };
+    turn = { li, heard, chips, said };
     return turn;
   }
 
@@ -83,6 +84,18 @@ export function initHistory(name) {
     sites(line) { current().said.after(h('p', { class: 'h-sites' }, `looked up: ${line}`)); },
     stopped() { if (turn && turn.said.textContent) turn.said.dataset.stopped = ''; },
     get isOpen() { return !el.panel.hidden; },
+    // Memory's `forgot`: drop the turns from `cutoff` (ms) on; true if the latest went.
+    forget(cutoff) {
+      let latest = false;
+      for (const li of el.list.querySelectorAll('li')) {
+        if (Number(li.dataset.at) < cutoff) continue;
+        if (turn && turn.li === li) latest = true;
+        li.remove();
+      }
+      if (latest) turn = null;
+      el.empty.hidden = el.list.children.length > 0;
+      return latest;
+    },
   };
 }
 
