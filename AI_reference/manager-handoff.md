@@ -4,7 +4,7 @@ Kept by the manager session ("Primary"). Updated whenever a task is assigned,
 reported, reviewed or merged. If the manager session is lost, a new session can
 pick up from this file plus `plan.md`, `decisions.md` and the newest devlog.
 
-Last updated: 2026-11-16 (autostart, browse helper and take-over merged).
+Last updated: 2026-11-16 (memory merged).
 
 ## How the project is run
 
@@ -47,7 +47,7 @@ only for now; satellites on other devices come later.
 
 ## Resume here: work in flight (2026-11-16)
 
-Written so work can restart cleanly if sessions stop. `main` is `49d14c7`. Branch heads are the
+Written so work can restart cleanly if sessions stop. `main` is `ea3166a`. Branch heads are the
 commits named in the reviews at the time of writing; check `git log` before relying on one.
 
 **Merged and pushed since the last handoff:** `feat/autostart-window` (`c88784f`),
@@ -62,10 +62,12 @@ never `eval`) and `fix/said-followups` (`49d14c7`: a negated or excluded device 
 reminder text keeps the owner's negations; both open items from the browse-helper review).
 `main` is `49d14c7`: 1427 passed.
 
-**Still in the reviewer's queue or in progress** (the last status I was given; the review files in
-`Dependencies/team/reviews/` hold the detail): `feat/memory-server` (memory on the server; it needed
-the browse helper's said-check, now on `main`) and `feat/memory-ui` (the Design expert's part,
-against contract v0.6).
+**Memory merged:** `feat/memory-server` (`a46a7a4`) and `feat/memory-ui` (`a552f46`), then `main` is
+`fc10776` with 1555 passed (contract v0.6). The reviewer's queue is empty as far as I was told. A
+review nit on memory is open (an item's id passes while it rings even if the owner named a different
+item's label). `refactor/orchestrator-split` (`a708488`, merged; `main` `ea3166a`, 1555 passed) moved
+the turn history helpers out of `orchestrator.py`, so that file-size warning is cleared; `ws.py` was at
+387 of 400 lines.
 
 **Design only (no code):** `media-design.md` (media control through MPRIS). Owner defaults: a
 `wpctl` fallback capped at 0.6, no titles in v1, "stop" means pause.
@@ -82,8 +84,8 @@ against contract v0.6).
 
 ## State of `main`
 
-- `main` is `49d14c7` (2026-11-16; all pushed): 1427 passed; contract v0.5.1. (At `b6a754a`: 1318
-  passed, 6 skipped, 2 deselected, the real-Chrome file.) At `fe710d8` timers had merged with 1213 passed. Timers, alarms and reminders (`feat/timers-server`,
+- `main` is `ea3166a` (2026-11-16; all pushed): 1555 passed; contract v0.6. (At
+  `49d14c7`: 1427 passed; at `b6a754a`: 1318 passed, 6 skipped, 2 deselected, the real-Chrome file.) At `fe710d8` timers had merged with 1213 passed. Timers, alarms and reminders (`feat/timers-server`,
   `fix/timer-days`) and `fix/narrow-topbar` merged on 2026-11-16; see `devlog/2026-11-16.md`. Earlier: `f316d6f` had 840 passed. API contract is v0.4.4 (bots carry a breathing style). Merged since `5e89c34` (details in `devlog/2026-11-15.md`):
   Talk ends by itself; plain-text spoken replies and real-ability prompts; wake phrase "hey" plus
   the name with a speech-to-text hint; truthful wake answers; the app window (Qt WebEngine, optional
@@ -103,7 +105,7 @@ against contract v0.6).
   (nothing happened when the name was said alone; cause found on synthetic audio and fixed with the
   "hey" prefix and a speech-to-text hint). The fix is shown on synthetic audio only; a second real
   try is not recorded here.
-- **Memory:** the design is approved with conditions and is not built (see `decisions.md`).
+- **Memory is merged** (`feat/memory-server` `a46a7a4`, `feat/memory-ui` `a552f46`; contract v0.6): notes only when asked, voice notes wait for Keep, wake turns read only "ok to say aloud" notes, forget by note, window or everything, a note can never cause a change. Rules and reasons in `decisions.md`. Not tried by the owner yet.
 - **Wake word:** all three parts are on `main`. The window runs from `main` with
   `health.wake.available` true. The wake word has not run on a real microphone: real-microphone
   checks are scheduled with the owner. **Rule: no real-microphone run without the owner present**
@@ -238,7 +240,7 @@ eyes; eyes stay as a switch.
 - The window becomes its own app (Qt WebEngine via PySide6, optional `app` extra, LGPL); the Chrome window stays as the fallback until the owner's visible check. The wake phrase opens or raises it (once per 30 s, 6 an hour, never when locked).
 - Bots area: Concept A (a bots page with cards, one labelled entry on Home), with a microphone in bot chats.
 - Eight per-bot breathing styles (glow, ember, tide, gale, storm, mist, bloom, stone), glow by default.
-- Memory design approved with conditions (see `decisions.md`); not built.
+- Memory design approved with conditions (see `decisions.md`); built and merged 2026-11-16.
 - Voice control is read-only by default; after the owner switches on device control for voice
   once in the Bots screen, limits apply (see `decisions.md`).
 - A session may create the start-at-login link, under the rule in `team.md`.
@@ -307,7 +309,7 @@ Build order set by the owner on 2026-11-14 (night). Our own design.
   earlier project of the owner's only; own code.
 - Postponed, conditional: Marathi–English support (Phase 2). The owner's condition: the base assistant must keep working properly. Marathi support is optional and may only be added if it doesn't slow the English path (latency and GPU placement measured before and after); otherwise it stays out.
 - Check the full voice loop and the wake word on a real microphone (checks are scheduled with the owner), and the owner's visible check of the app window.
-- Next, in this order: the day resolver, memory (server and UI in flight, see "Resume here"), the owner's visible check of the app, then wake device control after a few days of real-room telemetry.
+- Next, in this order: the day resolver, memory (merged), the owner's visible check of the app, then wake device control after a few days of real-room telemetry.
 
 In order, unless the owner changes it:
 
