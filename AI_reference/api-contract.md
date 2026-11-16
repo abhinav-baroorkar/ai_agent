@@ -1,4 +1,4 @@
-# Brain API contract v0.4 (server, UI and listener all build against this)
+# Brain API contract v0.5 (server, UI and listener all build against this)
 
 Owner of this file: Primary. Staff SDE copies it to `AI_reference/api-contract.md`
 in the server branch. To change it, ask Primary; don't change it on your own.
@@ -190,6 +190,26 @@ it, keeps it in memory, and strips it from the address with `history.replaceStat
 window opened another way (or reloaded) has no token, and its browser panel is refused.
 The other routes and `/ws` don't need it yet.
 
+Take-over (v0.5): the owner drives the assistant's browser himself, as a normal visible
+Chrome window on its own profile, with no DevTools connection (the brain can't see what
+he types or views). Routes, behind the token like the other `/api/browser*` ones; no
+body or a JSON body:
+
+| Method + path | Returns / does |
+| --- | --- |
+| `POST /api/browser/take_over` | `{ok:true}` and the switch starts; 409 `{error}` when the browser is off in Settings, there is no screen, Chrome is missing, or a take-over is already on |
+| `POST /api/browser/hand_back` | `{ok:true}`; the window closes and the assistant's browser comes back (also when he simply closes the window, or after 15 minutes) |
+| `POST /api/browser/stop_turn` | `{ok:true}`; "Stop it now" while a take-over waits for a running turn |
+
+`BrowserState` gains `mode`: `assistant` (normal), `waiting` (asked, a turn is finishing),
+`switching`, or `owner` (his window is open); `owner_until` (ISO time, while `owner`);
+and `owner_refused` (`{category:int}`, addresses his window tried that the guard refused,
+counted apart from the page's own). `POST /api/browser/stop` during a take-over hands
+back. While `mode` is not `assistant`, every bot's browser step answers "The owner is
+using the browser right now; try again after it's handed back". After hand-back only
+the search engine's cookies are kept; his history, tabs, downloads and form entries are
+forgotten, and any setting or extension he changed is undone.
+
 WebSocket `/ws/browser` (one viewer):
 - Same Host and Origin checks as `/ws`, and an `Origin` header is required (the
   window's own); a socket from a non-loopback peer or without `Origin` is closed with
@@ -244,5 +264,7 @@ WebSocket `/ws/browser` (one viewer):
 - v0.4.4 (2026-11-16): `Bot.style` (the orb's breathing style), default `glow`.
 - v0.4.5 (2026-11-16): the window token on `/api/browser*` (`X-Window-Token`) and
   `/ws/browser` (subprotocols `brain.v1` and `token.<token>`).
-- Planned for v0.5 (not built yet): `POST /api/connectors` and
+- v0.5 (2026-11-16): take-over: `POST /api/browser/take_over`, `/hand_back`,
+  `/stop_turn`; `BrowserState.mode`, `owner_until`, `owner_refused`.
+- Planned for v0.6 (not built yet): `POST /api/connectors` and
   `DELETE /api/connectors/{id}` to add and remove MCP connectors from Settings.

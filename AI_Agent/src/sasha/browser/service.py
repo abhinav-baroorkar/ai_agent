@@ -19,10 +19,12 @@ from pathlib import Path
 from typing import Any
 
 from sasha.browser.cdp import CDPError
-from sasha.browser.chrome import Chrome, start_chrome
+from sasha.browser.chrome import BrowserUnavailableError, Chrome, start_chrome
+from sasha.browser.cookies import keep_only_site_data
 from sasha.browser.history import forget_when_free
 from sasha.browser.profile import profile_dir
 from sasha.browser.proxy import FilteringProxy
+from sasha.browser.takeover_files import extensions_present
 
 log = logging.getLogger(__name__)
 
@@ -33,6 +35,7 @@ MAX_TURN_HOLD_S = 130.0
 
 
 BUSY = "The browser is in use by another bot; try again shortly"
+DRIVING = "The owner is using the browser right now; try again after it's handed back"
 
 
 class BrowserBusyError(RuntimeError):
@@ -74,6 +77,8 @@ class BrowserService:
         self._claims = 0  # +1 per turn claim, so a stale backstop can't end a newer one
         self._hold_timer: asyncio.TimerHandle | None = None
         self.listeners: list[Callable[[], None]] = []  # told of every state change
+        self.driving = False  # the owner's take-over is on (claimed before it starts)
+        self.keep_cookies_of: str | None = None  # after a take-over: only this site's (C3)
 
     def changed(self) -> None:
         for listener in list(self.listeners):
@@ -123,6 +128,8 @@ class BrowserService:
         A new holder gets the browser without the previous holder's tabs."""
         if owner_stops is not None and owner_stops != self.owner_stops:
             raise BrowserStoppedError("The owner stopped the browser")
+        if self.driving:  # the owner's take-over: every bot's step waits for hand-back
+            raise BrowserBusyError(DRIVING)
         busy = self.holder not in (None, bot_id) or (
             turn and self.turn_holder not in (None, bot_id)
         )
@@ -164,8 +171,19 @@ class BrowserService:
                 self.proxy = self.proxy_factory()
                 port = await self.proxy.start()
                 try:
+                    if extensions_present(profile_dir(self.data_dir)):  # C1: never run them
+                        raise BrowserUnavailableError(
+                            "Extensions appeared in the browser profile; it won't start"
+                        )
                     self.chrome = await self.starter(self.data_dir, port)
+                    if self.keep_cookies_of is not None:  # C3, before the first navigation
+                        await keep_only_site_data(self.chrome, self.keep_cookies_of)
+                        self.keep_cookies_of = None
                 except Exception:
+                    if self.chrome is not None:
+                        with contextlib.suppress(Exception):
+                            await self.chrome.stop()
+                        self.chrome = None
                     await self.proxy.stop()
                     self.proxy = None
                     raise
