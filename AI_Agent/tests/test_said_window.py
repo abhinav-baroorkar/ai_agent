@@ -234,3 +234,44 @@ def test_said_by_owner() -> None:
     assert said_by_owner("", "anything")
     assert said_by_owner("eggs", "remind me about the egg")  # a plural of his word
     assert not said_by_owner("unlock the front door", "remind me in 10 minutes")
+
+
+# --- re-review a507613: S1, S2 and the leading "no" ----------------------------------
+def test_a_left_out_device_doesnt_count() -> None:
+    names = {**NAMES, "light.hall": "Hall"}
+    bedroom = {"domain": "light", "service": "turn_off", "entity_id": "light.bedroom"}
+    kitchen = {"domain": "light", "service": "turn_off", "entity_id": "light.kitchen"}
+    hall = {"domain": "light", "service": "turn_off", "entity_id": "light.hall"}
+    said = "turn the kitchen light off, not the bedroom"
+    assert not device_change_said(said, bedroom, names)  # S1
+    assert device_change_said(said, kitchen, names)
+    assert not device_change_said("turn off the lights except the hall", hall, names)
+    assert not device_change_said("turn off everything but the hall", hall, names)
+    assert device_change_said("no, turn off the kitchen light", kitchen, names)  # the nit
+
+
+def test_a_field_keeps_exactly_the_owners_negations() -> None:
+    from sasha.said import said_by_owner
+
+    asked = "remind me at 5 to not call the bank"
+    assert not said_by_owner("call the bank", asked)  # S2: the "not" was dropped
+    assert said_by_owner("not call the bank", asked)
+    assert not said_by_owner("don't call the bank", "remind me to call the bank")
+    # the negations of his current message, not of the earlier one
+    assert said_by_owner("call the bank", "remind me to call the bank no idea", "remind me")
+
+
+def test_after_a_lookup_a_reminder_that_drops_the_owners_not_is_refused(
+    settings: Settings, tmp_path: Path
+) -> None:
+    ran: list[str] = []
+    schema: dict[str, Any] = {"type": "object", "properties": {"text": {}}}
+    remind = Tool("set_reminder", "r", schema, lambda text: ran.append(text) or {"ok": True},
+                  said_checked=True, said_fields=("text",))  # fmt: skip
+    a, llm, _, _, _ = _setup(settings, tmp_path, [remind])
+    _turn(a, llm, "look up x", ToolCall(BROWSE_TOOL, {"task": "x"}))
+    asked = "remind me at 5 to not call the bank"
+    _turn(a, llm, asked, ToolCall("set_reminder", {"text": "call the bank"}))
+    assert ran == []  # S2, through the orchestrator
+    _turn(a, llm, asked, ToolCall("set_reminder", {"text": "not call the bank"}))
+    assert ran == ["not call the bank"]
