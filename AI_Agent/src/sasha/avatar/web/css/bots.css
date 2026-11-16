@@ -25,6 +25,7 @@
 .bot-card { display: grid; gap: .7rem; align-content: start; padding: 1.15rem 1.25rem 1.05rem; background: rgb(22 31 43 / .85); border: 1px solid var(--line); border-radius: 18px; }
 .bot-card.main { border-color: color-mix(in srgb, var(--lamp) 45%, var(--line)); }
 .bot-card.new { border-style: dashed; background: none; }
+.bot-card.voice { background: rgb(22 31 43 / .55); }
 .bot-card .row { display: flex; align-items: center; gap: .8rem; min-width: 0; }
 .bot-card h3 { margin: 0 0 .15rem; font-size: 1.12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bot-card p { color: var(--muted); line-height: 1.5; font-size: .92rem; min-height: 2.8em; overflow-wrap: anywhere; }

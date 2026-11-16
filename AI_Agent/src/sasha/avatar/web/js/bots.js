@@ -5,7 +5,7 @@ import { $, h, icon, clear } from './dom.js';
 import { ChatView } from './chat.js';
 import { cleanBot, cleanConnector } from './clean.js';
 import { initBrowserPanel } from './browser-panel.js';
-import { miniOrb } from './faces/mini-orb.js';
+import { miniOrb, wakeOrbs } from './faces/mini-orb.js';
 import { colorOf, usesOf, purposeOf, STARTS } from './bot-look.js';
 import { initSetup } from './setup.js';
 
@@ -17,6 +17,7 @@ export function initBots(health) {
     cards: $('#bot-cards'), note: $('#bots-note'), chats: $('#chats'),
   };
   const name = health.assistant.name;
+  const MAIN = health.default_bot; // the main assistant; any other built-in bot is the wake word's
   const MAX_OPEN = health.max_chats; // the server caps conversations; Home keeps one of them
   let bots = [];
   let connectors = [];
@@ -27,7 +28,7 @@ export function initBots(health) {
   const panel = initBrowserPanel(health);
 
   const canBrowse = (bot) => connectors.some((c) => c.kind === 'browser' && bot.connectors.includes(c.id));
-  const look = (bot) => ({ color: colorOf(bot), uses: usesOf(bot, connectors), purpose: purposeOf(bot, name) });
+  const look = (bot) => ({ color: colorOf(bot), uses: usesOf(bot, connectors), purpose: purposeOf(bot, name, MAIN) });
   function orb(bot, size) {
     const key = `${bot.id}:${size}`;
     if (!orbs.has(key)) orbs.set(key, miniOrb(colorOf(bot), size));
@@ -59,8 +60,10 @@ export function initBots(health) {
     el.homeBox.hidden = false;
 
     // The page: a way to make one, the main assistant, then the rest
-    const main = bots.filter((b) => b.builtin);
-    clear(el.cards).append(newCard(), ...[...main, ...mine].map(card));
+    const main = bots.filter((b) => b.id === MAIN);
+    const voice = bots.filter((b) => b.builtin && b.id !== MAIN);
+    clear(el.cards).append(newCard(), ...[...main, ...voice, ...mine].map(card));
+    wakeOrbs(); // cached orbs were just put back on the page
 
     for (const chat of open.values()) chat.el.hidden = chat.bot.id !== active;
     const front = bots.find((b) => b.id === active);
@@ -75,14 +78,16 @@ export function initBots(health) {
 
   function card(bot) {
     const lk = look(bot);
-    const uses = bot.builtin ? `Main assistant · ${lk.uses.text.toLowerCase()}` : lk.uses.text;
-    return h('article', { class: `bot-card ${bot.builtin ? 'main' : ''}` },
+    const isMain = bot.id === MAIN;
+    const isVoice = bot.builtin && !isMain; // the wake word's bot: changeable, not a chat
+    const uses = isMain ? `Main assistant · ${lk.uses.text.toLowerCase()}` : isVoice ? `Wake word · ${lk.uses.text.toLowerCase()}` : lk.uses.text;
+    return h('article', { class: `bot-card ${isMain ? 'main' : isVoice ? 'voice' : ''}` },
       h('div', { class: 'row' }, orb(bot, 52), h('div', { style: 'min-width:0' }, h('h3', {}, bot.name),
         h('span', { class: 'uses', dataset: { kind: lk.uses.kind } }, uses))),
       h('p', {}, lk.purpose),
       h('div', { class: 'foot' },
-        h('button', { class: 'btn primary', type: 'button', onclick: () => go(bot.id) }, bot.builtin ? 'Chat in text' : 'Chat'),
-        h('button', { class: 'btn quiet', type: 'button', onclick: () => setup.begin({ bot }) }, 'Change'),
+        !isVoice && h('button', { class: 'btn primary', type: 'button', onclick: () => go(bot.id) }, isMain ? 'Chat in text' : 'Chat'),
+        h('button', { class: isVoice ? 'btn' : 'btn quiet', type: 'button', onclick: () => setup.begin({ bot }) }, 'Change'),
         open.has(bot.id) && h('span', { class: 'open-mark' }, 'Chat open')));
   }
 
@@ -126,7 +131,7 @@ export function initBots(health) {
 
   const setup = initSetup({
     health,
-    lists: () => ({ bots, connectors }),
+    lists: () => ({ bots, connectors, mainId: MAIN }),
     async saved(bot, isNew) {
       await load();
       if (isNew) go(cleanBot(bot).id); else location.hash = open.has(bot.id) && active === bot.id ? '#chat' : '#bots';

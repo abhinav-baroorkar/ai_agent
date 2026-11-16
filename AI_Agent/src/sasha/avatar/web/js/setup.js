@@ -8,7 +8,8 @@ import { STARTS, useWord } from './bot-look.js';
 import { miniOrb } from './faces/mini-orb.js';
 
 const WHY_ONE = (name) => 'Why only one? A web page can contain hidden instructions. A bot that reads the web is kept away ' +
-  `from your home and your accounts, so a page can’t tell it to do anything there. Browsing for ${name} is coming, through a separate helper.`;
+  `from your home and your accounts, so a page can’t tell it to do anything there. ${name} itself can’t browse the web yet; ` +
+  'a separate helper for that is planned but not built.';
 
 export function initSetup({ health, lists, saved, deleted }) {
   const root = $('#setup');
@@ -16,15 +17,15 @@ export function initSetup({ health, lists, saved, deleted }) {
   let models = [];
 
   function begin({ bot, start }) {
-    const { bots, connectors } = lists();
-    const main = bots.find((b) => b.builtin);
+    const { bots, connectors, mainId } = lists();
+    const main = bots.find((b) => b.id === mainId);
     const browser = connectors.find((c) => c.kind === 'browser');
     const own = connectors.filter((c) => c.kind !== 'browser');
     // from a card's starting point we skip to step 2; from scratch, step 1 opens on the first one
     const preset = STARTS.find((x) => x.id === start) || (bot ? null : STARTS[0]);
     const skip = !!start;
     s = {
-      bot: bot || null, step: bot ? 0 : skip ? 2 : 1, start: preset ? preset.id : 'web', browser, own,
+      mainId, bot: bot || null, step: bot ? 0 : skip ? 2 : 1, start: preset ? preset.id : 'web', browser, own,
       name: bot ? bot.name : preset ? preset.name : '', prompt: bot ? bot.system_prompt : preset ? preset.prompt : '',
       model: bot ? bot.model : main ? main.model : '', error: '', sure: false,
       use: bot ? (browser && bot.connectors.includes(browser.id) ? 'web' : bot.connectors.length ? 'own' : 'none') : preset ? preset.use : 'none',
@@ -77,7 +78,8 @@ export function initSetup({ health, lists, saved, deleted }) {
       h('input', { id: 'setup-name', type: 'text', maxLength: 40, value: s.name, disabled: locked, placeholder: 'Recipe helper', oninput: (ev) => { s.name = ev.target.value; } }),
       h('label', { for: 'setup-prompt' }, 'What it should do, in your own words'),
       h('textarea', { id: 'setup-prompt', rows: 5, value: s.prompt, disabled: locked, placeholder: 'What this bot is for and how it should answer.', oninput: (ev) => { s.prompt = ev.target.value; } }),
-      locked && h('p', { class: 'locked' }, 'The main assistant’s name and instructions are set in its own settings file, not here.'),
+      locked && h('p', { class: 'locked' }, s.bot.id === s.mainId ? 'The main assistant’s name and instructions are set in its own settings file, not here.'
+        : `This is the bot that answers the wake word. Its name and instructions follow ${health.assistant.name}’s; here you choose what it may use and which model it runs on.`),
       h('details', {}, h('summary', {}, 'More: which AI model it runs on'),
         h('select', { id: 'setup-model', 'aria-label': 'AI model', onchange: (ev) => { s.model = ev.target.value; } }, ...names.map((n) => {
           const m = models.find((x) => x.name === n);

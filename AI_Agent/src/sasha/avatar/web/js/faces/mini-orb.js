@@ -5,6 +5,7 @@ import { reducedMotion } from '../dom.js';
 import { Sphere } from './sphere.js';
 
 const FRAME_MS = 80; // about 12 pictures a second is plenty at this size
+const FORGET_MS = 5000;
 const IDLE = { idle: 1, listening: 0, thinking: 0, speaking: 0 };
 const orbs = new Set();
 let timer = null;
@@ -29,7 +30,8 @@ function tick() {
   let shown = 0;
   for (const orb of orbs) {
     if (!orb.canvas.isConnected) {
-      if (orb.seen) orbs.delete(orb); // it was on the page and has been removed
+      // gone from the page, or made and never put on it: forget it
+      if (orb.seen || now - orb.born > FORGET_MS) orbs.delete(orb);
       continue;
     }
     orb.seen = true;
@@ -37,12 +39,16 @@ function tick() {
     shown += 1;
     if (!calm || !orb.drawn) draw(orb, dt, now / 1000);
   }
-  if (!shown && [...orbs].every((o) => o.seen)) stop(); // nothing visible: stop until woken
+  if (!shown) stop(); // nothing visible: stop until woken (wakeOrbs, a route change, the window returning)
 }
 
 function stop() {
   clearInterval(timer);
   timer = null;
+}
+
+export function wakeOrbs() {
+  wake();
 }
 
 function wake() {
@@ -63,7 +69,7 @@ export function miniOrb(color, size = 40) {
   canvas.className = 'mini-orb';
   canvas.setAttribute('aria-hidden', 'true');
   const points = Math.round(Math.min(1100, 110 + size * 5));
-  orbs.add({ canvas, color, sphere: new Sphere(points, size < 60 ? 1 : 0.9), phase: Math.random() * 20, seen: false, drawn: false });
+  orbs.add({ canvas, color, sphere: new Sphere(points, size < 60 ? 1 : 0.9), phase: Math.random() * 20, seen: false, drawn: false, born: performance.now() });
   wake();
   return canvas;
 }

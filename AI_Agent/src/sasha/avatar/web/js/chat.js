@@ -5,7 +5,7 @@ import { initial } from './clean.js';
 import { renderMarkdown } from './md.js';
 import { VoiceInput, voiceSupported } from './voice-input.js';
 import { cssColor } from './bot-look.js';
-import { miniOrb } from './faces/mini-orb.js';
+import { miniOrb, wakeOrbs } from './faces/mini-orb.js';
 
 const HINT = 'Enter sends. Shift+Enter starts a new line.';
 // a refusal that means this server will never take voice on a chat: stop offering it
@@ -108,6 +108,7 @@ export class ChatView {
       this.orb.replaceChildren(miniOrb(look.color, 44));
     }
     this.input.placeholder = `Message ${bot.name}`;
+    wakeOrbs();
     if (this.log.querySelector('.log-empty')) this.showEmpty();
   }
 

@@ -26,6 +26,7 @@ export class VoiceInput {
     this.ender = null;
     this.backstops = [];
     this.stopMock = null;
+    this.sent = false; // audio_start has gone out for the recording in progress
   }
 
   get on() { return this.recording || this.starting; }
@@ -74,6 +75,7 @@ export class VoiceInput {
     this.conv.whenIdle(() => {
       if (mine !== this.attempt) return;
       this.conv.startAudio();
+      this.sent = true;
       held.splice(0).forEach((frame) => this.conv.sendAudio(frame));
       started = true;
       if (endWaiting) this.send();
@@ -118,11 +120,11 @@ export class VoiceInput {
     this.stopMock = null;
     this.backstops.forEach(clearTimeout);
     this.backstops = [];
-    if (wasRecording && tellServer) this.conv.stopAudio();
-    else if (wasRecording) {
-      this.conv.waiting = null;
-      this.conv.cancel();
-    }
+    const sent = this.sent;
+    this.sent = false;
+    if (wasRecording && !sent) this.conv.waiting = null; // still waiting to start: drop it, tell nobody
+    else if (wasRecording && tellServer) this.conv.stopAudio();
+    else if (wasRecording) this.conv.cancel(); // discard what the server has heard so far
     if (current === this) current = null;
     this.changed();
   }
