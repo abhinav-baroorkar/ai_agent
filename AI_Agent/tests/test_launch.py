@@ -12,6 +12,14 @@ from sasha.server.security import allowed_origins, is_loopback
 from sasha.server.voice import pcm_frames
 
 
+@pytest.fixture(autouse=True)
+def _chrome_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests are about the Chrome window: the fallback without the `app` extra."""
+    from sasha.app import launcher as app_launcher
+
+    monkeypatch.setattr(app_launcher, "available", lambda: False)
+
+
 def test_parser_has_serve_and_window() -> None:
     args = build_parser().parse_args(["serve", "--port", "9000"])
     assert args.command == "serve" and args.port == 9000 and args.host is None

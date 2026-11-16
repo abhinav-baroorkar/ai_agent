@@ -72,6 +72,8 @@ class Conversation(TimerSocket):  # the timer side: server/timers/socket.py
         self.language = language  # for typed turns; voice turns use the transcript's
         self.speaker: Speaker | None = None
         self.spoken: SpokenStream | None = None  # this turn's speakable text (speak=1)
+        self.times_word = "times"  # how "2*3" is said; the app sets it from prompt_lines
+        self.released = ""  # what this turn really showed and spoke (for the history)
         self.outbox: asyncio.Queue[Frame | None] = asyncio.Queue()
         self.stop = threading.Event()
         self.turn: asyncio.Task[None] | None = None
@@ -222,6 +224,7 @@ class Conversation(TimerSocket):  # the timer side: server/timers/socket.py
             self._emit_delta(rest)
 
     def _emit_delta(self, piece: str) -> None:
+        self.released += piece
         self.emit({"type": "reply_delta", "text": piece})
         if self.speaker is not None:
             self.speaker.feed(piece)
@@ -239,7 +242,8 @@ class Conversation(TimerSocket):  # the timer side: server/timers/socket.py
         self.speaker = self._make_speaker(language)
         # speak=1 (Home, the listener): markdown becomes speakable text, also in the
         # subtitles; bot chat tabs (speak=0) keep the model's text (server/spoken.py).
-        self.spoken = SpokenStream() if self.speak else None
+        self.spoken = SpokenStream(self.times_word) if self.speak else None
+        self.released = ""
         spoken = False
         try:
             self.state("thinking")
@@ -250,6 +254,10 @@ class Conversation(TimerSocket):  # the timer side: server/timers/socket.py
                     if rest := self.spoken.finish():
                         self._emit_delta(rest)
                     shown = self.spoken.text
+                # The history keeps what was shown and spoken, after both truth checks (a
+                # wake turn's correction, the timers' "Nothing was set."), and the
+                # speakable text on speak=1: not the model's raw text.
+                self.assistant.replace_reply(shown)
                 calls = [{"name": c["name"], "ok": c["ok"]} for c in reply.tool_calls]
                 self.emit(
                     {
@@ -266,6 +274,9 @@ class Conversation(TimerSocket):  # the timer side: server/timers/socket.py
                 # Stopped (or talked over) while it was still being spoken: the reply is
                 # in the history, but the model should know it wasn't all heard.
                 self.assistant.mark_interrupted()
+            elif reply is None and self.stop.is_set():
+                # Stopped while streaming: only what was released is remembered as said.
+                self.assistant.replace_reply(self.released, stopped=True)
             spoken = True
         except Exception as exc:  # never let one turn kill the connection
             log.error("Turn failed: %s", type(exc).__name__)

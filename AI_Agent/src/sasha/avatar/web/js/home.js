@@ -14,6 +14,8 @@ const LABEL = { idle: 'Ready', listening: 'Listening', thinking: 'Thinking', spe
 const params = new URLSearchParams(location.search);
 const HELD_FRAMES = 100; // 100 frames of 20 ms
 
+const WOKEN_MS = 8000; // how long it shows listening after a wake (the armed window and a command)
+
 export async function initHome(health, onOnline) {
   const el = {
     status: $('#home-status'), heard: $('#heard'), said: $('#said'), notice: $('#notice'),
@@ -46,6 +48,20 @@ export async function initHome(health, onOnline) {
   el.hint.hidden = canListen;
   if (!canListen) el.text.placeholder = `Type to talk to ${health.assistant.name}`;
 
+  // The app shell says the wake phrase was heard (`assistant-wake`): the entrance plays,
+  // then "listening" while the listener takes the command (visual only; the microphone
+  // is the listener's, and nothing here waits for the animation).
+  let wokenUntil = 0;
+  function woken() {
+    wokenUntil = performance.now() + WOKEN_MS;
+    if (face.enter) face.enter();
+    render();
+    setTimeout(render, WOKEN_MS + 50);
+  }
+  window.addEventListener('assistant-wake', woken);
+  // a wake that arrived while the page was still starting (the shell's cold start)
+  if (performance.now() - (window.assistantWokeAt ?? -1e9) < 3000) woken();
+
   face.setLevelSource(() => {
     if (player.active) return player.level();
     if (recording) return level;
@@ -58,7 +74,9 @@ export async function initHome(health, onOnline) {
   function render() {
     const phase = recording && ender ? ender.phase : ''; // waiting, speech, pause or finishing
     const state = player.active ? 'speaking' : serverState;
-    const shown = recording && state === 'idle' ? 'listening' : state;
+    // after the wake phrase brought the window up, the being listens with the listener
+    const woken = state === 'idle' && performance.now() < wokenUntil;
+    const shown = (recording || woken) && state === 'idle' ? 'listening' : state;
     face.setState(shown);
     el.mini.dataset.state = shown;
     el.status.dataset.tone = conv.online ? shown : 'offline';

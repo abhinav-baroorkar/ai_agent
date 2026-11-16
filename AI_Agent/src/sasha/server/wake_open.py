@@ -9,6 +9,7 @@ import logging
 from starlette.websockets import WebSocket
 
 from sasha.bots import VOICE_ID
+from sasha.prompting import prompt_lines
 from sasha.server.deps import ServerDeps
 from sasha.server.timers.hub import Hub
 from sasha.server.voice import VoiceStages
@@ -69,4 +70,5 @@ async def open_listener(
 
     conv.wake_prompt = wake_prompt
     assistant.system_prompt = wake_prompt()
+    conv.times_word = prompt_lines(settings).times_word
     return conv

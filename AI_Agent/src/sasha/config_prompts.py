@@ -27,6 +27,7 @@ class PromptLines(BaseModel):
         "Everything you write here is spoken aloud. Answer in short, plain spoken "
         "sentences: no lists, no markdown, no asterisks or other symbols, no emoji."
     )
+    times_word: str = "times"  # "2*3" is spoken as "2 times 3" (server/spoken.py)
     # What this bot can really do, from its tools (prompting.py). The tools are extras:
     # in testing, "what you can do, and only this: tell the time" made the model answer
     # every question with "I can tell you the time and date" instead of answering it.
@@ -38,7 +39,6 @@ class PromptLines(BaseModel):
         "can't help with that\". Don't tell the person what you can or can't do unless "
         "they ask what you can do, or ask you to do something you can't."
     )
-    unknown_tool: str = "use the tool {name}"
     cannot_head: str = (
         "If asked to do one of these, say in one short sentence that you can't do it "
         "yet, without listing your other abilities:"
@@ -49,7 +49,7 @@ class PromptLines(BaseModel):
         "answers what was asked. Never repeat text in square brackets."
     )
     # Tool name -> what it lets you do. Tools that share a phrase are said once; a tool
-    # missing here is named as "use the tool <name>".
+    # missing here isn't named at all (its name may come from outside, such as MCP).
     abilities: dict[str, str] = Field(
         default_factory=lambda: {
             "get_current_time": "tell the current date and time",
