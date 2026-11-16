@@ -24,6 +24,7 @@ from sasha.browser.cookies import keep_only_site_data
 from sasha.browser.history import forget_when_free
 from sasha.browser.profile import profile_dir
 from sasha.browser.proxy import FilteringProxy
+from sasha.browser.takeover_cleanup import finish_takeover, pending
 from sasha.browser.takeover_files import extensions_present
 
 log = logging.getLogger(__name__)
@@ -35,7 +36,10 @@ MAX_TURN_HOLD_S = 130.0
 
 
 BUSY = "The browser is in use by another bot; try again shortly"
-DRIVING = "The owner is using the browser right now; try again after it's handed back"
+DRIVING = (
+    "The owner is using the browser right now, or it is being cleaned up after; "
+    "try again after it's handed back"
+)
 
 
 class BrowserBusyError(RuntimeError):
@@ -171,6 +175,11 @@ class BrowserService:
                 self.proxy = self.proxy_factory()
                 port = await self.proxy.start()
                 try:
+                    if pending(self.data_dir):  # K2: a take-over the brain didn't finish
+                        try:
+                            self.keep_cookies_of = await finish_takeover(self.data_dir)
+                        except Exception as exc:
+                            raise BrowserUnavailableError(str(exc)) from None
                     if extensions_present(profile_dir(self.data_dir)):  # C1: never run them
                         raise BrowserUnavailableError(
                             "Extensions appeared in the browser profile; it won't start"

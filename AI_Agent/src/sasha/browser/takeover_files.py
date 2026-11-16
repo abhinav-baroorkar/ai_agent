@@ -6,8 +6,9 @@
 - C1, nothing lasting from his window: the configuration files are snapshotted before
   and restored after; extension folders are removed, and the next headless start is
   refused while any remain.
-- `seed_takeover_preferences`: permissions blocked, downloads into a folder that is
-  deleted at hand-back, autofill and password saving off. Unlike the counts-only seed,
+- `seed_takeover_preferences`: permissions blocked, downloads blocked (and, if Chrome
+  ignores that, kept in a folder that is deleted at hand-back), autofill and password
+  saving off. Unlike the counts-only seed,
   a failure here refuses the take-over.
 - `TAKEOVER_WIPE`: removed at hand-back on top of the usual history wipe.
 """
@@ -35,7 +36,13 @@ DOWNLOADS = "takeover-downloads"
 TAKEOVER_WIPE = (DOWNLOADS, "Default/Web Data", "Default/Web Data-journal",
                  "Default/Login Data", "Default/Login Data-journal")  # fmt: skip
 BLOCKED = ("media_stream_mic", "media_stream_camera", "geolocation", "notifications",
-           "usb_guard", "serial_guard", "hid_guard", "midi_sysex", "clipboard")  # fmt: skip
+           "usb_guard", "serial_guard", "hid_guard", "midi_sysex", "clipboard",
+           # review S1
+           "file_system_write_guard", "bluetooth_guard", "bluetooth_scanning", "nfc",
+           "idle_detection", "sensors", "window_placement", "local_fonts", "ar", "vr",
+           "automatic_downloads", "protocol_handlers", "payment_handler",
+           "storage_access")  # fmt: skip
+BLOCK_ALL_DOWNLOADS = 3  # Chrome's download_restrictions: block every download (S2)
 
 
 class TakeoverRefused(RuntimeError):
@@ -141,6 +148,7 @@ def seed_takeover_preferences(root: Path) -> None:
         prefs.setdefault("autofill", {}).update(profile_enabled=False, credit_card_enabled=False)
         downloads = root / DOWNLOADS
         downloads.mkdir(mode=0o700, exist_ok=True)
+        prefs["download_restrictions"] = BLOCK_ALL_DOWNLOADS  # a challenge needs none
         prefs["download"] = {
             "default_directory": str(downloads),
             "prompt_for_download": False,

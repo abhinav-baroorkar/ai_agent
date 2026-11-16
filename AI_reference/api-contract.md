@@ -202,13 +202,18 @@ body or a JSON body:
 | `POST /api/browser/stop_turn` | `{ok:true}`; "Stop it now" while a take-over waits for a running turn |
 
 `BrowserState` gains `mode`: `assistant` (normal), `waiting` (asked, a turn is finishing),
-`switching`, or `owner` (his window is open); `owner_until` (ISO time, while `owner`);
+`switching`, `owner` (his window is open), or `restoring` (the clean-up after his window
+didn't finish; bots stay refused and it retries every few seconds; a new take-over is
+refused meanwhile); `owner_until` (ISO time, while `owner`);
 and `owner_refused` (`{category:int}`, addresses his window tried that the guard refused,
 counted apart from the page's own). `POST /api/browser/stop` during a take-over hands
 back. While `mode` is not `assistant`, every bot's browser step answers "The owner is
-using the browser right now; try again after it's handed back". After hand-back only
-the search engine's cookies are kept; his history, tabs, downloads and form entries are
-forgotten, and any setting or extension he changed is undone.
+using the browser right now, or it is being cleaned up after; try again after it's
+handed back". After hand-back only the search engine's cookies are kept; his history,
+tabs, downloads, form entries and every site's own storage (local storage, IndexedDB,
+service workers) are forgotten, and any setting or extension he changed is undone, also
+after a brain crash mid take-over (the next start finishes the clean-up). Downloads are
+blocked in his window.
 
 WebSocket `/ws/browser` (one viewer):
 - Same Host and Origin checks as `/ws`, and an `Origin` header is required (the

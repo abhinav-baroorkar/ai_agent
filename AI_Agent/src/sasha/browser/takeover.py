@@ -13,8 +13,13 @@ Modes: `assistant` (headless, normal), `waiting` (asked; a running turn is finis
    page only (C2). The death-signal wrapper ends it with the brain.
 4. Hand-back: the window closes (by him, the button or the time limit). The process must
    be fully gone (`wait_until_free`); then the configuration is restored, extensions
-   removed, the take-over files and the usual history wiped. The next headless start
-   keeps only the engine's cookies (C3). A failed start goes straight back (S2).
+   removed, the take-over files, the sites' storage (K1) and the usual history wiped.
+   The next headless start keeps only the engine's cookies (C3). A failed start goes
+   straight back (S2).
+- A marker written before the switch and removed only after a full restore lets the
+  next headless start finish the job after a crash (K2, takeover_cleanup.py).
+- A restore that fails stays in `restoring`: bots stay refused, and it retries (K3).
+- Hand-back during the switch cancels the switch first; both run under one lock (K4).
 """
 
 from __future__ import annotations
@@ -32,20 +37,23 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from sasha.browser.chrome import find_chrome
-from sasha.browser.history import forget_history
 from sasha.browser.profile import prepare_profile, wait_until_free
 from sasha.browser.proxy import FilteringProxy
 from sasha.browser.redirects import site_of
 from sasha.browser.service import BrowserService
+from sasha.browser.takeover_cleanup import (
+    RestoreIncomplete,
+    finish_takeover,
+    pending,
+    snapshot_path,
+    write_marker,
+)
 from sasha.browser.takeover_files import (
     TakeoverRefused,
-    clear_extensions,
     engine_home,
-    restore_config,
     seed_takeover_preferences,
     snapshot_config,
     visible_flags,
-    wipe_takeover_files,
 )
 from sasha.listener.capture import with_death_signal
 from sasha.server.launch import browser_env
@@ -56,6 +64,7 @@ MAX_OWNER_S = 900.0  # 15 minutes, then the server hands back (design 9.5)
 WARN_BEFORE_S = 120.0  # the panel warns from 13 minutes
 WAIT_FOR_TURN_S = 135.0  # a running turn's own limits end it before this
 EXIT_WAIT_S = 3.0  # SIGTERM, then SIGKILL
+RETRY_S = 5.0  # a restore that failed is tried again this often (K3)
 
 
 class TakeOver:
@@ -79,6 +88,8 @@ class TakeOver:
         self.proxy: FilteringProxy | None = None
         self.process: Any = None
         self._task: asyncio.Task[None] | None = None
+        self._retry: asyncio.Task[None] | None = None
+        self._launching: asyncio.Future[None] | None = None
         self._lock = asyncio.Lock()
 
     @property
@@ -87,7 +98,11 @@ class TakeOver:
 
     @property
     def snapshot(self) -> Path:
-        return self.service.data_dir / "browser-takeover-config"
+        return snapshot_path(self.service.data_dir)
+
+    def engine_site(self) -> str:
+        host = urlsplit(self.search_template() or "").hostname or ""
+        return site_of(host) if host else ""
 
     def state(self) -> dict[str, Any]:
         until = self.owner_until.isoformat(timespec="seconds") if self.owner_until else None
@@ -101,6 +116,8 @@ class TakeOver:
     # --- starting -----------------------------------------------------------------------
     async def start(self) -> None:
         """Begin a take-over (returns at once; the switch runs in the background)."""
+        if self.mode == "restoring":
+            raise TakeoverRefused("The browser is still being cleaned up after the last take-over")
         if self.mode != "assistant":
             raise TakeoverRefused("The owner is already driving the browser")
         if not self.has_display():
@@ -108,6 +125,13 @@ class TakeOver:
         if find_chrome() is None:
             raise TakeoverRefused("Chrome or Chromium is not installed")
         self.service.driving = True  # from now on no browser step starts
+        try:
+            if pending(self.service.data_dir):  # the last one isn't undone yet (K2)
+                await finish_takeover(self.service.data_dir)
+            write_marker(self.service.data_dir, self.engine_site())  # K2, before anything
+        except Exception as exc:
+            self.service.driving = False
+            raise TakeoverRefused(f"The browser can't be handed over now ({exc})") from None
         self._set("waiting")
         self._task = asyncio.get_running_loop().create_task(self._switch_to_owner())
 
@@ -119,22 +143,28 @@ class TakeOver:
 
     async def _switch_to_owner(self) -> None:
         try:
-            deadline = self.clock() + WAIT_FOR_TURN_S
-            while (self.service.turn_holder or self.service.holder) and self.clock() < deadline:
-                await asyncio.sleep(0.2)
-            if self.service.turn_holder is not None:  # a hung turn: its limits failed
-                self.stop_turn()
-            self._set("switching")
-            await self.service.stop("take_over")  # the usual wipe runs after Chrome exits
-            root = self.root
-            if not await wait_until_free(root):
-                raise TakeoverRefused("The assistant's browser didn't close")
-            snapshot_config(root, self.snapshot)  # C1
-            seed_takeover_preferences(root)
-            await self._launch(root)
+            async with self._lock:  # K4: hand-back cancels this first, then takes the lock
+                deadline = self.clock() + WAIT_FOR_TURN_S
+                while (self.service.turn_holder or self.service.holder) and self.clock() < deadline:
+                    await asyncio.sleep(0.2)
+                if self.service.turn_holder is not None:  # a hung turn: its limits failed
+                    self.stop_turn()
+                self._set("switching")
+                await self.service.stop("take_over")  # the usual wipe runs after Chrome exits
+                root = self.root
+                if not await wait_until_free(root):
+                    raise TakeoverRefused("The assistant's browser didn't close")
+                snapshot_config(root, self.snapshot)  # C1
+                seed_takeover_preferences(root)
+                # K4: the launch itself finishes even if the switch is cancelled, so the
+                # process is always recorded and hand-back can end it
+                self._launching = asyncio.ensure_future(self._launch(root))
+                await asyncio.shield(self._launching)
         except Exception as exc:  # S2: anything failed: wipe and go straight back
             log.warning("Take-over didn't start (%s)", type(exc).__name__)
-            await self._restore()
+            async with self._lock:
+                await self._end_process()
+                await self._restore()
             return
         self.owner_until = datetime.now().astimezone() + timedelta(seconds=MAX_OWNER_S)
         self._set("owner")
@@ -170,6 +200,15 @@ class TakeOver:
         await self.hand_back()
 
     async def hand_back(self) -> None:
+        task = self._task
+        if task is not None and not task.done() and task is not asyncio.current_task():
+            task.cancel()  # K4: a switch still in flight never launches after this
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
+        launching = self._launching
+        if launching is not None and not launching.done():
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await launching  # its process is recorded, then ended below
         async with self._lock:
             if self.mode == "assistant":
                 return
@@ -192,24 +231,36 @@ class TakeOver:
                 await asyncio.wait_for(proc.wait(), 5.0)
 
     async def _restore(self) -> None:
-        """Back to the assistant's browser, with nothing lasting from the owner's window."""
+        """Back to the assistant's browser, with nothing lasting from the owner's window.
+        Never `assistant` with the restore incomplete (K3): then `restoring`, bots still
+        refused, the marker kept, and a retry every RETRY_S."""
+        # C3 first, so it holds whatever happens next: only the engine's cookies
+        self.service.keep_cookies_of = self.engine_site()
+        if self.proxy is not None:
+            await self.proxy.stop()
+            self.proxy = None
+        self.owner_until = None
         try:
-            root = self.root
-            if await wait_until_free(root):  # never touch the profile under a live Chrome
-                if self.snapshot.exists():
-                    restore_config(root, self.snapshot)
-                clear_extensions(root)
-                wipe_takeover_files(root)
-                forget_history(root)
-            else:
-                log.warning("Take-over: the profile is still in use; cleaned at next start")
-            # C3 at the next headless start: only the engine's cookies (none if no engine)
-            host = urlsplit(self.search_template() or "").hostname or ""
-            self.service.keep_cookies_of = site_of(host) if host else ""
-        finally:
-            if self.proxy is not None:
-                await self.proxy.stop()
-                self.proxy = None
-            self.owner_until = None
-            self.service.driving = False
-            self._set("assistant")
+            self.service.keep_cookies_of = await finish_takeover(self.service.data_dir)
+        except RestoreIncomplete as exc:
+            log.warning("Take-over: %s; trying again", exc)
+            self._set("restoring")
+            if self._retry is None or self._retry.done():
+                self._retry = asyncio.get_running_loop().create_task(self._retry_restore())
+            return
+        self.service.driving = False
+        self._set("assistant")
+
+    async def _retry_restore(self) -> None:
+        while self.mode == "restoring":
+            await asyncio.sleep(RETRY_S)
+            async with self._lock:
+                if self.mode != "restoring":
+                    return
+                try:
+                    self.service.keep_cookies_of = await finish_takeover(self.service.data_dir)
+                except RestoreIncomplete as exc:
+                    log.warning("Take-over: %s; trying again", exc)
+                    continue
+                self.service.driving = False
+                self._set("assistant")
