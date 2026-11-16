@@ -107,8 +107,23 @@ def restore_config(root: Path, keep: Path) -> None:
     shutil.rmtree(keep, ignore_errors=True)
 
 
+# Where an installed extension lives: one folder per extension id. Chrome itself makes
+# the other EXTENSION_DIRS (Extension State, Rules, Scripts: empty LevelDBs) at every
+# start, also headless with no extension at all (measured 2026-11-16), so they never
+# count; "Temp" is Chrome's own unpack folder.
+INSTALLED = "Default/Extensions"
+NOT_AN_EXTENSION = frozenset({"Temp"})
+
+
 def extensions_present(root: Path) -> bool:
-    return any((root / rel).is_dir() and any((root / rel).iterdir()) for rel in EXTENSION_DIRS)
+    """C1: a real installed extension (a folder in Default/Extensions), never Chrome's
+    own state databases; a link there counts too (fails closed)."""
+    folder = root / INSTALLED
+    if folder.is_symlink():
+        return True
+    if not folder.is_dir():
+        return False
+    return any(entry.name not in NOT_AN_EXTENSION for entry in folder.iterdir())
 
 
 def clear_extensions(root: Path) -> None:
