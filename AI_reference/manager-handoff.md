@@ -47,21 +47,25 @@ only for now; satellites on other devices come later.
 
 ## Resume here: work in flight (2026-11-16)
 
-Written so work can restart cleanly if sessions stop. `main` is `b6a754a`. Branch heads are the
+Written so work can restart cleanly if sessions stop. `main` is `49d14c7`. Branch heads are the
 commits named in the reviews at the time of writing; check `git log` before relying on one.
 
 **Merged and pushed since the last handoff:** `feat/autostart-window` (`c88784f`),
 `feat/browse-helper` (`a507613`), `feat/browser-takeover` (`9db9b10`), `fix/style-message-test`
-(`6ada5d0`). `main` is `b6a754a`: 1318 passed, 6 skipped, 2 deselected (the real-Chrome file).
+(`6ada5d0`). `main` was `b6a754a` then: 1318 passed, 6 skipped, 2 deselected (the real-Chrome file).
 Contract is v0.5.1 (take-over v0.5, web lookups v0.5.1). Window-at-login is turned on: the manager
-ran `sasha autostart on --yes` at 01:18 on 2026-11-16.
+ran `sasha autostart on --yes` on 2026-11-16.
+
+**Also merged since:** `fix/browser-restoring` (`c640725`: the browser panel shows the clean-up after
+a hand-back), `feat/calc-tools` (`86fde8e`: calculate and convert tools, exact decimals, bounded,
+never `eval`) and `fix/said-followups` (`49d14c7`: a negated or excluded device isn't named;
+reminder text keeps the owner's negations; both open items from the browse-helper review).
+`main` is `49d14c7`: 1427 passed.
 
 **Still in the reviewer's queue or in progress** (the last status I was given; the review files in
-`Dependencies/team/reviews/` hold the detail): `feat/calc-tools` (calculation tools),
-`feat/memory-server` (memory on the server; it needed the browse helper's said-check, now on
-`main`) and `feat/memory-ui` (the Design expert's part, against contract v0.6). Two follow-ups from
-the browse-helper review are expected: an excluded target can still count, and the owner-words
-check drops a negation (see `decisions.md`).
+`Dependencies/team/reviews/` hold the detail): `feat/memory-server` (memory on the server; it needed
+the browse helper's said-check, now on `main`) and `feat/memory-ui` (the Design expert's part,
+against contract v0.6).
 
 **Design only (no code):** `media-design.md` (media control through MPRIS). Owner defaults: a
 `wpctl` fallback capped at 0.6, no titles in v1, "stop" means pause.
@@ -78,9 +82,9 @@ check drops a negation (see `decisions.md`).
 
 ## State of `main`
 
-- `main` is `b6a754a` (2026-11-16; all pushed): 1318 passed, 6 skipped, 2 deselected (the real-Chrome
-  file); contract v0.5.1. At `fe710d8` (just after midnight) timers had merged with 1213 passed. Timers, alarms and reminders (`feat/timers-server`,
-  `fix/timer-days`) and `fix/narrow-topbar` merged at 00:18; see `devlog/2026-11-16.md`. Earlier: `f316d6f` had 840 passed. API contract is v0.4.4 (bots carry a breathing style). Merged since `5e89c34` (details in `devlog/2026-11-15.md`):
+- `main` is `49d14c7` (2026-11-16; all pushed): 1427 passed; contract v0.5.1. (At `b6a754a`: 1318
+  passed, 6 skipped, 2 deselected, the real-Chrome file.) At `fe710d8` timers had merged with 1213 passed. Timers, alarms and reminders (`feat/timers-server`,
+  `fix/timer-days`) and `fix/narrow-topbar` merged on 2026-11-16; see `devlog/2026-11-16.md`. Earlier: `f316d6f` had 840 passed. API contract is v0.4.4 (bots carry a breathing style). Merged since `5e89c34` (details in `devlog/2026-11-15.md`):
   Talk ends by itself; plain-text spoken replies and real-ability prompts; wake phrase "hey" plus
   the name with a speech-to-text hint; truthful wake answers; the app window (Qt WebEngine, optional
   `app` extra, Chrome window as fallback with `sasha window --chrome`, opened by the wake phrase);

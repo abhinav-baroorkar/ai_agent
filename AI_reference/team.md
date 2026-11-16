@@ -116,9 +116,11 @@ One role per session. Add or drop roles as the work needs.
 
 ### Allowed writes outside the project (owner)
 
-The owner has allowed exactly these writes outside the project folder. Each is made only by a
-`sasha` command that the manager runs after the feature is merged, never by a session directly.
-Each generated file carries a marker, and `off` removes only marked files.
+The owner has allowed exactly these writes outside the project folder. Except for the unit links
+and the memory folder (below), each is made only by a `sasha` command that the manager runs after
+the feature is merged, never by a session directly. Each file such a command generates carries a
+marker, and `off` removes only marked files. The unit links are symlinks (no marker inside), and
+the memory folder is not made by a `sasha` command.
 
 - The systemd user unit links for the brain and the listener (2026-11-14): symlinks to the unit
   files that live inside the project, under the home config folder (`~/.config/systemd/user/`),

@@ -728,10 +728,14 @@ Reviewed at `a507613` (LGTM; two should-fixes left for a follow-up, below). Deci
   the previous one; glue words and plurals are allowed; cancel and snooze fail closed. Why: a page
   must not be able to put words into a reminder that is spoken at ring time.
 - **Relaxation of the memory action rule (supersedes, for the target only, the rule in the 2026-11-15
-  memory entry).** The device and action may now be named in the owner's last 2 messages within 3
-  minutes, not only in the current message, so "turn it off" after "is the bedroom light on?" works.
-  Reviewed: a different device named now than earlier, or a negation ("don't turn it off"), is still
-  refused. This entry changes only where the target may be named.
+  memory entry).** The device (never the action) may now be named in the owner's last 2 messages
+  within 3 minutes, but only when the current message names no device of its own; locks, alarm
+  panels and covers never carry a device over. "Turn it off" after "is the bedroom light on?" works;
+  "turn off the TV" after it can't reach the bedroom light. Reviewed: a different device named now
+  than earlier, or a negation ("don't turn it off"), is still refused. The action always comes from
+  the current message. When it takes effect: the earlier messages are used only on bots with memory
+  (`always_guard`), which arrive with `feat/memory-server`; until that merges, `main` behaves as
+  before. This entry changes only where the target may be named.
 - **Known open items, from the review (a follow-up is expected):** an excluded target can still
   count ("turn the kitchen light off, not the bedroom" passes the bedroom); the owner-words check
   drops a negation ("remind me not to call the bank" can pass "call the bank").
@@ -742,13 +746,20 @@ Reviewed at `a507613` (LGTM; two should-fixes left for a follow-up, below). Deci
 
 - **The owner can drive the assistant's browser in a visible window for up to 15 minutes.** The
   brain is disconnected while the owner drives (no automation connection, no screenshots), and hand-back
-  is by restarting the assistant's own headless browser, which starts blank on its next use. Why:
+  is by restarting the assistant's own headless browser, which starts with only the search engine's
+  cookies on its next use. Why:
   the owner sometimes has to solve a person-check; 15 minutes bounds it; a forgotten window must not
   keep the bots out of the browser.
 - **On hand-back, downloads, form data, logins and history are wiped and only the search engine's
   cookies are kept.** Why: the wipe means nothing the owner typed stays for a bot to see; the search
-  engine's cookie is kept so the check stays solved. The review at `9db9b10` found the wipe now also
-  covers caches, shared storage, trust tokens, reporting data and the browser's own cache folder.
+  engine's cookie is kept so the check stays solved. The wipe also covers the site storage (local
+  storage, IndexedDB, service workers and the rest), which is the main reason a sign-in cannot
+  survive, plus caches, shared storage, trust tokens, reporting data and the browser's own cache
+  folder (the review at `9db9b10`).
+- **A crash in the middle of a take-over is finished at the next start,** from a marker file. **The
+  browser never returns to the bots until the clean-up has fully succeeded:** it stays in a
+  `restoring` state and says why after 3 tries (the panel shows it; `fix/browser-restoring`).
+  Why: a half-wiped profile must never be handed back to a bot.
 - **Owner decision, 2026-11-16: the assistant's browser keeps no sign-ins.** After a take-over
   everything is wiped except the search engine's cookies. Why: a page can try to steer a bot, and a
   bot signed in to the owner's accounts could act in them; the owner chose the recommended, simpler
@@ -769,6 +780,18 @@ Reviewed at `a507613` (LGTM; two should-fixes left for a follow-up, below). Deci
   instead of starting its own, so two brains can never clash on one port. The check that the brain
   is up refuses redirects (a redirect counts as "not up"; a probe with a local server answering 302
   to a second server sent that second server 0 requests).
-- The entry is written only by `sasha autostart on --yes`, which the manager ran at 01:18 on
+- The entry is written only by `sasha autostart on --yes`, which the manager ran on
   2026-11-16 after the merge; `sasha autostart off` removes it. See the new list of allowed writes
   outside the project in `team.md`.
+
+## 2026-11-16 — Follow-ups to the browse helper and the take-over are merged (appended)
+
+- **`fix/said-followups` (`c715fad`, merged as `49d14c7`) fixes the two open items** noted in the
+  browse-helper entry above: a negated or excluded device is no longer counted as named ("turn the
+  kitchen light off, not the bedroom" no longer passes the bedroom), and reminder text keeps the
+  owner's negations ("remind me not to call the bank" no longer passes "call the bank"). Reviewed
+  LGTM.
+- **`fix/browser-restoring` (merged as `c640725`)** makes the browser panel show the clean-up after
+  a hand-back (the `restoring` state named in the take-over entry above).
+- **`feat/calc-tools` (merged as `86fde8e`):** calculate and convert tools with exact decimals,
+  bounded, never `eval`.
