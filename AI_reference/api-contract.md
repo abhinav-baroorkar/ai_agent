@@ -259,12 +259,12 @@ WebSocket `/ws/browser` (one viewer):
   the window only over `/ws/browser`. `agent` is `working` for the whole turn and pushed
   at once; `guard.refused` counts only the pages' own refusals, the rest is
   `background_refused`.
-- v0.4.3 (2026-11-16): `wake` misses carry `reason` (a label, never text). The wake
+- v0.4.3 (2026-11-15): `wake` misses carry `reason` (a label, never text). The wake
   phrase is "hey" plus the name (assistant.yaml), not the name alone.
-- v0.4.4 (2026-11-16): `Bot.style` (the orb's breathing style), default `glow`.
-- v0.4.5 (2026-11-16): the window token on `/api/browser*` (`X-Window-Token`) and
+- v0.4.4 (2026-11-15): `Bot.style` (the orb's breathing style), default `glow`.
+- v0.4.5 (2026-11-15): the window token on `/api/browser*` (`X-Window-Token`) and
   `/ws/browser` (subprotocols `brain.v1` and `token.<token>`).
-- v0.5 (2026-11-16): take-over: `POST /api/browser/take_over`, `/hand_back`,
+- v0.5 (2026-11-15): take-over: `POST /api/browser/take_over`, `/hand_back`,
   `/stop_turn`; `BrowserState.mode`, `owner_until`, `owner_refused`.
 - Planned for v0.6 (not built yet): `POST /api/connectors` and
   `DELETE /api/connectors/{id}` to add and remove MCP connectors from Settings.
