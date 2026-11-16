@@ -27,7 +27,7 @@ export async function mockFetch(method, path, body) {
     if (method === 'GET') return { bots: copy(data.bots) };
     if (method === 'POST') {
       if (!body.name) throw fail(400, 'A bot needs a name.');
-      const made = { id: `b-${nextId++}`, system_prompt: '', connectors: [], ...body, builtin: false };
+      const made = { id: `b-${nextId++}`, system_prompt: '', connectors: [], style: 'glow', ...body, builtin: false };
       data.bots.push(made);
       return copy(made);
     }

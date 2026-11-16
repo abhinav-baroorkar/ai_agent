@@ -103,9 +103,9 @@ export class ChatView {
     this.usesTag.textContent = look.uses.text;
     this.usesTag.dataset.kind = look.uses.kind;
     this.el.style.setProperty('--hue', cssColor(look.color));
-    if (this.orbColor !== String(look.color)) {
-      this.orbColor = String(look.color);
-      this.orb.replaceChildren(miniOrb(look.color, 44));
+    if (this.orbKey !== `${look.color}:${look.style}`) {
+      this.orbKey = `${look.color}:${look.style}`;
+      this.orb.replaceChildren(miniOrb(look.color, 44, { style: look.style }));
     }
     this.input.placeholder = `Message ${bot.name}`;
     wakeOrbs();
@@ -136,7 +136,7 @@ export class ChatView {
 
   showEmpty() {
     this.log.replaceChildren(h('div', { class: 'log-empty' },
-      miniOrb(this.look.color, 84),
+      miniOrb(this.look.color, 84, { style: this.look.style }),
       h('strong', {}, this.bot.name),
       h('p', {}, this.look.purpose),
       h('p', { class: 'hint' }, `${this.look.uses.text}. Runs on ${this.bot.model}, on this computer.`)));

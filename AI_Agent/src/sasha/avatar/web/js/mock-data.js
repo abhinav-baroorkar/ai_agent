@@ -22,9 +22,9 @@ export const bots = [
   { id: 'main', name: health.assistant.name, model: 'example-chat:12b', system_prompt: 'The main house assistant.', connectors: ['home_assistant'], builtin: true },
   // the server's own wake-word bot: built in, named after the main assistant
   { id: 'voice', name: `${health.assistant.name} (wake word)`, model: 'example-chat:12b', system_prompt: 'The main house assistant.', connectors: ['home_assistant'], builtin: true },
-  { id: 'b-web', name: 'Web researcher', model: 'example-chat:12b', system_prompt: 'Look things up and say where you found them.', connectors: ['browser'], builtin: false },
-  { id: 'b-recipes', name: 'Recipe helper', model: 'example-large:20b', system_prompt: 'Suggest simple dinners from a list of ingredients. Keep steps short.', connectors: [], builtin: false },
-  { id: 'b-mail', name: 'Mail drafter', model: 'example-chat:12b', system_prompt: 'Draft polite, short replies. Never invent facts. Drafts only.', connectors: ['gmail'], builtin: false },
+  { id: 'b-web', name: 'Web researcher', model: 'example-chat:12b', system_prompt: 'Look things up and say where you found them.', connectors: ['browser'], style: 'gale', builtin: false },
+  { id: 'b-recipes', name: 'Recipe helper', model: 'example-large:20b', system_prompt: 'Suggest simple dinners from a list of ingredients. Keep steps short.', connectors: [], style: 'bloom', builtin: false },
+  { id: 'b-mail', name: 'Mail drafter', model: 'example-chat:12b', system_prompt: 'Draft polite, short replies. Never invent facts. Drafts only.', connectors: ['gmail'], style: 'ember', builtin: false },
 ];
 
 // Same fields the real server returns. Addresses and tokens are secrets, so they never appear in settings.

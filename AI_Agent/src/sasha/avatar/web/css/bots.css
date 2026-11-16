@@ -71,7 +71,7 @@
 .setup-foot { display: flex; align-items: center; gap: .6rem; padding-top: .4rem; max-width: 46rem; }
 .setup section { display: grid; gap: .8rem; }
 .setup section + section { padding-top: 1rem; border-top: 1px solid var(--line); }
-.danger-zone { max-width: 46rem; display: flex; flex-wrap: wrap; align-items: center; gap: .7rem; }
+.setup section.danger-zone, .danger-zone { max-width: 46rem; display: flex; flex-wrap: wrap; align-items: center; gap: .7rem; }
 .danger-zone p { flex: 1 1 16rem; color: var(--muted); font-size: .9rem; line-height: 1.5; }
 
 /* ---------- In a chat ---------- */
@@ -92,3 +92,18 @@
 /* Away from Home the microphone sign sits in the empty middle of the top bar, so it
    never covers the message box it belongs to. */
 body:has(#work:not([hidden])) .mic-on { bottom: auto; top: 12px; }
+
+/* ---------- How it breathes ---------- */
+.picker { display: grid; grid-template-columns: minmax(0, 1fr) 15rem; gap: 1.2rem; max-width: 52rem; align-items: start; }
+.styles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.style-opt { display: grid; justify-items: center; gap: .2rem; padding: .5rem .3rem .55rem; border-radius: 14px; cursor: pointer;
+  background: rgb(22 31 43 / .85); border: 1px solid var(--line); font-size: .88rem; }
+.style-opt:hover { border-color: color-mix(in srgb, var(--lamp) 40%, var(--line)); }
+.style-opt[aria-checked="true"] { border-color: var(--lamp); box-shadow: 0 0 0 1px var(--lamp) inset; }
+.preview { display: grid; justify-items: center; gap: .4rem; padding: .9rem; text-align: center; border-radius: 18px; background: rgb(17 24 34 / .7); border: 1px solid var(--line); }
+.preview p { color: var(--muted); font-size: .86rem; line-height: 1.45; }
+.preview .hint { font-size: .76rem; color: #6c7a8b; }
+.state-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: .3rem; }
+.chip-btn { padding: .2rem .65rem; border-radius: 99px; font-size: .78rem; cursor: pointer; color: var(--muted); background: var(--surface); border: 1px solid var(--line); }
+.chip-btn[aria-checked="true"] { color: var(--text); border-color: var(--listen); }
+@media (max-width: 900px) { .picker { grid-template-columns: 1fr; } }
