@@ -13,6 +13,7 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
@@ -25,7 +26,10 @@ from sasha.browser.proxy import FilteringProxy
 from sasha.browser.reader import clean
 from sasha.browser.screencast import Screencast
 from sasha.browser.service import BrowserService
+from sasha.browser.takeover import TakeOver
+from sasha.browser.takeover_files import TakeoverRefused
 from sasha.server.security import is_loopback
+from sasha.server.window_token import HEADER, PROTOCOL, WindowToken, remove_token, write_token
 
 log = logging.getLogger(__name__)
 
@@ -43,8 +47,10 @@ class BrowserView:
         service: BrowserService | None,
         enabled: Callable[[], bool],
         holder_bot: Callable[[str], dict[str, str] | None] = lambda holder: None,
+        takeover: TakeOver | None = None,
     ) -> None:
         self.service = service
+        self.takeover = takeover  # the owner driving his own window (design §9)
         self.enabled = enabled  # the connector's switch in Settings
         self.holder_bot = holder_bot  # holder id -> {id, name} of the bot, from the store
         self.viewers = 0
@@ -64,6 +70,11 @@ class BrowserView:
             "holder_bot": None,
             "tabs": [],
             "guard": guard,
+            **(
+                self.takeover.state()
+                if self.takeover is not None
+                else {"mode": "assistant", "owner_until": None, "owner_refused": {}}
+            ),
         }
         if service is None or not self.running():
             return out
@@ -93,7 +104,10 @@ class BrowserView:
         return out
 
     async def stop(self) -> None:
-        if self.service is not None:
+        """Stop the browser; during a take-over, that is a hand-back."""
+        if self.takeover is not None and self.takeover.mode != "assistant":
+            await self.takeover.hand_back()
+        elif self.service is not None:
             await self.service.stop("owner")
 
     # --- the socket -------------------------------------------------------------------
@@ -246,11 +260,21 @@ def add_browser_routes(app: FastAPI, deps: Any) -> BrowserView:
         via = "helper" if holder in getattr(connector, "helper_holders", ()) else "direct"
         return {"id": bot.id, "name": bot.name, "via": via}
 
-    view = BrowserView(bridge.service if bridge is not None else None, enabled, holder_bot)
+    def search_template() -> str | None:
+        rows = [c for c in deps.connectors.all() if c.get("id") == "browser"]
+        return (rows[0].get("settings") or {}).get("search_template") if rows else None
+
+    service = bridge.service if bridge is not None else None
+    takeover = TakeOver(service, search_template) if service is not None else None
+    view = BrowserView(service, enabled, holder_bot, takeover)
+
+    token = deps.window_token
 
     def refused(request: Request) -> JSONResponse | None:
         if not _local(request.client.host if request.client else None):
             return JSONResponse({"error": "Loopback only"}, status_code=403)
+        if not token.matches(request.headers.get(HEADER)):
+            return JSONResponse({"error": "Open the window with `sasha window`"}, status_code=401)
         if not _fetch_site_ok(request):
             return JSONResponse({"error": "Cross-site request not allowed"}, status_code=403)
         return None
@@ -270,9 +294,47 @@ def add_browser_routes(app: FastAPI, deps: Any) -> BrowserView:
         await view.stop()
         return {"ok": True}
 
+    async def no_body(request: Request) -> JSONResponse | None:
+        body = await request.body()
+        media = request.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+        if body and media != "application/json":
+            return JSONResponse({"error": "Send JSON or no body"}, status_code=415)
+        return None
+
+    @app.post("/api/browser/take_over", response_model=None)
+    async def browser_take_over(request: Request) -> Any:
+        if (no := refused(request) or await no_body(request)) is not None:
+            return no
+        if takeover is None or not enabled():
+            return JSONResponse({"error": "The browser is off in Settings"}, status_code=409)
+        try:
+            await takeover.start()
+        except TakeoverRefused as exc:
+            return JSONResponse({"error": str(exc)}, status_code=409)
+        return {"ok": True}
+
+    @app.post("/api/browser/hand_back", response_model=None)
+    async def browser_hand_back(request: Request) -> Any:
+        if (no := refused(request) or await no_body(request)) is not None:
+            return no
+        if takeover is not None:
+            await takeover.hand_back()
+        return {"ok": True}
+
+    @app.post("/api/browser/stop_turn", response_model=None)
+    async def browser_stop_turn(request: Request) -> Any:
+        if (no := refused(request) or await no_body(request)) is not None:
+            return no
+        if takeover is not None:
+            takeover.stop_turn()
+        return {"ok": True}
+
     @app.websocket("/ws/browser")
     async def browser_socket(websocket: WebSocket) -> None:
-        await websocket.accept()
+        if not token.in_subprotocols(websocket.scope.get("subprotocols") or []):
+            await websocket.close(code=1008, reason="Open the window with `sasha window`")
+            return
+        await websocket.accept(subprotocol=PROTOCOL)  # never echoes the token
         client = websocket.client.host if websocket.client else None
         if not _local(client) or websocket.headers.get("origin") is None:
             await websocket.close(code=1008, reason="Only the window may watch the browser")
@@ -287,3 +349,19 @@ def add_browser_routes(app: FastAPI, deps: Any) -> BrowserView:
             view.viewers -= 1
 
     return view
+
+
+def attach_window_token(app: FastAPI, token: WindowToken, state_dir: Path) -> None:
+    """Write the token when the server starts; remove it when it stops."""
+
+    async def on_start() -> None:
+        try:
+            write_token(state_dir, token)
+        except OSError as exc:  # the window then can't reach the browser routes
+            log.warning("Window token not written (%s)", type(exc).__name__)
+
+    async def on_stop() -> None:
+        remove_token(state_dir, token)
+
+    app.router.on_startup.append(on_start)
+    app.router.on_shutdown.append(on_stop)

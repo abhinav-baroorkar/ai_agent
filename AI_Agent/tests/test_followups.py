@@ -38,7 +38,11 @@ def test_invalid_ha_url_keeps_chat_working(
         ws.send_json({"type": "text", "text": "hello"})
         frames = frames_until_idle(ws, after_first=False)
     assert "reply" in types(frames) and "error" not in types(frames)
-    assert h.llm("big-model").offered[0] == ["get_current_time"]  # answered, no HA tools
+    assert h.llm("big-model").offered[0] == [
+        "get_current_time",
+        "calculate",
+        "convert",
+    ]  # answered, no HA tools
     assert "HA_URL is not a valid URL" in caplog.text
     result = client.post("/api/connectors/home_assistant/test").json()
     assert result == {"ok": False, "message": "HA_URL is not a valid URL"}

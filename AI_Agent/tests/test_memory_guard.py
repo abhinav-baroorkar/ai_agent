@@ -135,3 +135,17 @@ def test_m1_a_browse_turn_keeps_p1_strict(settings: Settings, tmp_path: Path) ->
     clock.now += 5
     _turn(a, llm, "turn it off", _call("turn_off", "light.bedroom"))
     assert seen[-1] == ("call_service", "turn it off", "") and not home.calls
+
+
+def test_calc_tools_sit_next_to_memory(settings: Settings, tmp_path: Path, house: None) -> None:
+    """The main bot gets calc's number tools beside memory's; they change nothing
+    (read_only), so always_guard never stands in their way."""
+    from sasha.tools.numbers import CALC_TOOL, CONVERT_TOOL
+
+    h, _, _, _ = harness(settings, tmp_path)
+    assistant, _ = h.deps.make_assistant(h.bots.get("main"))
+    names = assistant.tools.names
+    assert {CALC_TOOL, CONVERT_TOOL, "remember", "forget", "list_memories"} <= set(names)
+    assert assistant.always_guard and assistant.tools.get(CALC_TOOL).read_only
+    oks = talk(h, [("What is 12 times 7?", [ToolCall(CALC_TOOL, {"expression": "12*7"})])])
+    assert oks == [[True]]

@@ -95,7 +95,11 @@ def test_disabled_connector_gives_no_tools(h: Harness) -> None:
         opened(ws)
         ws.send_json({"type": "text", "text": "hi"})
         frames_until_idle(ws, after_first=False)
-    assert h.llm("big-model").offered[0] == ["get_current_time"]  # no connector tools
+    assert h.llm("big-model").offered[0] == [
+        "get_current_time",
+        "calculate",
+        "convert",
+    ]  # no connector tools
 
 
 def test_unknown_bot_gets_error_and_close(h: Harness) -> None:

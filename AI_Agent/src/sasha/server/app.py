@@ -20,7 +20,7 @@ from sasha.connectors import ConnectorError
 from sasha.memory.routes import add_memory_routes
 from sasha.pipeline.llm import OllamaError
 from sasha.prompting import prompt_lines
-from sasha.server.browser_view import BROWSER_SOCKETS, add_browser_routes
+from sasha.server.browser_view import BROWSER_SOCKETS, add_browser_routes, attach_window_token
 from sasha.server.deps import ServerDeps
 from sasha.server.security import LocalOnlyMiddleware, allowed_hosts, allowed_origins
 from sasha.server.speaking import SpeakingTracker
@@ -203,6 +203,7 @@ def create_app(deps: ServerDeps, web_dir: Path | None = WEB_DIR) -> FastAPI:
             memory.notify = hub.push_all
             hub.on_add.append(lambda: {"type": "memory", **memory.snapshot()})
     app.state.browser_view = add_browser_routes(app, deps)  # v0.4, before the static mount
+    attach_window_token(app, deps.window_token, settings.paths.state_dir)
 
     # --- conversation ----------------------------------------------------------
     async def refuse(websocket: WebSocket, reason: str, code: int = 1008) -> None:

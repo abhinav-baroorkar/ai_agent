@@ -60,6 +60,9 @@ class PromptLines(BaseModel):
     abilities: dict[str, str] = Field(
         default_factory=lambda: {
             "get_current_time": "tell the current date and time",
+            "calculate": "work out sums and percentages exactly",
+            "convert": "convert units (length, weight, volume and cooking measures, "
+            "temperature, speed, time, data size)",
             **dict.fromkeys(_DEVICES_READ, "check the smart-home devices and their state"),
             "call_service": "switch and adjust the smart-home devices",
             **dict.fromkeys(_BROWSER, _CAN_BROWSE),

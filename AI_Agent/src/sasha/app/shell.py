@@ -14,6 +14,7 @@ import argparse
 import logging
 import os
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,7 @@ from typing import Any
 from sasha.app import policy
 from sasha.app.single import NoRuntimeDir, notify, socket_path
 from sasha.app.waiting import BrainWait, brain_up
+from sasha.server.window_token import read_token
 
 log = logging.getLogger(__name__)
 
@@ -89,6 +91,15 @@ class Shell:
     url: Any = None
 
 
+def start_url(port: int, start: str = "/", token: str | None = None) -> str:
+    """The page the shell loads. With the brain's token, as `#t=<token>`: the fragment
+    never reaches the server or a log, and the page strips it from the address at once
+    (take-over 9.0 C4). The shell reads the token from the brain's private file itself,
+    so it is never on a command line (the Chrome window needs the start page for that)."""
+    url = policy.own_origin(port) + (start if start.startswith("/") else "/")
+    return f"{url}#t={token}" if token else url
+
+
 def build(
     app: Any,
     port: int,
@@ -97,6 +108,7 @@ def build(
     icon: Path | None,
     start: str = "/",
     intercept: bool = True,  # False only for the probe that shows the dead proxy alone
+    token: str | None = None,
     waiting: str | None = None,  # --attach: show this and load nothing yet
 ) -> Shell:
     """The window, its page and profile. Qt imports are here, so the module imports
@@ -178,7 +190,7 @@ def build(
             page.runJavaScript(wake_js(True))  # a cold start: always just shown
 
     page.loadFinished.connect(loaded)
-    url = QUrl(policy.own_origin(port) + (start if start.startswith("/") else "/"))
+    url = QUrl(start_url(port, start, token))
     if waiting is None:
         window.setCentralWidget(view)
         page.load(url)
@@ -196,9 +208,12 @@ def build(
     return shell
 
 
-def load_when_up(shell: Shell, wait: BrainWait, late: str) -> None:
-    """--attach: show the page once the brain answers; say so if it is late."""
-    from PySide6.QtCore import QTimer
+def load_when_up(
+    shell: Shell, wait: BrainWait, late: str, url: Callable[[], str] | None = None
+) -> None:
+    """--attach: show the page once the brain answers; say so if it is late. `url` is
+    built only then (with the token the brain has just written)."""
+    from PySide6.QtCore import QTimer, QUrl
 
     timer = QTimer(shell.window)
     timer.setInterval(250)
@@ -208,7 +223,7 @@ def load_when_up(shell: Shell, wait: BrainWait, late: str) -> None:
         if state == "up":
             timer.stop()
             shell.stack.setCurrentIndex(1)
-            shell.page.load(shell.url)
+            shell.page.load(QUrl(url()) if url is not None else shell.url)
         elif state == "late" and shell.label.text() != late:
             shell.label.setText(late)
 
@@ -252,6 +267,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--icon", type=Path, default=None)
     p.add_argument("--wake", action="store_true", help="started by the wake word")
     p.add_argument("--start-path", default="/", help="page to open (the visible check)")
+    p.add_argument("--state-dir", type=Path, default=None, help="where the brain's token is")
     p.add_argument("--wait-for-brain", type=float, default=None, help="--attach: seconds")
     p.add_argument("--starting-notice", default="Starting…")
     p.add_argument("--late-notice", default="The assistant didn't start.")
@@ -273,10 +289,24 @@ def main(argv: list[str] | None = None) -> int:
     app.setDesktopFileName("assistant-window")
     attach = a.wait_for_brain is not None
     waiting = a.starting_notice if attach else None
-    shell = build(app, a.port, a.profile, a.title, a.icon, a.start_path, waiting=waiting)
+
+    def token() -> str | None:  # None: the browser panel is refused
+        return read_token(a.state_dir) if a.state_dir else None
+
+    shell = build(
+        app,
+        a.port,
+        a.profile,
+        a.title,
+        a.icon,
+        a.start_path,
+        token=None if attach else token(),
+        waiting=waiting,
+    )
     if attach:  # never starts a brain: waits for the service (app/waiting.py)
         wait = BrainWait(lambda: brain_up(a.port), wait_s=a.wait_for_brain)
-        load_when_up(shell, wait, a.late_notice)
+        # the token is read once the brain answers: the file of a previous run is stale
+        load_when_up(shell, wait, a.late_notice, lambda: start_url(a.port, a.start_path, token()))
     single.serve(app, lambda command: bring_up(app, shell, command == "wake", a.notice))
     shell.window.show()
     if a.wake:

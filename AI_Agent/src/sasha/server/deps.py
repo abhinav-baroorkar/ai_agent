@@ -9,7 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from sasha.bots import MAIN_ID, Bot, BotStore
+from sasha.bots import BUILTIN_IDS, MAIN_ID, Bot, BotStore
 from sasha.browser.helper import BROWSE_TOOL, BrowseHelper, browse_tool
 from sasha.browser.policy import BROWSER
 from sasha.config import Settings, reload_secrets
@@ -44,9 +44,11 @@ from sasha.server.warmup import (
     share_label,
     warm_up_llm,
 )
+from sasha.server.window_token import WindowToken
 from sasha.state import JsonStore
 from sasha.telemetry import TelemetryWriter
 from sasha.tools.clock import CLOCK_TOOL, clock_tool
+from sasha.tools.numbers import number_tools
 
 log = logging.getLogger(__name__)
 
@@ -67,6 +69,7 @@ class ServerDeps:
     presence: ListenerPresence = field(default_factory=ListenerPresence)
     wake_limiter: RateLimiter | None = None
     recheck_placement: Callable[[], None] = lambda: None
+    window_token: WindowToken = field(default_factory=WindowToken)  # per launch (9.1, C4)
     timers: TimerService | None = None  # None: no timer tools, routes or frames
     memory: MemoryStore | None = None  # None: no memory tools, section or routes
 
@@ -89,6 +92,10 @@ class ServerDeps:
         if CLOCK_TOOL not in tools:  # every bot: read-only, so no guessed times
             # The timers' clock and zone, so "now" and a resolved alarm time agree.
             tools.register(clock_tool(self.timers.now_local) if self.timers else clock_tool())
+        if bot.id in BUILTIN_IDS:  # the main and voice bots: exact sums and units
+            for tool in number_tools(self.settings.paths.config_dir):
+                if tool.name not in tools:
+                    tools.register(tool)
         if self.timers is not None and not self.has_browser(bot):  # D3: never with a browser
             # Before the prompt, so the generated abilities list the timer tools too.
             tools = add_timer_tools(tools, self.timers, said=current_turn.get)
