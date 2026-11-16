@@ -19,6 +19,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from sasha.app import start_check
 from sasha.app.single import DESKTOP_ID, NoRuntimeDir, ask_window, socket_path
 from sasha.app.waiting import ATTACH_WAIT_S
 from sasha.config import Settings
@@ -88,8 +89,11 @@ def open_shell(
     attach: bool = False,
     spawn: Spawn = subprocess.Popen,
     ask: Callable[[Path, str], bool] = ask_window,
+    unit_alive: Callable[[], bool] | None = None,
+    check_s: float = start_check.START_CHECK_S,
 ) -> str:
-    """'raised' (one was open), 'started', 'no_display', or 'no_session' (no
+    """'raised' (one was open), 'started', 'failed' (spawned, but it never came up: the
+    reason is in `start_check.log_path`), 'no_display', or 'no_session' (no
     XDG_RUNTIME_DIR: no private place for the window's socket, so no window)."""
     try:
         path = socket_path()
@@ -110,13 +114,52 @@ def open_shell(
             for name in SESSION_VARIABLES
             if os.environ.get(name)
         ]
+        log = start_check.log_path(settings)
+        os.close(start_check.open_log(settings))  # 0600, then the unit appends to it
+        props += [
+            "--property=StandardOutput=null",
+            f"--property=StandardError=append:{log}",
+        ]
         spawn([*unit, *props, *cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        alive = unit_alive or _unit_alive
     else:
-        spawn(
-            cmd,
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,  # outlives the terminal that ran `sasha window`
+        fd = start_check.open_log(settings)
+        try:
+            proc = spawn(
+                cmd,
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=fd,  # its first lines only: it silences itself once it is up
+                start_new_session=True,  # outlives the terminal that ran `sasha window`
+            )
+        finally:
+            os.close(fd)
+
+        def alive() -> bool:
+            return proc is None or proc.poll() is None
+
+    up = start_check.confirm(lambda: ask(path, "ping"), alive, timeout=check_s)
+    return "started" if up else "failed"
+
+
+def _unit_alive(run: Callable[..., Any] = subprocess.run) -> bool:
+    """The transient unit is running (or starting); it is gone once the shell exits."""
+    try:
+        out = run(
+            [
+                "systemctl",
+                "--user",
+                "show",
+                "-p",
+                "ActiveState",
+                "--value",
+                f"{DESKTOP_ID}.service",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=3,
+            check=False,
         )
-    return "started"
+    except (OSError, subprocess.SubprocessError):
+        return True  # can't tell: the ping and the timeout decide
+    return out.stdout.strip() not in ("failed", "inactive")

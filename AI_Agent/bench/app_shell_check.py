@@ -22,6 +22,7 @@ import time
 from pathlib import Path
 
 from sasha.app.launcher import available
+from sasha.app.start_check import APT_HINT, MISSING_CURSOR, failure_message, failure_reason
 from sasha.server.launch import browser_command, browser_env, dead_proxy_port
 
 WEB = Path(__file__).resolve().parents[1] / "src" / "sasha" / "avatar" / "web"
@@ -78,7 +79,15 @@ def main() -> int:
             sys.executable, "-m", "sasha.app.shell", "--port", str(port),
             "--dead-proxy", str(proxy), "--profile", f"{tmp}/shell", "--title", "Shell check",
             "--start-path", "/fps.html?who=shell",
-        ])  # fmt: skip
+        ], stderr=subprocess.PIPE, text=True)  # fmt: skip
+        time.sleep(5)
+        if shell.poll() is not None:  # no window came up: say why, as `sasha window` does
+            reason = failure_reason(shell.stderr.read() if shell.stderr else "")
+            print(f"FAIL: {failure_message(reason, fallback=False)}")
+            if reason == MISSING_CURSOR:
+                print(f"To fix it: {APT_HINT}")
+            server.shutdown()
+            return 1
         chrome_cmd = browser_command(url + "?who=chrome", Path(tmp) / "chrome", proxy)
         chrome = None
         if chrome_cmd:

@@ -19,7 +19,8 @@ from collections.abc import Callable
 
 from sasha.config_app import WindowConfig
 
-Opener = Callable[[], str]  # -> "raised" | "started" | "no_display" | "unavailable"
+# -> "raised" | "started" | "browser" (the shell failed: Chrome) | "no_display" | ...
+Opener = Callable[[], str]
 
 
 class WindowOpener:
@@ -60,7 +61,7 @@ class WindowOpener:
         if recent or len(self.opens) >= self.config.per_hour:
             return "limit"
         action = self.open_window()
-        if action in ("raised", "started"):
+        if action in ("raised", "started", "browser"):
             self.opens.append(now)
             self.opened_at = now
             self.waiting_since = None if command else now

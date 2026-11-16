@@ -122,6 +122,20 @@ uv run sasha chat --timing                 # talk to it
 Use `--profile jetson-orin-nano` (or `SASHA_PROFILE`) to pick another profile,
 and `chat --small` to run the profile's smaller comparison model.
 
+### The app window (optional)
+
+`uv run sasha window` opens the assistant in a window. With the optional `app` extra
+(`uv sync --extra app`) that is the assistant's own window (Qt); without it, a Chrome
+app window. On Ubuntu the `app` extra also needs one system package, which Qt 6.5+
+needs for X11:
+
+```bash
+sudo apt install libxcb-cursor0
+```
+
+Without it the app window can't start; `sasha window` then opens the Chrome window
+instead and says why, and `uv run sasha doctor` shows the missing package.
+
 ### Rename the assistant
 
 Edit `AI_Agent/config/assistant.yaml` (`name`, `pronouns`, `wake_word`, `voice`,

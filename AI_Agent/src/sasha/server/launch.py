@@ -252,9 +252,11 @@ def open_window(
             server.terminate()
             return 1
 
-    if _open_shell(settings, url, port, proxy_port, spawn, chrome):
+    opened, failed = _open_shell(settings, url, port, proxy_port, spawn, chrome)
+    if opened:
         return _wait_for(server)
     _open_chrome(url, settings, proxy_port, spawn)
+    _say_shell_failed(failed)
     return _wait_for(server)
 
 
@@ -266,16 +268,34 @@ def _open_shell(
     spawn: Callable[..., Any],
     chrome: bool,
     attach: bool = False,
-) -> bool:
-    from sasha.app import launcher  # the app shell, if the `app` extra is installed
+) -> tuple[bool, str | None]:
+    """(opened, why the app shell failed if it did). Not opened: use the Chrome window."""
+    from sasha.app import launcher, start_check  # the app shell, if the `app` extra is in
 
     if launcher.available() and not chrome:
         how = launcher.open_shell(settings, port, proxy_port, spawn=spawn, attach=attach)
+        if how == "failed":  # spawned, but no window came up (e.g. libxcb-cursor0)
+            log = start_check.first_lines(start_check.log_path(settings))
+            return False, start_check.failure_reason(log)
         if how not in ("no_display", "no_session"):
             print("The assistant's window is open." if how == "raised" else f"Opened {url}.")
-            return True
+            return True, None
         print("No display or desktop session for the app window; trying the Chrome window.")
-    return False
+    return False, None
+
+
+def _say_shell_failed(reason: str | None) -> None:
+    """In plain words, in the terminal and as a desktop notification."""
+    if reason is None:
+        return
+    from sasha.app.single import notify
+    from sasha.app.start_check import APT_HINT, MISSING_CURSOR, failure_message
+
+    message = failure_message(reason)
+    print(f"[warn] {message}", file=sys.stderr)
+    if reason == MISSING_CURSOR:
+        print(f"       To fix it: {APT_HINT}", file=sys.stderr)
+    notify(message)
 
 
 def _attach(
@@ -289,7 +309,8 @@ def _attach(
 ) -> int:
     """The window at login: the app shell opens at once and waits for the brain itself;
     the Chrome window (no shell) opens once the brain answers. Never starts a brain."""
-    if _open_shell(settings, url, port, proxy_port, spawn, chrome, attach=True):
+    opened, failed = _open_shell(settings, url, port, proxy_port, spawn, chrome, attach=True)
+    if opened:
         return 0
     from sasha.app.waiting import ATTACH_WAIT_S, brain_up
 
@@ -303,6 +324,7 @@ def _attach(
         notify(message)
         return 1
     _open_chrome(url, settings, proxy_port, spawn)
+    _say_shell_failed(failed)
     return 0
 
 
