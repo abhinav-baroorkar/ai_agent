@@ -101,11 +101,12 @@ def test_no_devtools_port_and_our_flags_only() -> None:
         "QTWEBENGINE_INSPECTOR_SERVER": "127.0.0.1:9222",
         "QTWEBENGINE_CHROMIUM_FLAGS": "--remote-debugging-port=9222",
     }
-    harden_environment(env, 9)
+    harden_environment(env, 9, 8765)
     assert "QTWEBENGINE_REMOTE_DEBUGGING" not in env and "QTWEBENGINE_INSPECTOR_SERVER" not in env
     flags = env["QTWEBENGINE_CHROMIUM_FLAGS"]
     assert "remote-debugging" not in flags
     assert "--dns-prefetch-disable" in flags and "--proxy-server=http://127.0.0.1:9" in flags
+    assert "--proxy-bypass-list=<-loopback>;127.0.0.1:8765" in flags  # only the brain direct
 
 
 @pytest.mark.skipif(not HAS_QT, reason="the `app` extra (PySide6) is not installed")
@@ -125,3 +126,29 @@ def test_an_existing_loose_profile_folder_is_made_private(tmp_path: Path) -> Non
     }
     subprocess.run([sys.executable, "-c", code], env=env, capture_output=True, timeout=60)
     assert (profile.stat().st_mode & 0o777) == 0o700
+
+
+@pytest.mark.skipif(not HAS_QT, reason="the `app` extra (PySide6) is not installed")
+def test_without_the_interceptor_the_proxy_alone_keeps_other_local_ports_out(
+    tmp_path: Path,
+) -> None:
+    """Loopback goes through the dead proxy too, except the brain's own address."""
+    env = {
+        **os.environ,
+        "QT_QPA_PLATFORM": "offscreen",
+        "XDG_RUNTIME_DIR": str(tmp_path),
+        "PROBE_NO_INTERCEPT": "1",
+        "PROBE_PROXY_FLAGS": "1",
+    }
+    out = subprocess.run(
+        [sys.executable, str(Path(__file__).with_name("app_shell_probe.py")), str(tmp_path / "p")],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    line = next((x for x in out.stdout.splitlines() if x.startswith("RESULT ")), None)
+    assert line, out.stderr[-2000:]
+    r = json.loads(line[len("RESULT ") :])
+    assert r["own"] == "open" and r["other_port"] == "error" and r["hits"]["other"] == 0
+    assert r["fetch"] == "blocked" and r["blocked"] == 0  # the interceptor really was off

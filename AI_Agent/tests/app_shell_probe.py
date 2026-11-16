@@ -21,7 +21,7 @@ from websockets.asyncio.server import serve
 from websockets.datastructures import Headers
 from websockets.http11 import Response
 
-PAGE = """<!doctype html><title>probe</title><script>
+PAGE = """<!doctype html><title>probe</title>CSPMETA<script>
 const out = {};
 function done(){ if (Object.keys(out).length === 4) document.title = 'R' + JSON.stringify(out); }
 function ws(key, url){ try { const s = new WebSocket(url);
@@ -54,7 +54,9 @@ def start_servers() -> tuple[int, int, dict[str, int], asyncio.AbstractEventLoop
     def page(conn: Any, request: Any) -> Response | None:
         if request.path == "/ws":
             return None  # upgrade
-        body = PAGE.replace("OTHER", str(ports["other"])).encode()
+        csp = os.environ.get("PROBE_CSP")  # the page's own policy, as index.html has it
+        meta = f'<meta http-equiv="Content-Security-Policy" content="{csp}">' if csp else ""
+        body = PAGE.replace("OTHER", str(ports["other"])).replace("CSPMETA", meta).encode()
         headers = Headers([("Content-Type", "text/html"), ("Content-Length", str(len(body)))])
         return Response(200, "OK", headers, body)
 
@@ -73,6 +75,11 @@ def start_servers() -> tuple[int, int, dict[str, int], asyncio.AbstractEventLoop
 
 def run(profile: Path) -> dict[str, Any]:
     port, _other, hits, _ = start_servers()
+    if os.environ.get("PROBE_PROXY_FLAGS") == "1":  # the shell's own Chromium flags
+        from sasha.app.shell import chromium_flags
+
+        extra = "--use-fake-device-for-media-stream --disable-gpu"
+        os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = f"{chromium_flags(9, port)} {extra}"
     from PySide6.QtCore import QTimer
     from PySide6.QtWidgets import QApplication
 
