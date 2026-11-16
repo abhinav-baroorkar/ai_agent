@@ -17,7 +17,7 @@ from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from sasha.browser.policy import BrowserCombinationError, check_combination
+from sasha.browser.policy import BrowserCombinationError, check_combination, is_browser
 from sasha.state import JsonStore
 
 MAIN_ID = "main"
@@ -134,7 +134,7 @@ class BotStore:
             name=self.main_name,
             model=str(saved.get("model") or self.default_model),
             system_prompt=self.main_prompt,
-            connectors=list(saved.get("connectors", self.main_connectors)),
+            connectors=self._builtin_connectors(saved.get("connectors"), self.main_connectors),
             builtin=True,
             style=saved.get("style", DEFAULT_STYLE),
             memory=saved.get("memory", True) is not False,
@@ -148,12 +148,27 @@ class BotStore:
             name=f"{self.main_name} (wake word)",
             model=str(saved.get("model") or main.model),
             system_prompt=self.main_prompt,
-            connectors=list(saved.get("connectors", main.connectors)),
+            connectors=self._builtin_connectors(saved.get("connectors"), main.connectors),
             builtin=True,
             wake_device_control=saved.get("wake_device_control") is True,
             style=main.style,  # no style of its own: the main bot's
             memory=saved.get("memory", True) is not False,
         )
+
+    def _builtin_connectors(self, saved: Any, default: list[str]) -> list[str]:
+        """The built-in bots never keep the direct browser (a migration: they browse
+        through web lookups, with their home, timers and memory). If the browser was
+        all they had, they get the default again."""
+        if not isinstance(saved, list):
+            return list(default)
+        try:
+            kinds = self._connector_kinds()
+        except Exception:
+            kinds = {}
+        kept = [str(c) for c in saved if not is_browser(str(c), kinds.get(str(c)))]
+        if not kept and saved:
+            return [c for c in default if not is_browser(c, kinds.get(c))]
+        return kept
 
     def _user_bots(self, data: dict[str, Any]) -> list[Bot]:
         bots: list[Bot] = []
@@ -229,6 +244,13 @@ class BotStore:
             raise BotError("fields can't be set to null")
         if "connectors" in changes:
             changes["connectors"] = self._check_connectors(changes["connectors"])
+            kinds = self._connector_kinds()
+            direct = any(is_browser(c, kinds.get(c)) for c in changes["connectors"])
+            if bot_id in BUILTIN_IDS and direct:
+                raise BotError(
+                    "The built-in bots look things up through web lookups (turn the "
+                    "browser on in Settings); the direct browser is for a separate bot"
+                )
         if "style" in changes and bot_id == VOICE_ID:
             raise BotError("The wake-word bot shows the main bot's style; set it on main")
         if "wake_device_control" in changes and bot_id != VOICE_ID:

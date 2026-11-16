@@ -106,7 +106,7 @@ def test_tools_on_real_chrome(tmp_path: Path) -> None:
                 await tool(lambda: conv.click(pick["Local"]))
             assert bridge.backstop.counts.clicks == clicks_before + 2
             conv.search_template = "https://test.invalid/challenge?q={q}"
-            with pytest.raises(ToolError, match="asking the owner to confirm a person"):
+            with pytest.raises(ToolError, match=r"wants to check you.re a person"):
                 await tool(lambda: conv.search("pune facts"))
             assert service.proxy is not None and service.proxy.stats.allowed == 0
         finally:
