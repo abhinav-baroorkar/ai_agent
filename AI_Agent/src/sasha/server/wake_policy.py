@@ -25,11 +25,12 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable
+from dataclasses import replace
 from typing import Any
 
 from sasha.config import CONTROLLABLE_DOMAINS, WakeConfig
 from sasha.server.timers.tools import TIMER_TOOLS, TimerAsk
-from sasha.tools import Tool, ToolError, ToolRegistry
+from sasha.tools import ToolError, ToolRegistry
 
 READ_ONLY_TOOLS = ("list_devices", "get_state", "get_current_time")
 CONTROL_TOOL = "call_service"
@@ -192,22 +193,19 @@ class WakeToolPolicy:
             tool = tools.get(name)
             if name == "list_devices":  # remember real names for what the server says
                 self._list_devices = tool.handler
-                allowed.register(
-                    Tool(tool.name, tool.description, tool.parameters, self._listing(tool.handler))
-                )
+                allowed.register(replace(tool, handler=self._listing(tool.handler)))
             elif name in READ_ONLY_TOOLS:
                 allowed.register(tool)
             elif name in TIMER_TOOLS:  # nothing in the house changes: no opt-in needed
                 timed = self._timer(name, tool.handler)
-                allowed.register(Tool(tool.name, tool.description, tool.parameters, timed))
-            elif name == "list_memories":  # wake turns see counts and voice notes (M2)
+                allowed.register(replace(tool, handler=timed))
+            elif name == "list_memories":  # wake turns see counts and say-aloud notes (M2)
                 allowed.register(tool)
             elif name in MEMORY_CHANGING:  # a note waits for the owner (M1): no opt-in
-                noted = self._note(tool.handler)
-                allowed.register(Tool(tool.name, tool.description, tool.parameters, noted))
+                allowed.register(replace(tool, handler=self._note(tool.handler)))
             elif name == CONTROL_TOOL:
                 guarded = self._guard(tool.handler)
-                allowed.register(Tool(tool.name, tool.description, tool.parameters, guarded))
+                allowed.register(replace(tool, handler=guarded))
         return allowed
 
     def _timer(self, name: str, handler: Callable[..., Any]) -> Callable[..., Any]:

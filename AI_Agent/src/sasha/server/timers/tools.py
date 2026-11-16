@@ -279,27 +279,36 @@ class TimerTools:
 
     # --- specs -------------------------------------------------------------------
     def tools(self) -> list[Tool]:
+        """`said_checked`: the three that make an item run the timers' own said-check (its
+        times from the owner's words), so the orchestrator's guard defers to them. After a
+        web lookup their `said_fields` (a label, a reminder's text) must be the owner's own
+        words too, which the orchestrator checks. Cancel and snooze have no check of their
+        own, so after a lookup they go through the guard and fail closed. `list_timers`
+        changes nothing."""
         g = self._guarded
         return [
             Tool("set_timer", "Start a countdown timer. Use separate whole numbers: "
                  "'ten minutes' is minutes=10.",
                  {"type": "object", "properties": {"hours": _INT, "minutes": _INT,
-                  "seconds": _INT, "label": _STR}}, g(self.set_timer)),
+                  "seconds": _INT, "label": _STR}}, g(self.set_timer), said_checked=True,
+                 said_fields=("label",)),
             Tool("set_alarm", "Set an alarm at a clock time. Give hour and minute as said; "
                  "period only if the person said morning/evening/am/pm. For a date, call "
                  "get_current_time first. If the tool asks, ask the person; never guess.",
                  {"type": "object", "properties": {"hour": _INT, "minute": _INT,
                   "period": _PERIOD, "day": _DAY, "repeat": {"type": "string",
                   "enum": list(REPEATS)}, "label": _STR}, "required": ["hour"]},
-                 g(self.set_alarm)),
+                 g(self.set_alarm), said_checked=True,
+                 said_fields=("label",)),
             Tool("set_reminder", "Remind the person of something: either in_hours/in_minutes "
                  "from now, or a clock time (hour, minute, period, day). Not both. If the "
                  "person said no time, ask them when; never pick a time yourself.",
                  {"type": "object", "properties": {"text": _STR, "in_hours": _INT,
                   "in_minutes": _INT, "hour": _INT, "minute": _INT, "period": _PERIOD,
-                  "day": _DAY}, "required": ["text"]}, g(self.set_reminder)),
+                  "day": _DAY}, "required": ["text"]}, g(self.set_reminder), said_checked=True,
+                 said_fields=("text",)),
             Tool("list_timers", "The active timers, alarms and reminders.",
-                 {"type": "object", "properties": {}}, g(self.list_timers)),
+                 {"type": "object", "properties": {}}, g(self.list_timers), read_only=True),
             Tool("cancel_timer", "Cancel or stop a timer, alarm or reminder: its id, its "
                  "label, or 'all'. Empty = the one ringing now.",
                  {"type": "object", "properties": {"which": _STR}}, g(self.cancel_timer)),

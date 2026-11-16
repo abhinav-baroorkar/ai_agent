@@ -59,7 +59,9 @@ def test_working_lasts_the_whole_turn(tmp_path: Path, monkeypatch: pytest.Monkey
                 break
         during = states[:-1]
         assert during and all(s["agent"] == "working" for s in during if s["running"])
-        assert all(s["holder_bot"] == {"id": "main", "name": main.name} for s in during)
+        assert all(
+            s["holder_bot"] == {"id": "main", "name": main.name, "via": "direct"} for s in during
+        )
         assert states[-1]["holder"] is None and states[-1]["holder_bot"] is None
 
 

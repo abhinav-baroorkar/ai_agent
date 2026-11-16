@@ -9,7 +9,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from sasha.bots import Bot, BotStore
+from sasha.bots import MAIN_ID, Bot, BotStore
+from sasha.browser.helper import BROWSE_TOOL, BrowseHelper, browse_tool
 from sasha.browser.policy import BROWSER
 from sasha.config import Settings, reload_secrets
 from sasha.connectors import (
@@ -18,6 +19,7 @@ from sasha.connectors import (
     HomeAssistantConnector,
     build_connectors,
 )
+from sasha.connectors.browser import BrowserConnector
 from sasha.conversation import building_for_bot, current_turn
 from sasha.memory.prompt import memory_section
 from sasha.memory.store import MemoryStore
@@ -27,6 +29,7 @@ from sasha.pipeline.llm import LLM, OllamaLLM
 from sasha.pipeline.stt import SpeechToText
 from sasha.pipeline.tts import TextToSpeech
 from sasha.prompting import build_prompt, prompt_lines
+from sasha.said import SaidGuard
 from sasha.server.speaking import ListenerPresence
 from sasha.server.timers.service import TimerService
 from sasha.server.timers.tools import add_timer_tools
@@ -72,12 +75,15 @@ class ServerDeps:
             self.wake_limiter = RateLimiter(self.settings.profile.wake.max_calls_per_minute)
 
     def make_assistant(self, bot: Bot, spoken: bool = False) -> tuple[Assistant, list[str]]:
-        """A fresh conversation for `bot`, with its connectors' tools, the clock and the
-        timer tools. Its prompt says what those tools can really do; `spoken` adds the
-        spoken style."""
+        """A fresh conversation for `bot`, with its connectors' tools, the clock, the
+        timer tools and (the main assistant, browser on) web lookups. Its prompt says what
+        those tools can really do; `spoken` adds the spoken style."""
+        llm = self.make_llm(bot.model)
         token = building_for_bot.set(bot.id)  # the browser notes whose conversation it is
         try:
             tools, warnings = self.connectors.tools_for(bot.connectors)
+            if (helper := self._browse_helper(bot, llm)) is not None:
+                tools.register(browse_tool(helper))
         finally:
             building_for_bot.reset(token)
         if CLOCK_TOOL not in tools:  # every bot: read-only, so no guessed times
@@ -89,12 +95,18 @@ class ServerDeps:
         memory = None
         if self.memory is not None and bot.memory and not self.has_browser(bot):  # B4/D3
             tools, memory = add_memory_tools(tools, self.memory, current_turn.get, bot.id)
+        lister = tools.get("list_devices").handler if "list_devices" in tools else None
         assistant = Assistant(
             self.settings,
-            self.make_llm(bot.model),
+            llm,
             tools,
             self.telemetry,
             system_prompt=self.prompt_for(bot, tools.names, spoken),
+            # P1: changes after a web lookup; negations in the bot's language (G1)
+            change_guard=SaidGuard(lister, tuple(prompt_lines(self.settings).negations)),
+            # M1: on a memory-on bot no change runs unless the owner said it, every turn
+            # (a note in the prompt can never be the reason for one).
+            always_guard=memory is not None,
         )
         if memory is not None and self.memory is not None:
             store, lines = self.memory, prompt_lines(self.settings)
@@ -104,6 +116,43 @@ class ServerDeps:
             )
             store.add_conversation(place, assistant.forget_turns)
         return assistant, warnings
+
+    def _browse_source(self, bot: Bot) -> tuple[BrowserConnector, dict[str, Any]] | None:
+        """The browser connector and its settings if `bot` gets web lookups: the main
+        assistant while the connector is on and set up (design 10.1). A bot with the
+        direct browser has the browser only (B4), so no helper."""
+        kinds = self.connectors.kinds
+        if bot.id != MAIN_ID or any(kinds.get(c) == "browser" for c in bot.connectors):
+            return None
+        browser = next((c for c, k in kinds.items() if k == "browser"), None)
+        settings = self.connectors.ready_settings(browser) if browser else None
+        if browser is None or settings is None:
+            return None
+        connector = self.connectors.get(browser)
+        if not isinstance(connector, BrowserConnector):
+            return None
+        return connector, settings
+
+    def connector_view(self, view: dict[str, Any]) -> dict[str, Any]:
+        """The API's Connector, plus `browse` in the browser connector's `tools` while
+        the main assistant is offered web lookups (contract v0.5.1)."""
+        if view.get("kind") != "browser":
+            return view
+        try:
+            offered = self._browse_source(self.bots.get(MAIN_ID)) is not None
+        except Exception:  # never break the connectors list
+            offered = False
+        if offered and BROWSE_TOOL not in view["tools"]:
+            return {**view, "tools": [*view["tools"], BROWSE_TOOL]}
+        return view
+
+    def _browse_helper(self, bot: Bot, llm: LLM) -> BrowseHelper | None:
+        if (source := self._browse_source(bot)) is None:
+            return None
+        connector, settings = source
+        conv = connector.conversation(settings, helper=True)  # one per conversation (P6)
+        lines = prompt_lines(self.settings)
+        return BrowseHelper(conv, self.settings, llm, self.telemetry, lines)
 
     def prompt_for(self, bot: Bot, tool_names: list[str], spoken: bool = False) -> str:
         """The bot's own prompt plus the facts about these tools (prompting.py)."""

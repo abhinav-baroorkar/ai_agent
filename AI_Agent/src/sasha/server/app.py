@@ -171,7 +171,7 @@ def create_app(deps: ServerDeps, web_dir: Path | None = WEB_DIR) -> FastAPI:
     # --- connectors ----------------------------------------------------------
     @app.get("/api/connectors")
     def list_connectors() -> dict[str, Any]:
-        return {"connectors": deps.connectors.all()}
+        return {"connectors": [deps.connector_view(c) for c in deps.connectors.all()]}
 
     @app.put("/api/connectors/{connector_id}")
     async def update_connector(connector_id: str, request: Request) -> dict[str, Any]:
@@ -184,7 +184,8 @@ def create_app(deps: ServerDeps, web_dir: Path | None = WEB_DIR) -> FastAPI:
             raise ApiError(400, "enabled must be true or false")
         if new_settings is not None and not isinstance(new_settings, dict):
             raise ApiError(400, "settings must be an object")
-        return await run_in_threadpool(deps.connectors.update, connector_id, enabled, new_settings)
+        view = await run_in_threadpool(deps.connectors.update, connector_id, enabled, new_settings)
+        return deps.connector_view(view)
 
     @app.post("/api/connectors/{connector_id}/test")
     def test_connector(connector_id: str) -> dict[str, Any]:

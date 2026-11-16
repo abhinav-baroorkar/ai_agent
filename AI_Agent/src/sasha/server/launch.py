@@ -15,6 +15,7 @@ import sys
 import time
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -209,6 +210,8 @@ def open_window(
     port: int | None = None,
     spawn: Callable[..., subprocess.Popen[bytes]] = subprocess.Popen,
     chrome: bool = False,  # `sasha window --chrome`: the Chrome window even with the shell
+    attach: bool = False,  # `--attach` (start at login): never start a brain; wait for one
+    wait_up: Callable[[int], bool] | None = None,
 ) -> int:
     cfg = settings.profile.server
     host, port = host or cfg.host, port or cfg.port
@@ -222,6 +225,8 @@ def open_window(
         print(f"[fail] Not opening the window: {exc}.", file=sys.stderr)
         return 1
     server: subprocess.Popen[bytes] | None = None
+    if attach:
+        return _attach(settings, url, port, proxy_port, spawn, chrome, wait_up)
     if not is_running(url):
         print(f"Starting the brain server on {url} ...")
         cmd = [
@@ -246,14 +251,70 @@ def open_window(
             server.terminate()
             return 1
 
+    if _open_shell(settings, url, port, proxy_port, spawn, chrome):
+        return _wait_for(server)
+    _open_chrome(url, settings, proxy_port, spawn)
+    return _wait_for(server)
+
+
+def _open_shell(
+    settings: Settings,
+    url: str,
+    port: int,
+    proxy_port: int,
+    spawn: Callable[..., Any],
+    chrome: bool,
+    attach: bool = False,
+) -> bool:
     from sasha.app import launcher  # the app shell, if the `app` extra is installed
 
     if launcher.available() and not chrome:
-        how = launcher.open_shell(settings, port, proxy_port, spawn=spawn)
+        how = launcher.open_shell(settings, port, proxy_port, spawn=spawn, attach=attach)
         if how not in ("no_display", "no_session"):
             print("The assistant's window is open." if how == "raised" else f"Opened {url}.")
-            return _wait_for(server)
+            return True
         print("No display or desktop session for the app window; trying the Chrome window.")
+    return False
+
+
+def _attach(
+    settings: Settings,
+    url: str,
+    port: int,
+    proxy_port: int,
+    spawn: Callable[..., Any],
+    chrome: bool,
+    wait_up: Callable[[int], bool] | None,
+) -> int:
+    """The window at login: the app shell opens at once and waits for the brain itself;
+    the Chrome window (no shell) opens once the brain answers. Never starts a brain."""
+    if _open_shell(settings, url, port, proxy_port, spawn, chrome, attach=True):
+        return 0
+    from sasha.app.waiting import ATTACH_WAIT_S, brain_up
+
+    up = (wait_up or (lambda p: _poll(lambda: brain_up(p), ATTACH_WAIT_S)))(port)
+    if not up:
+        from sasha.app.single import notify
+
+        name = settings.assistant.name
+        message = settings.assistant.app.not_started_notice.replace("{name}", name)
+        print(f"[fail] {message}", file=sys.stderr)
+        notify(message)
+        return 1
+    _open_chrome(url, settings, proxy_port, spawn)
+    return 0
+
+
+def _poll(check: Callable[[], bool], timeout_s: float) -> bool:
+    end = time.monotonic() + timeout_s
+    while time.monotonic() < end:
+        if check():
+            return True
+        time.sleep(0.5)
+    return False
+
+
+def _open_chrome(url: str, settings: Settings, proxy_port: int, spawn: Callable[..., Any]) -> None:
     profile_dir = settings.paths.data_dir / "chrome-profile"
     window = browser_command(url, profile_dir, proxy_port)
     if window is None:
@@ -273,8 +334,6 @@ def open_window(
             stderr=subprocess.DEVNULL,
         )
         print(f"Opened {url} in an app window.")
-
-    return _wait_for(server)
 
 
 def _wait_for(server: subprocess.Popen[bytes] | None) -> int:

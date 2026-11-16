@@ -12,8 +12,23 @@ from typing import Any
 from sasha.config import Settings
 from sasha.conversation import asks_back, current_turn, finish_turn, new_turn
 from sasha.pipeline.llm import LLM, LLMCancelled, LLMResponse, Message, StreamingLLM
+from sasha.said import DEVICE_TOOL, said_by_owner
+from sasha.sites import add_sites
 from sasha.telemetry import RequestTrace, TelemetryWriter
 from sasha.tools import ToolRegistry
+from sasha.tools.base import ToolResult
+
+# Review P1: while outside text (a `browse` result) is in the conversation, a changing
+# tool must be named by the owner's current message. (tool, arguments, owner's message,
+# his earlier recent messages) -> did he say it? Built per bot (sasha/said.py); without
+# one, every such call is refused. `earlier` is built here, never by the model: the
+# owner's messages of the last 2 kept turns that ended within `llm.target_window_s`
+# (a target like "the bedroom light" may come from there; the action never does).
+ChangeGuard = Callable[[str, dict[str, Any], str, str], bool]
+EARLIER_TURNS = 2
+SAME_TURN = "Changes can't follow a web lookup in the same request; ask the owner to say it again"
+NAME_IT = "Say which device and what to do, and I'll do it."
+SAY_IT = "Say in your own words what to change, and I'll do it."  # not a device (G4)
 
 
 @dataclass
@@ -34,6 +49,9 @@ class Reply:
     text: str
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
     telemetry: dict[str, Any] = field(default_factory=dict)
+    # Sites the turn's web results came from: the server's own `site`/`sites` fields of
+    # tainting tools (browse: the tabs' record, P4), never the model's words.
+    sites: list[str] = field(default_factory=list)
 
 
 class RequestFailed(Exception):
@@ -57,6 +75,16 @@ def wrap_untrusted(source: str, content: str) -> str:
     return json.dumps({"source": source, "untrusted_data": data}, ensure_ascii=False)
 
 
+@dataclass
+class _Turn:
+    """One kept turn's record, alongside its two history entries (review E4): when it
+    started and ended (the turn clock), and whether it brought in outside text."""
+
+    started: float
+    ended: float
+    browsed: bool
+
+
 class Assistant:
     def __init__(
         self,
@@ -66,6 +94,10 @@ class Assistant:
         telemetry: TelemetryWriter,
         history_turns: int = 8,
         system_prompt: str | None = None,
+        max_rounds: int | None = None,
+        change_guard: ChangeGuard | None = None,
+        always_guard: bool = False,  # memory-on bots (M1): the guard on every turn
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.settings = settings
         self.llm = llm
@@ -73,20 +105,24 @@ class Assistant:
         self.telemetry = telemetry
         self.history_turns = history_turns
         self.system_prompt = system_prompt or settings.assistant.render_system_prompt()
+        self.max_rounds = max_rounds  # None: the profile's max_tool_rounds
+        self.change_guard = change_guard
+        self.always_guard = always_guard
+        self.clock = clock
         self._history: list[Message] = []
-        self.last_tool_calls: list[dict[str, Any]] = []
-        self.clock: Callable[[], float] = time.monotonic  # the turn clock
-        self._last_turn_end: float | None = None
-        self.turn_kept = False  # the last turn is in the history (see replace_reply)
-        self._kept_at: list[float] = []  # per kept turn: when it started (the turn clock)
+        self._turns: list[_Turn] = []  # per kept turn, filtered with `_history` (E4)
         # forget_turns may come from another thread (the Memory screen) mid-turn.
         self._history_lock = threading.Lock()
         # The latest forgotten window (start, when it was forgotten): a turn that started
-        # inside it but ended after the forget is dropped when it lands (W2).
+        # inside it but ended after the forget is dropped when it lands (memory W2).
         self._forgot: tuple[float, float] | None = None
         self._this_turn: tuple[Message, Message] | None = None  # this turn's two entries
         # A section rebuilt for every turn after the system prompt (memory/prompt.py).
         self.prompt_extra: Callable[[], str] | None = None
+        self._turn_browsed = False
+        self.last_tool_calls: list[dict[str, Any]] = []
+        self._last_turn_end: float | None = None
+        self.turn_kept = False  # the last turn is in the history (see replace_reply)
 
     @property
     def name(self) -> str:
@@ -112,9 +148,15 @@ class Assistant:
     def reset(self) -> None:
         with self._history_lock:
             self._history.clear()
-            self._kept_at.clear()
+            self._turns.clear()
             self._this_turn = None
         self._last_turn_end = None
+
+    @property
+    def tainted(self) -> bool:
+        """A turn still in the model's context brought in outside text (P1)."""
+        recent = self._turns[-self.history_turns :] if self.history_turns > 0 else []
+        return any(t.browsed for t in recent)
 
     def forget_turns(self, seconds: float) -> int:
         """Drop this conversation's turns that started in the last `seconds` (memory's
@@ -123,10 +165,10 @@ class Assistant:
         now = self.clock()
         since = now - seconds
         with self._history_lock:
-            keep = [i for i, at in enumerate(self._kept_at) if at < since]
-            gone = len(self._kept_at) - len(keep)
+            keep = [i for i, t in enumerate(self._turns) if t.started < since]
+            gone = len(self._turns) - len(keep)
             self._history = [m for i in keep for m in self._history[2 * i : 2 * i + 2]]
-            self._kept_at = [self._kept_at[i] for i in keep]
+            self._turns = [self._turns[i] for i in keep]
             self._forgot = (since, now)
         return gone
 
@@ -148,7 +190,7 @@ class Assistant:
     def _keep(self, text: str, reply: str, started: float) -> None:
         """Keep this turn in the history, unless a forget covered its start (W2)."""
         with self._history_lock:
-            self._last_turn_end = self.clock()
+            self._last_turn_end = ended = self.clock()
             if self._forgot is not None and self._forgot[0] <= started <= self._forgot[1]:
                 self._this_turn, self.turn_kept = None, False
                 return
@@ -157,7 +199,7 @@ class Assistant:
                 {"role": "assistant", "content": reply},
             )
             self._history += list(pair)
-            self._kept_at.append(started)
+            self._turns.append(_Turn(started, ended, self._turn_browsed))
             self._this_turn, self.turn_kept = pair, True
 
     # --- stopped turns ---------------------------------------------------------------
@@ -191,7 +233,7 @@ class Assistant:
                 last["content"] = f"{str(last['content']).rstrip()} {note}"
 
     def _messages(self, text: str) -> list[Message]:
-        recent = self._history[-2 * self.history_turns :]
+        recent = self._history[-2 * self.history_turns :] if self.history_turns > 0 else []
         extra = self.prompt_extra() if self.prompt_extra is not None else ""
         system = f"{self.system_prompt}\n\n{extra}" if extra else self.system_prompt
         return [
@@ -201,8 +243,14 @@ class Assistant:
         ]
 
     def handle_text(
-        self, text: str, hooks: TurnHooks | None = None, input_mode: str = "text"
+        self,
+        text: str,
+        hooks: TurnHooks | None = None,
+        input_mode: str = "text",
+        inherit_turn: bool = False,
     ) -> Reply:
+        """One request. `inherit_turn` (the browse helper, design 10.2): run inside the
+        current turn, so its tools check the owner's own messages, not `text`."""
         hooks = hooks or TurnHooks()
         started = self.clock()
         self.turn_kept = False  # is this turn in the history (for replace_reply)?
@@ -221,9 +269,13 @@ class Assistant:
         trace.record_text("user", text)
         calls_made: list[dict[str, Any]] = []
         self.last_tool_calls = calls_made
+        self._turn_browsed = False
+        inherited = current_turn.get() if inherit_turn else None
+        if inherit_turn and inherited is None:
+            raise RuntimeError("inherit_turn needs a running turn")
         owner_said = (*(m["content"] for m in self._history if m["role"] == "user"), text)
         asked, since = self.previous_reply_asked(), self.since_previous()
-        turn = new_turn(owner_said, input_mode, asked, since)
+        turn = inherited or new_turn(owner_said, input_mode, asked, since, hooks.should_stop)
         token = current_turn.set(turn)  # for tools (B1; the timers' said-check)
         try:
             reply = self._run(text, trace, calls_made, hooks)
@@ -236,7 +288,8 @@ class Assistant:
             raise  # Ctrl-C, SystemExit: unchanged, so `except Exception` can't swallow them
         finally:
             current_turn.reset(token)
-            finish_turn(turn.turn_id)  # e.g. the browser shows "idle" again
+            if inherited is None:  # an inherited turn ends with its owner's
+                finish_turn(turn.turn_id)  # e.g. the browser shows "idle" again
         trace.record_text("assistant", reply.text)
         reply.telemetry = trace.finish(success=True)
         self._keep(text, reply.text, started)
@@ -257,7 +310,8 @@ class Assistant:
         hooks: TurnHooks,
     ) -> Reply:
         messages = self._messages(text)
-        max_rounds = self.settings.profile.llm.max_tool_rounds
+        sites: list[str] = []
+        max_rounds = self.max_rounds or self.settings.profile.llm.max_tool_rounds
         specs = self.tools.specs() if len(self.tools) else None
 
         for round_no in range(max_rounds + 1):
@@ -269,15 +323,19 @@ class Assistant:
                 meta["tool_calls"] = len(resp.tool_calls)
 
             if not resp.tool_calls:
-                return Reply(text=resp.content, tool_calls=calls_made)
+                return Reply(text=resp.content, tool_calls=calls_made, sites=sites)
 
             messages.append({"role": "assistant", **resp.raw_message})
             for call in resp.tool_calls:
                 if hooks.should_stop and hooks.should_stop():
                     raise LLMCancelled  # never run a tool after the user said stop
                 with trace.stage(f"tool:{call.name}") as meta:
-                    result = self.tools.call(call.name, call.arguments)
+                    refused = self._change_refused(call.name, call.arguments, text)
+                    result = refused or self.tools.call(call.name, call.arguments)
                     meta["ok"] = result.ok
+                if result.ok and self._taints(call.name):
+                    self._turn_browsed = True
+                    add_sites(sites, result.content)
                 made = {"name": call.name, "arguments": call.arguments, "ok": result.ok}
                 if result.asks:
                     made["asks"] = result.asks  # a reason label only (truth.py)
@@ -290,3 +348,47 @@ class Assistant:
                 messages.append({"role": "tool", "tool_name": call.name, "content": content})
 
         return Reply(text="", tool_calls=calls_made)  # unreachable: last round has no tools
+
+    def _taints(self, name: str) -> bool:
+        return name in self.tools and self.tools.get(name).taints
+
+    def earlier_owner_text(self, turns: int = EARLIER_TURNS) -> str:
+        """The owner's messages of the last `turns` kept turns that ended within
+        `llm.target_window_s` (for the said-check's target words; see ChangeGuard)."""
+        window = self.settings.profile.llm.target_window_s
+        now = self.clock()
+        with self._history_lock:  # one record per kept turn, filtered together (E4)
+            users = [m for m in self._history if m["role"] == "user"]
+            pairs = list(zip(users, self._turns, strict=True))
+        recent = pairs[-turns:] if turns > 0 else []
+        return " ".join(str(m["content"]) for m, t in recent if now - t.ended <= window)
+
+    def _change_refused(self, name: str, arguments: dict[str, Any], text: str) -> ToolResult | None:
+        """P1/P3 (and M1 with `always_guard`): a tool not marked read-only, while outside
+        text is in the context, must be said by the owner."""
+        if name not in self.tools:
+            return None
+        tool = self.tools.get(name)
+        if tool.read_only:
+            return None
+        if self._turn_browsed:  # the stricter first layer: never in the same turn
+            message = SAME_TURN
+        elif not (self.tainted or self.always_guard):
+            return None
+        elif tool.said_checked and not self.tainted:
+            return None  # its own said-check covers memory's M1
+        elif tool.said_checked:
+            # Under a web-result taint (P1, review E3) its own check covers times, not
+            # the free text a page could choose: every word of its `said_fields` must
+            # also be the owner's, this turn or the previous one within the window.
+            own = f"{text} {self.earlier_owner_text(turns=1)}"
+            if all(said_by_owner(str(arguments.get(f) or ""), own) for f in tool.said_fields):
+                return None
+            message = SAY_IT
+        else:
+            guard = self.change_guard
+            earlier = "" if self.tainted else self.earlier_owner_text()  # P1 stays strict
+            if guard is not None and guard(name, arguments, text, earlier):
+                return None
+            message = NAME_IT if name == DEVICE_TOOL else SAY_IT
+        return ToolResult(ok=False, content=json.dumps({"error": message}, ensure_ascii=False))

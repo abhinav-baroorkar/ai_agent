@@ -1,9 +1,12 @@
-"""`sasha autostart on|off|show`: start the brain and the listener at graphical login.
+"""`sasha autostart on|off|show`: start the brain, the listener and the window at login.
 
 The unit files are generated inside the project (`Data/autostart/`). `show` and `on`
-print both files in full, the exact link paths, and the undo command; `on` then links
-and enables them only with `--yes`. The only write outside the project is what
-`systemctl --user link` and `enable` create under `~/.config/systemd/user/`.
+print both files in full, the exact link paths, the window's autostart entry, and the
+undo command; `on` then links and enables them and writes the entry only with `--yes`.
+Outside the project: what `systemctl --user link` and `enable` create under
+`~/.config/systemd/user/`, and the one entry `~/.config/autostart/<id>.desktop`
+(app/autostart_entry.py: why an entry, and `sasha window --attach`). `off` disables
+the units and removes the entry only if it carries the marker.
 """
 
 from __future__ import annotations
@@ -13,6 +16,10 @@ import subprocess
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from sasha.config import Settings
 
 BRAIN = "sasha-brain.service"
 LISTEN = "sasha-listen.service"
@@ -133,12 +140,20 @@ def autostart(
     home: Path | None = None,
     run: Runner = _run,
     out: Callable[[str], None] = print,
+    settings: Settings | None = None,  # given: the window's autostart entry too
 ) -> int:
     python = python or Path(sys.executable)
     home = home or Path.home()
+    window = _window_entry(settings, python, root, home)
     if action == "off":
         out(f"Running: {UNDO}")
-        return run(UNDO.split())
+        rc = run(UNDO.split())
+        if window is not None:
+            from sasha.app.autostart_entry import remove_entry
+
+            removed = remove_entry(window[0], out)
+            rc = rc or (0 if removed else 1)
+        return rc
     try:
         check_python(root, python)
     except ValueError as e:
@@ -148,10 +163,15 @@ def autostart(
     for path in paths:
         out(f"----- {path} -----")
         out(path.read_text(encoding="utf-8"))
-    out("Links that `on --yes` creates (nothing else outside the project):")
+    if window is not None:
+        out(f"----- {window[0]} (the window at login) -----")
+        out(window[1])
+    out("What `on --yes` creates outside the project (nothing else):")
     for link in link_paths(home):
         out(f"  {link}")
-    out(f"Undo: {UNDO}  (or: sasha autostart off)")
+    if window is not None:
+        out(f"  {window[0]}")
+    out(f"Undo: sasha autostart off  (the services alone: {UNDO})")
     out("`enable` takes effect at the next graphical login; nothing starts now.")
     if action == "show":
         return 0
@@ -162,6 +182,22 @@ def autostart(
         if (rc := run(["systemctl", "--user", "link", str(path)])) != 0:
             return rc
     rc = run(["systemctl", "--user", "enable", BRAIN, LISTEN])
-    if rc == 0:
-        out("Enabled. They start at your next graphical login (nothing was started now).")
-    return rc
+    if rc != 0:
+        return rc
+    if window is not None:
+        from sasha.app.autostart_entry import write_entry
+
+        if not write_entry(window[0], window[1], out):
+            return 1
+    out("Enabled. They start at your next graphical login (nothing was started now).")
+    return 0
+
+
+def _window_entry(
+    settings: Settings | None, python: Path, root: Path, home: Path
+) -> tuple[Path, str] | None:
+    if settings is None:
+        return None
+    from sasha.app.autostart_entry import entry_path, entry_text
+
+    return entry_path(home), entry_text(settings, python, root)

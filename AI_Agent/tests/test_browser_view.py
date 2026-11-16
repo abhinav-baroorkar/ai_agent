@@ -306,7 +306,7 @@ def test_state_names_the_bot_using_the_browser(setup: Any) -> None:
     state = client.portal.call(while_held)
     main = client.harness.bots.get("main")
     assert state["agent"] == "working" and state["holder"] == holder
-    assert state["holder_bot"] == {"id": "main", "name": main.name}
+    assert state["holder_bot"] == {"id": "main", "name": main.name, "via": "direct"}
     assert client.get("/api/browser").json()["holder_bot"] is None  # not held now
 
 

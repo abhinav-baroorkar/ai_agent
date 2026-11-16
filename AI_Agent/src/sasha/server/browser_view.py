@@ -243,7 +243,8 @@ def add_browser_routes(app: FastAPI, deps: Any) -> BrowserView:
             bot = deps.bots.get(bot_id)  # the owner's own name for it, never page text
         except Exception:
             return None
-        return {"id": bot.id, "name": bot.name}
+        via = "helper" if holder in getattr(connector, "helper_holders", ()) else "direct"
+        return {"id": bot.id, "name": bot.name, "via": via}
 
     view = BrowserView(bridge.service if bridge is not None else None, enabled, holder_bot)
 
