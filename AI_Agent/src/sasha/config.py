@@ -16,6 +16,7 @@ from dotenv import dotenv_values, load_dotenv
 from pydantic import BaseModel, Field, SecretStr, field_validator
 
 from sasha.config_app import AppText, WakeWord, WindowConfig
+from sasha.config_memory import MemoryConfig
 from sasha.config_prompts import PromptLines
 from sasha.config_timers import TimersConfig
 from sasha.config_wake import ReplyLines as ReplyLines  # re-exported: moved, not renamed
@@ -146,6 +147,7 @@ class Profile(BaseModel):
     server: ServerConfig = Field(default_factory=ServerConfig)
     wake: WakeConfig = Field(default_factory=WakeConfig)
     timers: TimersConfig = Field(default_factory=TimersConfig)
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)
     window: WindowConfig = Field(default_factory=WindowConfig)
     prompt_lines: dict[str, PromptLines] = Field(default_factory=lambda: {"en": PromptLines()})
 

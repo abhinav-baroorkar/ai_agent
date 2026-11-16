@@ -77,6 +77,9 @@ class Assistant:
         self.clock: Callable[[], float] = time.monotonic  # the turn clock
         self._last_turn_end: float | None = None
         self.turn_kept = False  # the last turn is in the history (see replace_reply)
+        self._kept_at: list[float] = []  # per kept turn: when it ended (the turn clock)
+        # A section rebuilt for every turn after the system prompt (memory/prompt.py).
+        self.prompt_extra: Callable[[], str] | None = None
 
     @property
     def name(self) -> str:
@@ -101,7 +104,24 @@ class Assistant:
 
     def reset(self) -> None:
         self._history.clear()
+        self._kept_at.clear()
         self._last_turn_end = None
+
+    def forget_turns(self, seconds: float) -> int:
+        """Drop this conversation's turns that ended in the last `seconds` (memory's
+        forget(minutes)): the model can't quote them any more. Returns how many."""
+        since = self.clock() - seconds
+        keep = [i for i, at in enumerate(self._kept_at) if at < since]
+        gone = len(self._kept_at) - len(keep)
+        self._history = [m for i in keep for m in self._history[2 * i : 2 * i + 2]]
+        self._kept_at = [self._kept_at[i] for i in keep]
+        return gone
+
+    def redact_request(self, redact: Callable[[str], str]) -> None:
+        """Rewrite the owner's last message as kept in the history (a refused secret,
+        memory M7, stays out of the conversation)."""
+        if self.turn_kept and len(self._history) >= 2 and self._history[-2]["role"] == "user":
+            self._history[-2]["content"] = redact(str(self._history[-2]["content"]))
 
     # --- stopped turns ---------------------------------------------------------------
     # A stopped turn (the Stop button, or the owner talking over the reply) stays in the
@@ -118,6 +138,7 @@ class Assistant:
             {"role": "user", "content": text},
             {"role": "assistant", "content": self._stopped_reply(partial)},
         ]
+        self._kept_at.append(self.clock())
         self.turn_kept = True
 
     def replace_reply(self, said: str, stopped: bool = False) -> None:
@@ -138,8 +159,10 @@ class Assistant:
 
     def _messages(self, text: str) -> list[Message]:
         recent = self._history[-2 * self.history_turns :]
+        extra = self.prompt_extra() if self.prompt_extra is not None else ""
+        system = f"{self.system_prompt}\n\n{extra}" if extra else self.system_prompt
         return [
-            {"role": "system", "content": self.system_prompt},
+            {"role": "system", "content": system},
             *recent,
             {"role": "user", "content": text},
         ]
@@ -186,6 +209,7 @@ class Assistant:
             {"role": "assistant", "content": reply.text},
         ]
         self._last_turn_end = self.clock()
+        self._kept_at.append(self._last_turn_end)
         self.turn_kept = True
         return reply
 

@@ -30,7 +30,7 @@ from sasha.server.spoken import SpokenStream
 from sasha.server.timers.hub import Hub
 from sasha.server.timers.ring import RingPlayer
 from sasha.server.timers.socket import TimerSocket
-from sasha.server.timers.truth import TimerTruth
+from sasha.server.turn_check import ChainCheck
 from sasha.server.voice import MIC_SAMPLE_RATE, VoiceStages, max_recording_bytes
 
 log = logging.getLogger(__name__)
@@ -85,7 +85,7 @@ class Conversation(TimerSocket):  # the timer side: server/timers/socket.py
         self.ring_role = "home" if speak else "tab"
         self.ringer = RingPlayer(self, timers) if timers is not None else None
         self.timer_claims = True  # check replies for claimed timer changes (truth.py)
-        self.timer_truth: TimerTruth | None = None  # set while a turn's reply streams
+        self.timer_truth: ChainCheck | None = None  # set while a turn's reply streams
 
     # --- sending -------------------------------------------------------------
     def emit(self, frame: Frame) -> None:
@@ -294,7 +294,7 @@ class Conversation(TimerSocket):  # the timer side: server/timers/socket.py
             on_tool=lambda name, ok: self.emit_threadsafe({"type": "tool", "name": name, "ok": ok}),
             should_stop=self.stop.is_set,
         )
-        truth = self.timer_truth = self._timer_truth(text)
+        truth = self.timer_truth = self._turn_check(text)
         try:
             reply = await asyncio.to_thread(self.assistant.handle_text, text, hooks, input_mode)
         except RequestFailed as failed:
@@ -305,6 +305,8 @@ class Conversation(TimerSocket):  # the timer side: server/timers/socket.py
             self.timer_truth = None
         if truth is not None:  # no claimed timer change without a tool that made it
             tail, reply.text = truth.finish(reply.text, reply.tool_calls)
+            for frame in truth.frames(reply.tool_calls):  # memory's `forgot`
+                self.emit(frame)
             if tail:
                 self._on_delta(tail)
         return reply

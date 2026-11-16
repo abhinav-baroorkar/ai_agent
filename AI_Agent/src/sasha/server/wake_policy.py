@@ -34,7 +34,8 @@ from sasha.tools import Tool, ToolError, ToolRegistry
 READ_ONLY_TOOLS = ("list_devices", "get_state", "get_current_time")
 CONTROL_TOOL = "call_service"
 TIMER_KINDS = {"set_alarm": "alarm", "set_reminder": "reminder"}
-TIMER_NAMES = {"timer": "Timer", "alarm": "Alarm", "reminder": "Reminder"}
+TIMER_NAMES = {"timer": "Timer", "alarm": "Alarm", "reminder": "Reminder", "note": "Note"}
+MEMORY_CHANGING = ("remember", "forget")  # memory/tools.py: pending notes on wake (M1)
 _CLEAN = re.compile(r"[^\w .-]+")
 
 
@@ -152,7 +153,7 @@ class WakeToolPolicy:
         `all` maps to "all <domain> devices" only for controllable domains. Anything
         else must be in the house's own device list, looked up once if needed.
         """
-        if domain == "timer":  # server words, never the item's label (T3)
+        if domain in ("timer", "memory"):  # server words, never the item's label (T3)
             return TIMER_NAMES.get(entity)
         if entity in ("", "all"):
             return f"all {domain} devices" if domain in CONTROLLABLE_DOMAINS else None
@@ -199,6 +200,11 @@ class WakeToolPolicy:
             elif name in TIMER_TOOLS:  # nothing in the house changes: no opt-in needed
                 timed = self._timer(name, tool.handler)
                 allowed.register(Tool(tool.name, tool.description, tool.parameters, timed))
+            elif name == "list_memories":  # wake turns see counts and voice notes (M2)
+                allowed.register(tool)
+            elif name in MEMORY_CHANGING:  # a note waits for the owner (M1): no opt-in
+                noted = self._note(tool.handler)
+                allowed.register(Tool(tool.name, tool.description, tool.parameters, noted))
             elif name == CONTROL_TOOL:
                 guarded = self._guard(tool.handler)
                 allowed.register(Tool(tool.name, tool.description, tool.parameters, guarded))
@@ -229,6 +235,24 @@ class WakeToolPolicy:
             return result
 
         return timer_tool
+
+    def _note(self, handler: Callable[..., Any]) -> Callable[..., Any]:
+        """Memory tools on wake turns, for the truthful reply: a saved (pending) or
+        forgotten note is a real change, a refusal is named ("I didn't change: Note.")."""
+
+        def note_tool(**kwargs: Any) -> Any:
+            self.attempted = True
+            try:
+                result = handler(**kwargs)
+            except Exception:
+                self.not_changed.append(("memory", "note"))
+                self.record("memory_refused")
+                raise
+            self.changed.append(("memory", "note"))
+            self.record("memory_allowed")
+            return result
+
+        return note_tool
 
     def _listing(self, handler: Callable[..., Any]) -> Callable[..., Any]:
         def list_devices(**kwargs: Any) -> Any:

@@ -273,6 +273,53 @@ WebSocket `/ws/browser` (one viewer):
 - Nothing about URLs, sites, titles or frames goes into logs or telemetry: only counts
   (frames sent and dropped, viewers, stops).
 
+## Memory (v0.6)
+
+Notes the owner asked the assistant to remember, across days (design:
+`Dependencies/team/memory-design.md`). Notes are made and forgotten by talking (the
+model's `remember` / `forget` tools, checked by the server against the owner's own
+words); the UI lists them, keeps or deletes voice-made ones, marks a note "ok to say
+aloud", deletes any, and forgets a time window or everything.
+
+`Note` = `{id, text, created_at, source:"chat"|"window"|"wake", bot_id, lang,
+status:"active"|"pending", say_aloud:bool}`.
+- `created_at` is epoch seconds (UTC). `text` is the owner's own words (at most 300
+  characters): show it as plain text, never as markup.
+- `pending`: made on a wake turn (anyone in earshot). It is in no prompt until kept;
+  the UI shows it as "added by voice" with keep and delete. Keeping it makes it
+  `active` and `say_aloud: true`.
+- `say_aloud`: wake turns (answered aloud to the room) see only these notes.
+- `Bot.memory: bool`: on for the built-in bots, off for new bots (settable with PATCH
+  and on create). A bot with a `browser` connector never gets memory, whatever this
+  says.
+
+HTTP (all behind the usual Host, Origin and JSON content-type checks; a POST/PATCH
+body must be JSON, `415` otherwise):
+- `GET /api/memory` → `{notes:[Note], count, max}`, newest first.
+- `POST /api/memory/{id}/keep` (body `{}`) → `Note`. `404` unknown id.
+- `PATCH /api/memory/{id}` `{say_aloud: bool}` (nothing else) → `Note`. `409` on a
+  pending note (keep it first).
+- `DELETE /api/memory/{id}` → `{ok:true}`.
+- `POST /api/memory/forget` `{minutes: 1..1440}` → `{forgot: n}`: every note made in the
+  last N minutes. Over HTTP this removes notes only; the conversations keep their
+  turns (say so in the UI). `{everything: true}` → `{forgot: n}`: all notes, the file
+  rewritten empty. The page asks the owner to confirm before sending either.
+
+WebSocket, server → every socket:
+- `{type:"memory", notes:[Note], count, max}`: on connect and after every change
+  (made, kept, marked, deleted, forgotten).
+- `{type:"forgot", since_s}`: on the conversation whose owner said "forget the last N
+  minutes" by talking: the server already dropped that conversation's turns from the
+  last `since_s` seconds (the model can't quote them); the UI drops its own on-screen
+  turns from that window too.
+
+Server lines (from `profile.memory.lines`, never the model): a claimed save or forget
+that no tool made gets "I didn't save that." / "Nothing was forgotten."; a password,
+PIN or code is refused with "I don't store passwords, PINs or codes.", and that reply
+replaces the model's on every path (held, so the secret is never shown) while the
+history keeps the owner's message with the secret masked. A wake turn can forget only
+voice-made notes; the rest, a time window and everything are for the screen.
+
 ## Changes
 - v0.1 (2026-11-14): `speak` query parameter; one conversation per socket stated;
   `PUT /api/connectors/{id}` returns the Connector; `pronouns` is an object;
@@ -296,5 +343,7 @@ WebSocket `/ws/browser` (one viewer):
   `background_refused`.
 - v0.4.3 (2026-11-16): `wake` misses carry `reason` (a label, never text). The wake
   phrase is "hey" plus the name (assistant.yaml), not the name alone.
+- v0.6 (2026-11-16, proposed with feat/memory-server): memory: `/api/memory` routes;
+  `memory` and `forgot` frames; `Bot.memory`.
 - Planned for v0.5 (not built yet): `POST /api/connectors` and
   `DELETE /api/connectors/{id}` to add and remove MCP connectors from Settings.
