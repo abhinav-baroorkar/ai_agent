@@ -7,6 +7,7 @@ import { api, HAS_TOKEN, MOCK } from './api.js';
 import { $, h, clear } from './dom.js';
 import { cleanBrowserState } from './clean.js';
 import { BrowserLink } from './browser-link.js';
+import { initTakeover } from './browser-takeover.js';
 
 const MAX_JPEG_CHARS = 720000; // a little over the server's own 512 KB limit, as base64
 const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
@@ -30,6 +31,7 @@ export function initBrowserPanel(health) {
     guard: $('#browser-guard'), mock: $('#mock-browser'), body: $('.bots-body'),
   };
   const link = new BrowserLink();
+  const takeover = initTakeover($('#browser-takeover'), health);
   let bot = null;
   let hasConnector = false;
   let open = false;
@@ -63,6 +65,8 @@ export function initBrowserPanel(health) {
     if (link.status === 'offline') return 'Can’t reach the assistant. Trying again…';
     if (link.status !== 'open') return 'Connecting…';
     if (!state.enabled) return 'The browser is off. Turn it on in Settings.';
+    if (state.mode === 'owner') return 'The browser is in its own window on your screen. Nothing of it is shown here.';
+    if (state.mode === 'switching') return 'Opening the browser in its own window…';
     if (!state.running) return [lastStop, WAITING].filter(Boolean).join(' ');
     return el.img.hidden ? 'Waiting for the first picture…' : '';
   }
@@ -71,19 +75,20 @@ export function initBrowserPanel(health) {
     // The panel is there only while this bot's browser is: running, just stopped, or
     // when the owner needs telling why it can't be watched.
     const wanted = open && hasConnector && (link.status === 'busy' || link.status === 'refused' ||
-      (link.status === 'open' && (state.running || performance.now() < stopNoteUntil)));
+      (link.status === 'open' && (state.running || (state.mode && state.mode !== 'assistant') || performance.now() < stopNoteUntil)));
     shown = wanted;
     el.panel.hidden = !wanted;
     el.body.classList.toggle('with-browser', wanted);
     if (!wanted) return dropPicture();
-    const live = hasConnector && link.status === 'open' && state.running;
+    takeover.show(link.status === 'open' ? state : null);
+    const live = hasConnector && link.status === 'open' && state.running && state.mode !== 'owner';
     if (!live) dropPicture();
     el.address.hidden = !live;
     el.stop.disabled = !live;
     el.agent.hidden = !(hasConnector && link.status === 'open');
     el.agent.dataset.tone = !state.running ? 'off' : state.agent === 'working' ? 'thinking' : 'ok';
-    const inUse = state.user ? `In use by ${state.user}` : 'In use now';
-    el.agent.textContent = !state.running ? 'Not running' : state.agent === 'working' ? inUse : 'Open, idle';
+    const inUse = !state.user ? 'In use now' : state.via === 'helper' ? `${state.user} is looking something up` : `In use by ${state.user}`;
+    el.agent.textContent = state.mode === 'owner' ? 'You’re driving' : !state.running ? 'Not running' : state.agent === 'working' ? inUse : 'Open, idle';
     const text = failed || message();
     el.msg.textContent = text;
     el.msg.hidden = !text;
@@ -108,7 +113,8 @@ export function initBrowserPanel(health) {
 
   async function onFrame(m) {
     const seq = m.seq;
-    const ok = visible() && state.running && typeof m.jpeg === 'string' && m.jpeg.length <= MAX_JPEG_CHARS &&
+    // no picture while the owner drives: his window is his, even if a frame arrives late
+    const ok = visible() && state.running && state.mode !== 'owner' && typeof m.jpeg === 'string' && m.jpeg.length <= MAX_JPEG_CHARS &&
       m.jpeg.startsWith(JPEG_START) && BASE64.test(m.jpeg);
     if (ok) {
       const w = Number(m.w);

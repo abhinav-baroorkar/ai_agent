@@ -8,6 +8,7 @@ import { Mic, micErrorText } from './audio-in.js';
 import { startMockMic } from './mock-mic.js';
 import { initReadouts, initHistory, watchMicPermission, spokenTail, MIC_BLOCKED_HELP } from './home-extras.js';
 import { initTimers } from './timers.js';
+import { lookedUp } from './clean.js';
 import { micSign } from './mic-sign.js';
 import { Endpointer, loudness, TUNING } from './endpoint.js';
 
@@ -19,7 +20,7 @@ const WOKEN_MS = 8000; // how long it shows listening after a wake (the armed wi
 
 export async function initHome(health, onOnline) {
   const el = {
-    status: $('#home-status'), heard: $('#heard'), said: $('#said'), notice: $('#notice'),
+    status: $('#home-status'), lookedUp: $('#looked-up'), heard: $('#heard'), said: $('#said'), notice: $('#notice'),
     mic: $('#mic'), micLabel: $('#mic-label'), micIcon: $('#mic use'),
     form: $('#say-form'), text: $('#say-text'), cancel: $('#cancel'), hint: $('#voice-hint'), mini: $('#mini-face'), micOn: $('#mic-on'),
   };
@@ -37,6 +38,7 @@ export async function initHome(health, onOnline) {
   const onHome = () => ['', '#home'].includes(location.hash);
   const realMic = !MOCK || params.get('mic') === 'real'; // mock mode normally uses a pretend microphone
   let ender = null; // listens for the end of speech while recording
+  let looking = false; // a web lookup is running for this turn
   let audioSent = false; // audio_start has gone out for the recording in progress
   let flush = null; // sends a recording that was finished before the server was ready
   let level = 0; // the microphone level of the last frame, 0..1
@@ -86,7 +88,9 @@ export async function initHome(health, onOnline) {
     face.setState(shown);
     el.mini.dataset.state = shown;
     el.status.dataset.tone = conv.online ? shown : 'offline';
-    el.status.textContent = !conv.online ? 'Offline' : phase === 'finishing' ? 'Finishing…' : LABEL[shown];
+    // a web lookup is running and no answer has started yet (v0.5.1)
+    const lookingUp = looking && shown === 'thinking';
+    el.status.textContent = !conv.online ? 'Offline' : phase === 'finishing' ? 'Finishing…' : lookingUp ? 'Looking it up…' : LABEL[shown];
     el.cancel.hidden = !(shown === 'thinking' || shown === 'speaking');
     micSign('home', recording || starting); // the rule: the microphone is never open, or opening, without this sign
     el.mic.setAttribute('aria-pressed', String(recording));
@@ -117,6 +121,8 @@ export async function initHome(health, onOnline) {
     el.heard.classList.toggle('partial', partial);
     if (partial) return;
     delete el.said.dataset.stopped;
+    el.lookedUp.hidden = true;
+    looking = false;
     history.heard(heard);
     showSaid('');
     notice(blocked ? MIC_BLOCKED_HELP : '');
@@ -133,9 +139,18 @@ export async function initHome(health, onOnline) {
       render();
     })
     .on('transcript', (m) => newTurn(String(m.text ?? ''), !m.final))
-    .on('tool', (m) => history.tool(m))
-    .on('reply_delta', (m) => showSaid(replyText + String(m.text ?? '')))
-    .on('reply', (m) => { showSaid(String(m.text ?? '')); readouts.answered(m.timing); }) // the final text replaces what streamed
+    .on('tool', (m) => { history.tool(m); looking = m.name === 'browse'; render(); })
+    .on('reply_delta', (m) => { looking = false; showSaid(replyText + String(m.text ?? '')); })
+    .on('reply', (m) => {
+      showSaid(String(m.text ?? ''));
+      readouts.answered(m.timing);
+      looking = false;
+      const sites = lookedUp(m.sites); // text only, never links
+      el.lookedUp.hidden = !sites;
+      el.lookedUp.textContent = sites ? `looked up: ${sites}` : '';
+      if (sites) history.sites(sites);
+      render();
+    }) // the final text replaces what streamed
     .on('tts_start', (m) => player.begin(m.sample_rate))
     .on('audio', (buf) => player.push(buf))
     .on('tts_end', () => player.end())

@@ -27,7 +27,10 @@ export function initBots(health) {
   const listeners = new Set();
   const panel = initBrowserPanel(health);
 
-  const canBrowse = (bot) => connectors.some((c) => c.kind === 'browser' && bot.connectors.includes(c.id));
+  // A bot with the direct browser, or the main assistant while web lookups are on (v0.5.1):
+  // its chat can show the live view while its browser is in use.
+  const canBrowse = (bot) => connectors.some((c) => c.kind === 'browser' &&
+    (bot.connectors.includes(c.id) || (bot.id === MAIN && c.enabled && c.tools.includes('browse'))));
   const look = (bot) => ({ style: bot.style, color: colorOf(bot), uses: usesOf(bot, connectors), purpose: purposeOf(bot, name, MAIN) });
   function orb(bot, size) {
     const key = `${bot.id}:${size}:${bot.style}`;

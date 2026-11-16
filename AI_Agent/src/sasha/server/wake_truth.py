@@ -15,6 +15,9 @@ this is the guarantee:
   "I didn't change: …", with names taken from the tool calls (cleaned, capped);
 - if no device changed at all but the held text claims one, it says
   "Nothing was changed.";
+- if a timer tool asked back (an unclear time) and nothing changed, the model's
+  question stands, with its other sentences only if none claims a change (else
+  "Nothing was changed." and the question, T9);
 - otherwise the held text is released unchanged.
 The sentences come from `wake.reply_lines` per language (config), not from code.
 """
@@ -37,6 +40,8 @@ def wake_control_allowed(config: WakeConfig) -> bool:
 
 
 _SENTENCE_END = re.compile(r"[.!?]+(?:\s+|$)")
+_DASHES = "-" + chr(0x2013) + chr(0x2014)  # hyphen, en dash, em dash
+_CLAUSE = re.compile(rf"[,;:]|\s[{_DASHES}]\s")  # comma, semicolon, colon, a dash
 STATE_NEAR = 3  # a state word within this many words of a device word
 SHORT_COMMAND = 3  # a command this short with any state word is a request ("off.")
 
@@ -193,10 +198,47 @@ class TruthfulReply:
             )
             self.overridden = "reply_not_changed"
             return self._override(" ".join(parts))
+        if not policy.changed and getattr(policy, "asked", False):
+            fixed = self._asked_back(tail)
+            if fixed == "":
+                return tail, model_text  # an honest question back: it stands
+            if fixed is not None:
+                self.overridden = "reply_nothing_changed"
+                return self._override(fixed)
         if not policy.changed and (self.change_requested or claims_change(tail, lines)):
             self.overridden = "reply_nothing_changed"
             return self._override(lines.nothing_changed)
         return tail, model_text  # nothing to correct: the model's own words stand
+
+    def _asked_back(self, tail: str) -> str | None:
+        """A timer tool asked back (T9). The model's question stands, but only with
+        statements that claim nothing: "Done, the lights are off. Morning or evening?"
+        becomes "Nothing was changed. Morning or evening?". Returns None if the model
+        asked nothing, "" if its text is honest, else the text to say instead."""
+        lines = self.lines
+        sentences = [s for s in re.split(r"(?<=[.!?])\s+", tail.strip()) if s]
+        if not any(s.endswith("?") for s in sentences):
+            return None
+        # S6: inside a question sentence, the clauses before the last one are
+        # statements too ("I've turned the lights off, morning or evening?"); the
+        # question clause itself claims only if it doesn't open as a question ("Should
+        # I set it for the morning?" is a real question).
+        openers = {w.lower() for w in (*lines.question_words, *lines.asking_words)}
+        claims, asks = False, []
+        for sentence in sentences:
+            if not sentence.endswith("?"):
+                claims = claims or claims_change(sentence, lines)
+                continue
+            *before, ask = [c.strip() for c in _CLAUSE.split(sentence)]
+            claims = claims or any(claims_change(c, lines) for c in before)
+            first = _words(ask)[:1]
+            if claims_change(ask, lines) and not (first and first[0] in openers):
+                claims = True
+            else:
+                asks.append(ask[:1].upper() + ask[1:])
+        if not claims:
+            return ""
+        return f"{lines.nothing_changed} {asks[-1] if asks else lines.ask_again}"
 
     def _override(self, fixed: str) -> tuple[str, str]:
         spoken = fixed if not self.released.strip() else f" {fixed}"
