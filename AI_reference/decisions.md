@@ -681,6 +681,8 @@ Summary of the design that passed review (two rounds). Opt-in until the measurem
   honest answers must not be replaced.
 - **"Next <weekday>" within 2 days asks back** ("This Friday or the one after?"); otherwise it
   resolves. This is the manager's default, not an owner decision.
-- **Status of the bench numbers:** the bench numbers in `research-notes.md` are the author's (at
-  `b253796`). The reviewer's check of `d37cc0a` re-probed the server logic offline; the fresh
-  real-model run on the final commit was Primary's, and its numbers have not been sent to this file.
+- **Status of the bench numbers:** the earlier bench numbers in `research-notes.md` are the author's
+  (at `b253796`). The final run is Primary's: `qwen3.5:9b`, 90 cases x 2 at `89a2ab1`, re-scored
+  with the rules of `d37cc0a` (0 silent wrong times, 0 spoken false claims, right or asked 0.95;
+  offline probes 17 of 17); see the entry "2026-11-16: timers bench, final" in `research-notes.md`.
+  The reviewer re-probed the server logic of `d37cc0a` offline; that was not a model run.
