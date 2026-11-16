@@ -161,3 +161,43 @@ def test_one_turn_holds_the_browser_and_a_new_holder_gets_no_old_tabs(
         assert before_b and before_b[0]["holder"] == "conversation-a"
         shown = {(s["holder"], s["agent"]) for s in before_b}  # A working, or idle between
         assert shown <= {("conversation-a", "working"), (None, "idle")}
+
+
+def test_a_hung_turn_releases_the_browser_after_the_backstop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Review S1: a turn that claims the browser and never ends doesn't keep it."""
+    import asyncio
+
+    import sasha.browser.service as service_module
+    from sasha.browser.service import BrowserBusyError
+
+    monkeypatch.setattr(service_module, "MAX_TURN_HOLD_S", 0.2)
+
+    async def starter(data_dir: Path, port: int) -> Any:
+        return FakeChrome()
+
+    async def main() -> None:
+        service = BrowserService(tmp_path, starter=starter, proxy_factory=FilteringProxy)
+        async with service.acquire("conversation-a", turn=True):
+            pass  # A's turn claims the browser, then hangs: its end hook never runs
+        with pytest.raises(BrowserBusyError):
+            async with service.acquire("conversation-b", turn=True):
+                pass
+        await asyncio.sleep(0.4)
+        assert service.turn_holder is None  # released by the backstop
+        async with service.acquire("conversation-b", turn=True):
+            assert service.turn_holder == "conversation-b"
+        service.end_turn("conversation-b")  # a normal end cancels B's backstop
+        await asyncio.sleep(0.4)
+        assert service.turn_holder is None and service._hold_timer is None
+        await service.stop()
+
+    asyncio.run(main())
+
+
+def test_the_backstop_covers_a_whole_turn_budget() -> None:
+    from sasha.browser.service import MAX_TURN_HOLD_S
+    from sasha.browser.tools import OP_TIMEOUT_S, SECONDS_PER_TURN
+
+    assert MAX_TURN_HOLD_S >= SECONDS_PER_TURN + OP_TIMEOUT_S  # never cuts a live turn short

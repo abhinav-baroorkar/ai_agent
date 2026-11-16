@@ -19,12 +19,12 @@ from sasha.browser.backstop import LogOnlyBackstop
 from sasha.browser.cdp import CDPError, CDPPipe
 from sasha.browser.chrome import Chrome, new_page
 from sasha.browser.reader import PageView, clean, read_tree
-from sasha.browser.redirects import site_of, unwrap
+from sasha.browser.redirects import looks_like_results, site_of, unwrap
 
 LOAD_TIMEOUT_S = 20.0
 NOT_RESULTS = (
-    "That isn't a results page: the search engine is asking the owner to confirm a person "
-    "is searching. Ask the owner to take over the browser; don't try anything else."
+    "No results, or the search engine is asking the owner to confirm a person is "
+    "searching: ask the owner to take over the browser; don't try anything else."
 )
 MAX_PAGE_HOSTS = 4096  # hosts remembered per run; refusals of hosts first seen after
 # the cap count as background (harmless: it only shifts the live view's counts)
@@ -44,7 +44,8 @@ class Tab:
     loaded: asyncio.Event
     view: PageView | None = None
     destinations: dict[int, str] = field(default_factory=dict)  # link number -> real URL
-    result_links: int = 0  # links unwrapped from the engine's redirect or leading off its site
+    unwrapped_links: int = 0  # links unwrapped from the engine's result redirect
+    offsite_links: int = 0  # links leading off the engine's site
 
 
 def domain_of(url: str) -> str:
@@ -151,7 +152,7 @@ class BrowserTabs:
             tree = await self._call("Accessibility.getFullAXTree", None, tab)
             nodes = tree.get("nodes", [])
             first = read_tree(nodes, title=str(title or ""))
-            tab.result_links = 0
+            tab.unwrapped_links = tab.offsite_links = 0
             by_node = await self._destinations(tab, first, str(here or ""))
             tab.view = read_tree(nodes, title=str(title or ""), destinations=by_node)
             tab.destinations = {
@@ -202,10 +203,11 @@ class BrowserTabs:
                 target = unwrap(str(href), base, self.engine_host)
                 if urlsplit(target).scheme in ("http", "https"):
                     found[node_id] = target
-                    unwrapped = target != urljoin(base, str(href))
+                    if target != urljoin(base, str(href)):
+                        tab.unwrapped_links += 1
                     site = site_of(urlsplit(target).hostname or "")
-                    if unwrapped or (self.engine_host and site != site_of(self.engine_host)):
-                        tab.result_links += 1
+                    if self.engine_host and site != site_of(self.engine_host):
+                        tab.offsite_links += 1
         return found
 
     async def search_results(self, url: str) -> dict[str, Any]:
@@ -213,7 +215,7 @@ class BrowserTabs:
         (a bot challenge, so far): the model is told, and never reads that page."""
         result = await self.navigate(url)
         tab = await self.tab()
-        if tab.result_links == 0:
+        if not looks_like_results(self.engine_host, tab.unwrapped_links, tab.offsite_links):
             raise PageError(NOT_RESULTS)
         return result
 

@@ -27,6 +27,9 @@ from sasha.browser.proxy import FilteringProxy
 log = logging.getLogger(__name__)
 
 IDLE_S = 600.0
+# A turn's browser budget is 90 s, and one step can run up to 40 s past it (tools.py
+# SECONDS_PER_TURN + OP_TIMEOUT_S): past that the hold is released whatever the turn does.
+MAX_TURN_HOLD_S = 130.0
 
 
 BUSY = "The browser is in use by another bot; try again shortly"
@@ -68,6 +71,8 @@ class BrowserService:
         self.turn_holder: str | None = None  # the conversation whose turn uses the browser
         self.last_turn_holder: str | None = None  # whose tabs and cookies Chrome has now
         self.holder_epoch = 0  # +1 at every hand-over to another holder
+        self._claims = 0  # +1 per turn claim, so a stale backstop can't end a newer one
+        self._hold_timer: asyncio.TimerHandle | None = None
         self.listeners: list[Callable[[], None]] = []  # told of every state change
 
     def changed(self) -> None:
@@ -79,8 +84,31 @@ class BrowserService:
         its step or time limit: another conversation may take the browser now."""
         if self.turn_holder == holder:
             self.turn_holder = None
+            if self._hold_timer is not None:
+                self._hold_timer.cancel()
+                self._hold_timer = None
             self.touch()
             self.changed()
+
+    def _claim_turn(self, holder: str) -> None:
+        """A new turn holds the browser. A backstop releases it after MAX_TURN_HOLD_S even
+        if the turn hangs (in the LLM, in a long reply) and never ends (review S1)."""
+        if self.turn_holder == holder:
+            return
+        self.turn_holder = holder
+        if self._hold_timer is not None:
+            self._hold_timer.cancel()
+        self._claims += 1
+        claim = self._claims
+        self._hold_timer = asyncio.get_running_loop().call_later(
+            MAX_TURN_HOLD_S, self._release_stale, claim
+        )
+
+    def _release_stale(self, claim: int) -> None:
+        if claim == self._claims and self.turn_holder is not None:
+            log.warning("A browser turn held it past %.0f s: released", MAX_TURN_HOLD_S)
+            self._hold_timer = None
+            self.end_turn(self.turn_holder)
 
     @contextlib.asynccontextmanager
     async def acquire(
@@ -102,7 +130,7 @@ class BrowserService:
             raise BrowserBusyError(BUSY)
         self.holder = bot_id
         if turn:
-            self.turn_holder = bot_id
+            self._claim_turn(bot_id)
         self.changed()
         try:
             chrome = await self._ensure_started()
