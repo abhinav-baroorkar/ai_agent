@@ -264,12 +264,9 @@ def _quiet_after_start() -> None:
     """Once the window is up, later output no longer lands in the start log."""
     from PySide6.QtCore import QTimer
 
-    def quiet() -> None:
-        devnull = os.open(os.devnull, os.O_WRONLY)
-        os.dup2(devnull, 2)
-        os.close(devnull)
+    from sasha.app.start_check import quiet_stderr
 
-    QTimer.singleShot(QUIET_AFTER_MS, quiet)
+    QTimer.singleShot(QUIET_AFTER_MS, quiet_stderr)
 
 
 def main(argv: list[str] | None = None) -> int:

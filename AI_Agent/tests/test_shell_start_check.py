@@ -147,3 +147,64 @@ def test_doctor_says_whether_the_app_window_can_start(monkeypatch: pytest.Monkey
     assert "libxcb-cursor0" in line and "sudo apt install libxcb-cursor0" in line
     monkeypatch.setattr(start_check, "cursor_library_present", lambda: True)
     assert cli.app_window_line() == "[ok]   App window: ready"
+
+
+# --- review W1 and the should-fixes ----------------------------------------------------
+def test_a_command_during_a_slow_start_opens_one_window() -> None:
+    """The probe: the phrase alone, then the command 0.3 s later while the first start
+    is still being confirmed. One open, not two."""
+    import threading
+
+    from sasha.config_app import WindowConfig
+    from sasha.listener.window_open import WindowOpener
+
+    release, started = threading.Event(), threading.Event()
+    calls: list[str] = []
+
+    def slow_open() -> str:
+        calls.append("open")
+        started.set()
+        release.wait(5)
+        return "browser"
+
+    opener = WindowOpener(WindowConfig(), lambda: True, slow_open, lambda: True)
+    first: list[str] = []
+    phrase = threading.Thread(target=lambda: first.append(opener.on_wake(command=False)))
+    phrase.start()
+    assert started.wait(5)
+    assert opener.on_wake(command=True) == "already_up"  # the command, mid-start
+    release.set()
+    phrase.join(5)
+    assert first == ["browser"] and calls == ["open"] and len(opener.opens) == 1
+
+
+def test_a_failed_open_is_rolled_back() -> None:
+    from sasha.config_app import WindowConfig
+    from sasha.listener.window_open import WindowOpener
+
+    opener = WindowOpener(WindowConfig(), lambda: True, lambda: "no_display", lambda: True)
+    assert opener.on_wake(command=False) == "no_display"
+    assert not opener.opens and opener.waiting_since is None and opener.opened_at is None
+
+
+def test_the_start_log_is_private_and_never_a_link(local: Settings, tmp_path: Path) -> None:
+    path = start_check.log_path(local)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    target = tmp_path / "elsewhere.txt"
+    target.write_text("keep me")
+    path.symlink_to(target)
+    os.close(start_check.open_log(local))
+    assert not path.is_symlink() and path.stat().st_mode & 0o777 == 0o600
+    assert target.read_text() == "keep me"  # the link was removed, never written through
+
+
+def test_quiet_stderr_points_the_fd_at_devnull(tmp_path: Path) -> None:
+    log = tmp_path / "log"
+    fd = os.open(log, os.O_WRONLY | os.O_CREAT, 0o600)
+    try:
+        os.write(fd, b"early\n")
+        start_check.quiet_stderr(fd)
+        os.write(fd, b"later\n")  # goes nowhere now
+    finally:
+        os.close(fd)
+    assert log.read_text() == "early\n"

@@ -13,6 +13,7 @@ Times only, in memory; nothing about what was said.
 
 from __future__ import annotations
 
+import threading
 import time
 from collections import deque
 from collections.abc import Callable
@@ -42,29 +43,39 @@ class WindowOpener:
         self.paused_until = 0.0
         self.waiting_since: float | None = None  # opened on the phrase alone, no command yet
         self.opened_at: float | None = None
+        # Review W1: opening can take up to 10 s (the start check), and the command often
+        # comes 0.3 s after the phrase: the open is marked under the lock first.
+        self._lock = threading.Lock()
 
     def on_wake(self, command: bool) -> str:
         """What happened to the window: raised, started, or why not."""
-        now = self.clock()
-        if command and self.waiting_since is not None:
-            self.waiting_since = None  # the command came after the phrase alone: a real wake
-            return "already_up"
-        if not self.config.open_on_wake:
-            return "off"
-        if now < self.paused_until:
-            return "paused"
-        if not self.allowed():  # checked again now: never while locked or unknown
-            return "locked"
-        while self.opens and now - self.opens[0] > 3600:
-            self.opens.popleft()
-        recent = self.opens and now - self.opens[-1] < self.config.min_interval_s
-        if recent or len(self.opens) >= self.config.per_hour:
-            return "limit"
-        action = self.open_window()
-        if action in ("raised", "started", "browser"):
+        with self._lock:
+            now = self.clock()
+            if command and self.waiting_since is not None:
+                self.waiting_since = None  # the command came after the phrase alone
+                return "already_up"
+            if not self.config.open_on_wake:
+                return "off"
+            if now < self.paused_until:
+                return "paused"
+            if not self.allowed():  # checked again now: never while locked or unknown
+                return "locked"
+            while self.opens and now - self.opens[0] > 3600:
+                self.opens.popleft()
+            recent = self.opens and now - self.opens[-1] < self.config.min_interval_s
+            if recent or len(self.opens) >= self.config.per_hour:
+                return "limit"
+            # in flight: a wake meanwhile is "already_up" (after the phrase) or "limit"
+            before = (self.opened_at, self.waiting_since)
             self.opens.append(now)
             self.opened_at = now
             self.waiting_since = None if command else now
+        action = self.open_window()  # outside the lock: it may take seconds
+        if action not in ("raised", "started", "browser"):
+            with self._lock:  # nothing opened: as if it hadn't been tried
+                if self.opens and self.opens[-1] == now:
+                    self.opens.pop()
+                self.opened_at, self.waiting_since = before
         return action
 
     def on_armed_expired(self) -> None:

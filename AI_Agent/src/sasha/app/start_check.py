@@ -10,8 +10,9 @@ So after the spawn:
 - `confirm` waits until the single-instance socket answers `ping`, or the process has
   ended (failed), or `START_CHECK_S` passed with it still alive (slow, but up);
 - `failure_reason` reads the log's first lines and names a known cause in plain words.
-Nothing secret is logged: Qt prints plugin and display errors at start; a token-like
-value is masked before anything is shown.
+Nothing secret is expected there: Qt prints plugin and display errors at start. The
+file itself is written as is (0600, beside the token file in Data/); a token-like value
+is masked when it is shown (`first_lines`), in the terminal or a notification.
 """
 
 from __future__ import annotations
@@ -48,6 +49,16 @@ def open_log(settings: Settings) -> int:
     fd = os.open(path, flags, 0o600)
     os.fchmod(fd, 0o600)
     return fd
+
+
+def quiet_stderr(fd: int = 2) -> None:
+    """Point `fd` (the shell's stderr) at /dev/null: called once its window is up, so
+    later output never lands in the start log."""
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    try:
+        os.dup2(devnull, fd)
+    finally:
+        os.close(devnull)
 
 
 def confirm(
