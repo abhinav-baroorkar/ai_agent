@@ -100,4 +100,6 @@ export const STYLES = {
 };
 
 export const STYLE_IDS = Object.keys(STYLES);
-export const styleOf = (id) => STYLES[id] || STYLES.glow;
+// Only the styles' own names count: a name such as 'constructor' or '__proto__' comes from
+// the server's data, would otherwise find an object with no `move`, and break every frame.
+export const styleOf = (id) => (typeof id === 'string' && Object.hasOwn(STYLES, id) ? STYLES[id] : STYLES.glow);
