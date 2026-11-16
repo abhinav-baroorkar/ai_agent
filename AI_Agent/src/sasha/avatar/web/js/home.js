@@ -8,6 +8,7 @@ import { Mic, micErrorText } from './audio-in.js';
 import { startMockMic } from './mock-mic.js';
 import { initReadouts, initHistory, watchMicPermission, spokenTail, MIC_BLOCKED_HELP } from './home-extras.js';
 import { initTimers } from './timers.js';
+import { micSign } from './mic-sign.js';
 import { Endpointer, loudness, TUNING } from './endpoint.js';
 
 const LABEL = { idle: 'Ready', listening: 'Listening', thinking: 'Thinking', speaking: 'Speaking' };
@@ -52,15 +53,18 @@ export async function initHome(health, onOnline) {
   // then "listening" while the listener takes the command (visual only; the microphone
   // is the listener's, and nothing here waits for the animation).
   let wokenUntil = 0;
-  function woken() {
+  // `entrance`: the shell has just shown the window (or Home wasn't in view): the full
+  // gathering entrance; otherwise the orb only brightens, with no shrink.
+  function woken(entrance = true) {
     wokenUntil = performance.now() + WOKEN_MS;
-    if (face.enter) face.enter();
+    if (face.enter) face.enter(entrance !== false);
     render();
     setTimeout(render, WOKEN_MS + 50);
   }
-  window.addEventListener('assistant-wake', woken);
+  window.addEventListener('assistant-wake', (ev) => woken(ev.detail?.entrance));
   // a wake that arrived while the page was still starting (the shell's cold start)
-  if (performance.now() - (window.assistantWokeAt ?? -1e9) < 3000) woken();
+  const early = window.assistantWake;
+  if (early && performance.now() - early.at < 3000) woken(early.entrance);
 
   face.setLevelSource(() => {
     if (player.active) return player.level();
@@ -82,7 +86,7 @@ export async function initHome(health, onOnline) {
     el.status.dataset.tone = conv.online ? shown : 'offline';
     el.status.textContent = !conv.online ? 'Offline' : phase === 'finishing' ? 'Finishing…' : LABEL[shown];
     el.cancel.hidden = !(shown === 'thinking' || shown === 'speaking');
-    el.micOn.hidden = !(recording || starting); // the rule: the microphone is never open, or opening, without this sign
+    micSign('home', recording || starting); // the rule: the microphone is never open, or opening, without this sign
     el.mic.setAttribute('aria-pressed', String(recording));
     el.mic.dataset.blocked = String(blocked);
     el.mic.dataset.phase = phase;

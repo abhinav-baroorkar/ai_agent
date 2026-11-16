@@ -27,7 +27,7 @@ export function initSettings(health, botsApi) {
       fact('Name', health.assistant.name),
       fact('Pronouns', pronouns),
       fact('Model', main ? main.model : 'unknown', true,
-        main && h('button', { class: 'btn small quiet', type: 'button', style: 'margin-left:.5rem', onclick: () => botsApi.edit(main) }, 'Change')),
+        main && h('button', { class: 'btn small quiet', type: 'button', style: 'margin-left:.5rem', onclick: () => botsApi.change(main) }, 'Change')),
       fact('Hardware profile', health.profile || 'unknown'),
       fact('Hearing (speech to text)', health.voice.stt ? 'On' : 'Not set up'),
       fact('Speaking (text to speech)', health.voice.tts ? 'On' : 'Not set up'));
@@ -85,7 +85,7 @@ export function initSettings(health, botsApi) {
           h('li', {}, 'Press Test. No restart is needed.'))),
       settings.length > 0 && h('p', { class: 'detail' },
         ...settings.flatMap(([k, v]) => [`${k}: `, h('code', {}, String(v)), ' '])),
-      tools.length > 0 && h('div', { class: 'tools', 'aria-label': 'Tools this connector gives' },
+      tools.length > 0 && h('div', { class: 'tools', 'aria-label': 'What this lets a bot do' },
         ...tools.map((t) => h('span', { class: 'chip' }, t))),
       !needsSecret && secrets.length > 0 && h('p', { class: 'detail' },
         'Its secret is read from ', ...codeList(secrets), ' in ', h('code', {}, SECRETS_FILE), '.'),
@@ -103,8 +103,8 @@ export function initSettings(health, botsApi) {
     }
     clear(grid).append(...connectors.map(card),
       h('article', { class: 'card note' },
-        h('strong', {}, 'Adding your own connectors (MCP) is coming next'),
-        `Until then, the connectors above are the ones built in. Secrets always go in the ${SECRETS_FILE} file, never in this window.`));
+        h('strong', {}, 'Adding more of your own is coming next'),
+        `Until then, the ones above are what is built in. Secrets always go in the ${SECRETS_FILE} file, never in this window.`));
   }
 
   botsApi.onChange(renderFacts);

@@ -161,6 +161,10 @@ def build_parser() -> argparse.ArgumentParser:
         cmd = sub.add_parser(name, help=text)
         cmd.add_argument("--host", help="Loopback address to use (default from the profile)")
         cmd.add_argument("--port", type=int, help="Port (default from the profile)")
+        if name == "window":
+            cmd.add_argument(
+                "--chrome", action="store_true", help="Use the Chrome window, not the app shell"
+            )
     listen = sub.add_parser("listen", help="Wake word listener (microphone; foreground)")
     listen.add_argument(
         "--debug-dump-audio",
@@ -218,8 +222,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command in ("serve", "window"):
         from sasha.server.launch import open_window, run_server  # FastAPI only when needed
 
-        run = run_server if args.command == "serve" else open_window
-        return run(settings, host=args.host, port=args.port)
+        if args.command == "window":
+            return open_window(settings, host=args.host, port=args.port, chrome=args.chrome)
+        return run_server(settings, host=args.host, port=args.port)
     assistant, warnings = make_assistant(settings, small=getattr(args, "small", False))
     for w in warnings:
         print(f"[warn] {w}")

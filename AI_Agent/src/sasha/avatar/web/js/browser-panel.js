@@ -18,12 +18,13 @@ const STOPPED = {
   brain_stopping: 'The browser closed because the assistant is shutting down.',
   crashed: 'The browser crashed. It starts again the next time it is needed.',
 };
+const STOP_NOTE_MS = 8000;
 const WAITING = 'The browser isn’t running. It starts when you ask the assistant to look something up.';
 
 export function initBrowserPanel(health) {
   const el = {
     panel: $('#browser-panel'), title: $('#browser-title'), agent: $('#browser-agent'), stop: $('#browser-stop'),
-    close: $('#browser-close'), address: $('#browser-address'), site: $('#browser-site'), page: $('#browser-page'),
+    address: $('#browser-address'), site: $('#browser-site'), page: $('#browser-page'),
     pageLine: $('#browser-pageline'),
     img: $('#browser-img'), msg: $('#browser-msg'), again: $('#browser-again'), tabs: $('#browser-tabs'),
     guard: $('#browser-guard'), mock: $('#mock-browser'), body: $('.bots-body'),
@@ -34,23 +35,24 @@ export function initBrowserPanel(health) {
   let open = false;
   let state = cleanBrowserState(null);
   let lastStop = '';
+  let stopNoteUntil = 0; // how long the reason for a stop stays on screen
+  let shown = false;
   let failed = '';
-  let onClose = () => {};
   el.title.textContent = `${health.assistant.name}’s browser`;
 
-  const visible = () => open && !$('#bots').hidden && !document.hidden;
+  const visible = () => open && shown && !$('#chat').hidden && !document.hidden;
 
   // Connect only for a panel that is open on a bot that can browse; ask for frames
   // only while it can actually be seen. Nobody watching means nothing is captured.
   function sync() {
     if (open && hasConnector) link.open(); else link.close();
+    render(); // decides whether the panel is shown
     link.watch(visible() && hasConnector);
-    render();
   }
 
   function message() {
     if (!hasConnector) {
-      return `${bot ? bot.name : 'This bot'} can’t use the browser. To let a bot browse: Edit bot, tick Browser, and untick everything else (a browsing bot can have no other connector).`;
+      return `${bot ? bot.name : 'This bot'} can’t use the web.`;
     }
     if (link.status === 'busy') return 'Another window is already watching the browser. Only one can watch at a time.';
     if (link.status === 'refused') return 'The assistant refused this window’s request to watch the browser.';
@@ -62,9 +64,14 @@ export function initBrowserPanel(health) {
   }
 
   function render() {
-    el.panel.hidden = !open;
-    el.body.classList.toggle('with-browser', open);
-    if (!open) return;
+    // The panel is there only while this bot's browser is: running, just stopped, or
+    // when the owner needs telling why it can't be watched.
+    const wanted = open && hasConnector && (link.status === 'busy' || link.status === 'refused' ||
+      (link.status === 'open' && (state.running || performance.now() < stopNoteUntil)));
+    shown = wanted;
+    el.panel.hidden = !wanted;
+    el.body.classList.toggle('with-browser', wanted);
+    if (!wanted) return dropPicture();
     const live = hasConnector && link.status === 'open' && state.running;
     if (!live) dropPicture();
     el.address.hidden = !live;
@@ -120,10 +127,12 @@ export function initBrowserPanel(health) {
 
   link
     .on('status', () => { if (link.status !== 'open') state = cleanBrowserState(null); render(); })
-    .on('state', (m) => { state = cleanBrowserState(m); if (state.running) lastStop = ''; failed = ''; render(); })
+    .on('state', (m) => { state = cleanBrowserState(m); if (state.running) lastStop = ''; failed = ''; sync(); })
     .on('frame', onFrame)
     .on('stopped', (m) => {
       lastStop = STOPPED[m.reason] || 'The browser stopped.';
+      stopNoteUntil = performance.now() + STOP_NOTE_MS;
+      setTimeout(sync, STOP_NOTE_MS + 50);
       state = { ...state, running: false, agent: 'idle', user: '', tabs: [] }; // a late frame must not be drawn
       dropPicture();
       render();
@@ -140,7 +149,6 @@ export function initBrowserPanel(health) {
       render();
     }
   });
-  el.close.addEventListener('click', () => onClose());
   el.again.addEventListener('click', () => { failed = ''; link.again(); });
   document.addEventListener('visibilitychange', sync);
   window.addEventListener('hashchange', () => setTimeout(sync, 0)); // after the screens have switched
@@ -157,13 +165,13 @@ export function initBrowserPanel(health) {
 
   return {
     // Which chat is in front, whether its bot may browse, and whether its panel is open.
-    show(nextBot, canBrowse, isOpen, close) {
+    // The chat in front, and whether its bot may use the web.
+    show(nextBot, canBrowse) {
       const changedBot = (nextBot && nextBot.id) !== (bot && bot.id);
       bot = nextBot;
       hasConnector = !!canBrowse;
-      open = !!isOpen && !!bot;
-      onClose = close || (() => {});
-      if (changedBot) { lastStop = ''; failed = ''; }
+      open = !!bot && hasConnector;
+      if (changedBot) { lastStop = ''; failed = ''; stopNoteUntil = 0; }
       sync();
     },
   };
