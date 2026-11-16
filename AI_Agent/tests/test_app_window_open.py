@@ -190,19 +190,21 @@ def test_the_menu_entry_with_a_fake_home(settings: Settings, tmp_path: Path) -> 
 
 
 def test_the_mic_closes_before_a_slow_window_step(settings: Settings) -> None:
-    """Review A1: busy is set and the mic closed at once; the window comes up later."""
+    """Review A1: busy is set and the mic closed first; the window step runs in the
+    background. Order, not speed: the fake opener blocks until the test has seen it."""
     import asyncio
-    import time as _time
+    import threading
 
     from sasha.listener import messages
 
     order: list[str] = []
+    release = threading.Event()
 
-    class SlowOpener:
+    class BlockingOpener:
         config = WindowConfig()
 
         def on_wake(self, command: bool) -> str:
-            _time.sleep(0.5)  # a socket timeout plus a spawn
+            assert release.wait(10), "the test never released the opener"
             order.append("window")
             return "started"
 
@@ -215,23 +217,26 @@ def test_the_mic_closes_before_a_slow_window_step(settings: Settings) -> None:
 
     class Lst:
         busy = False
-        window = SlowOpener()
+        window = BlockingOpener()
         indicator = Indicator()
 
         def _changed(self) -> None:
             order.append(f"changed busy={self.busy}")
 
-    async def main() -> float:
+    async def main() -> None:
         lst = Lst()
-        t0 = _time.perf_counter()
-        await messages._on_wake(lst, {"type": "wake", "heard": True, "command": True})  # type: ignore[arg-type]
-        took = _time.perf_counter() - t0
-        assert lst.busy and order == ["changed busy=True"]  # mic closed, window not yet
-        await asyncio.sleep(0.8)
-        return took
+        msg = {"type": "wake", "heard": True, "command": True}
+        # _on_wake returns while the opener is still blocked: it never waits for it
+        await asyncio.wait_for(messages._on_wake(lst, msg), 5)  # type: ignore[arg-type]
+        assert lst.busy and order == ["changed busy=True"]  # mic closed; no window yet
+        release.set()
+        for _ in range(200):  # then the background step finishes
+            if order[-1] == "window":
+                break
+            await asyncio.sleep(0.01)
+        assert order == ["changed busy=True", "window"]
 
-    took = asyncio.run(main())
-    assert took < 0.2 and order[-1] == "window"
+    asyncio.run(main())
 
 
 def _read_exec(line: str) -> list[str]:

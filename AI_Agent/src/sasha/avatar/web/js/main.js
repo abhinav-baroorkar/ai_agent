@@ -32,8 +32,13 @@ const info = cleanHealth(await health());
 document.title = info.assistant.name;
 document.querySelectorAll('[data-assistant-name]').forEach((el) => { el.textContent = info.assistant.name; });
 
-await initHome(info, (online, why) => setOffline(!online, why || undefined));
+const home = await initHome(info, (online, why) => setOffline(!online, why || undefined));
 const bots = initBots(info);
+// Home's orb breathes in the main assistant's style (the server only sends one if it has styles)
+bots.onChange((list) => {
+  const main = list.find((b) => b.id === info.default_bot);
+  if (main && main.hasStyle && home.face.setStyle) home.face.setStyle(main.style);
+});
 const settings = initSettings(info, bots);
 
 function route() {

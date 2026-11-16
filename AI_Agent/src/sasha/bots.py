@@ -1,7 +1,8 @@
 """Bots: built-in `main` and `voice`, plus user-made ones, in `Data/state/bots.json`.
 
 The built-in bots' names and prompts always come from `assistant.yaml`; only their
-model and connectors can be changed. A bot only gets the tools of its own connectors.
+model and connectors (and `main`'s orb style) can be changed. A bot only gets the tools
+of its own connectors.
 `voice` serves wake-word turns; its model and connectors default to `main`'s, and only
 it can carry `wake_device_control` (the owner's opt-in to change devices by voice; the
 wake path enforces the limits in server/wake_policy.py whatever this says).
@@ -12,7 +13,7 @@ from __future__ import annotations
 import re
 import secrets
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
@@ -34,6 +35,12 @@ SAFETY_NOTE = (
 )
 
 
+# How a bot's orb breathes (the web side draws them). The one list of styles.
+BotStyle = Literal["glow", "ember", "tide", "gale", "storm", "mist", "bloom", "stone"]
+BOT_STYLES: tuple[str, ...] = get_args(BotStyle)
+DEFAULT_STYLE: BotStyle = "glow"
+
+
 class BotError(ValueError):
     """Bad request about a bot (unknown id, invalid field). Shown to the user."""
 
@@ -50,9 +57,16 @@ class Bot(BaseModel):
     connectors: list[str]
     builtin: bool = False
     wake_device_control: bool = False
+    style: BotStyle = DEFAULT_STYLE
     # Notes across days (memory/): on for the built-in bots, off for new ones; never for
     # a bot with a browser connector, whatever this says (server/deps.py).
     memory: bool = False
+
+    @field_validator("style", mode="before")
+    @classmethod
+    def _known_style(cls, value: Any) -> Any:
+        # a state file from before styles, or hand-edited: glow, never a dropped bot
+        return value if value in BOT_STYLES else DEFAULT_STYLE
 
 
 class BotFields(BaseModel):
@@ -65,6 +79,7 @@ class BotFields(BaseModel):
     system_prompt: str | None = Field(default=None, max_length=MAX_PROMPT)
     connectors: list[str] | None = None
     wake_device_control: bool | None = None  # only on the `voice` bot
+    style: BotStyle | None = None  # not on `voice`: it shows the main bot's style
     memory: bool | None = None
 
     @field_validator("name", "model")
@@ -121,6 +136,7 @@ class BotStore:
             system_prompt=self.main_prompt,
             connectors=list(saved.get("connectors", self.main_connectors)),
             builtin=True,
+            style=saved.get("style", DEFAULT_STYLE),
             memory=saved.get("memory", True) is not False,
         )
 
@@ -135,6 +151,7 @@ class BotStore:
             connectors=list(saved.get("connectors", main.connectors)),
             builtin=True,
             wake_device_control=saved.get("wake_device_control") is True,
+            style=main.style,  # no style of its own: the main bot's
             memory=saved.get("memory", True) is not False,
         )
 
@@ -198,6 +215,7 @@ class BotStore:
                 model=fields.model or self.default_model,
                 system_prompt=fields.system_prompt or "",
                 connectors=self._check_connectors(fields.connectors or []),
+                style=fields.style or DEFAULT_STYLE,
                 memory=fields.memory is True,
             )
             stored = bot.model_dump(exclude={"builtin", "wake_device_control"})
@@ -211,6 +229,8 @@ class BotStore:
             raise BotError("fields can't be set to null")
         if "connectors" in changes:
             changes["connectors"] = self._check_connectors(changes["connectors"])
+        if "style" in changes and bot_id == VOICE_ID:
+            raise BotError("The wake-word bot shows the main bot's style; set it on main")
         if "wake_device_control" in changes and bot_id != VOICE_ID:
             raise BotError("wake_device_control can only be set on the voice bot")
         if changes.get("wake_device_control") is True and not self._wake_control_allowed():

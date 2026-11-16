@@ -47,8 +47,9 @@ _STR = {"type": "string"}
 _PERIOD = {"type": "string", "enum": ["am", "pm"], "description": "Only if the person said it"}
 _DAY = {
     "type": "string",
-    "description": "today, tomorrow, a weekday (monday...), a day of the month (30th) or "
-    "YYYY-MM-DD; omit if not said",
+    "description": "today, tomorrow, a weekday (monday...), 'next friday', 'friday after "
+    "next', a day of the month (30th), a date ('2nd of april') or YYYY-MM-DD; omit if "
+    "not said",
 }
 
 

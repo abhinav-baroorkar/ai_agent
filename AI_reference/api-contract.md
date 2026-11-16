@@ -28,7 +28,12 @@ per-device token; v0 has no auth because it only listens on localhost.
 | `POST /api/timers/{id}/say` | speak this item's text now (the owner tapped it); `{ok:true}` |
 
 `Bot` = `{id, name, model, system_prompt, connectors:[connector ids], builtin:bool,
-wake_device_control:bool}`.
+wake_device_control:bool, style}`.
+- `style` (v0.4.4): how the bot's orb breathes, one of `glow`, `ember`, `tide`, `gale`,
+  `storm`, `mist`, `bloom`, `stone`; default `glow` (also for bots saved before styles).
+  Settable on create and PATCH for user bots, and on PATCH for `main` (only its style:
+  its name and prompt stay locked). `voice` has no style of its own: it returns
+  `main`'s, and a PATCH with `style` answers 400. An unknown value answers 400.
 - Built-in `main`: its name and prompt come from `assistant.yaml`.
 - Built-in `voice`: used by wake-word turns. Same prompt as `main`; its name is the
   assistant's name plus " (wake word)". Its model and connectors default to `main`'s
@@ -350,6 +355,7 @@ voice-made notes; the rest, a time window and everything are for the screen.
   `background_refused`.
 - v0.4.3 (2026-11-16): `wake` misses carry `reason` (a label, never text). The wake
   phrase is "hey" plus the name (assistant.yaml), not the name alone.
+- v0.4.4 (2026-11-16): `Bot.style` (the orb's breathing style), default `glow`.
 - v0.6 (2026-11-16, proposed with feat/memory-server): memory: `/api/memory` routes;
   `memory` and `forgot` frames; `Bot.memory`.
 - Planned for v0.5 (not built yet): `POST /api/connectors` and

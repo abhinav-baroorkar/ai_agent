@@ -28,7 +28,7 @@ export function usesOf(bot, connectors) {
 // One short line on what the bot is for: the first sentence of its instructions.
 export function purposeOf(bot, assistantName, mainId = 'main') {
   if (bot.builtin && bot.id === mainId) return `${assistantName} is the one you talk to on the first screen. You can type to it here.`;
-  if (bot.builtin) return `Answers when you say the wake phrase. It uses what ${assistantName} uses unless you change it here.`;
+  if (bot.builtin) return `Answers when you say the wake phrase, and looks like ${assistantName}. It uses what ${assistantName} uses unless you change it here.`;
   const text = bot.system_prompt.replace(/\s+/g, ' ').trim();
   if (!text) return 'No instructions yet.';
   const first = text.split(/(?<=[.!?])\s/)[0];
@@ -40,10 +40,10 @@ export function purposeOf(bot, assistantName, mainId = 'main') {
 
 // Three ways to start a new bot.
 export const STARTS = [
-  { id: 'web', use: 'web', title: 'A web researcher', name: 'Web researcher',
+  { id: 'web', use: 'web', style: 'gale', title: 'A web researcher', name: 'Web researcher',
     about: 'Finds things on the web and reads pages for you. It gets its own browser that you can watch.',
     prompt: 'Look things up on the web when asked. Say where you found each fact, and say so plainly when you could not find something.' },
-  { id: 'write', use: 'none', title: 'A writing helper', name: 'Writing helper',
+  { id: 'write', use: 'none', style: 'tide', title: 'A writing helper', name: 'Writing helper',
     about: 'Drafts, shortens and tidies text. It only talks; it can’t look anything up.',
     prompt: 'Help write, shorten and tidy text. Keep the owner’s meaning and tone. Ask before changing any fact.' },
   { id: 'blank', use: 'none', title: 'Start from blank', name: '',

@@ -24,6 +24,7 @@ import os
 import re
 import time
 from collections import Counter
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -77,6 +78,31 @@ LONG_TALK = [
     "walked away.",
     "Coming up after the break: hey, have you ever wondered why the sky turns orange at sunset?",
 ]
+# Set "extra": private names (e.g. of people nearby), each said these four ways. They come
+# only from a file the owner writes himself (Data/private/soundalikes.txt, git-ignored,
+# one per line) or a variable he sets in his own terminal; never from the command line
+# (shell history, /proc), and no transcript of them is printed or saved. Run it from the
+# owner's own terminal, not from an assistant session.
+EXTRA_FORMS = ["{first} {n}.", "{first} {n}, turn on the light.", "{n}.", "I told {n} about it."]
+PRIVATE_FILE = "private/soundalikes.txt"
+PRIVATE_ENV = "WAKE_EXTRA_SOUNDALIKES"
+
+
+def extra_names(data_dir: Path, env: Mapping[str, str] = os.environ) -> list[str]:
+    path = data_dir / PRIVATE_FILE
+    raw = path.read_text(encoding="utf-8") if path.is_file() else env.get(PRIVATE_ENV, "")
+    names = (n.strip() for line in raw.splitlines() for n in line.split(","))
+    return list(dict.fromkeys(n for n in names if n and not n.startswith("#")))
+
+
+def redact(text: str, names: list[str]) -> str:
+    """Each supplied name (any case, whole word) becomes <extra-1>, <extra-2>, …"""
+    for i, n in enumerate(names, 1):
+        pattern = rf"(?<!\w){re.escape(n)}(?!\w)"
+        text = re.sub(pattern, f"<extra-{i}>", text, flags=re.IGNORECASE)
+    return text
+
+
 # Set 5 (review H1): the command after the phrase alone, decoded without the hint.
 FOLLOW_UPS = ["Turn on the kitchen light.", "What time is it?", "Set a timer for five minutes."]
 LEVELS = [(1.0, None), (0.25, None), (1.0, 20.0), (1.0, 10.0)]  # (gain, SNR dB or None)
@@ -124,7 +150,7 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument(
         "--set",
-        choices=("wake", "ordinary", "hey_other", "soundalike", "long_talk", "follow_up"),
+        choices=("wake", "ordinary", "hey_other", "soundalike", "long_talk", "follow_up", "extra"),
         default="wake",
     )
     p.add_argument("--no-hint", action="store_true", help="A/B: decode without the hint")
@@ -135,6 +161,7 @@ def main() -> int:
     name, wake = s.assistant.wake_word.phrase, s.profile.wake
     matcher = WakeMatcher(name, s.assistant.wake_word.variants, wake.fillers, wake.continuations)
     ph = tts._phonemize
+    private = extra_names(s.paths.data_dir) if a.set == "extra" else []
     if a.set == "wake":
         # the phonemizer's form, plus the ways people say it from assistant.yaml
         # (wake_word.test_pronunciations, phonemes)
@@ -155,7 +182,11 @@ def main() -> int:
             + [f"{first} {n}, turn on the light." for n in s.assistant.wake_word.test_soundalikes],
             "long_talk": LONG_TALK,
             "follow_up": FOLLOW_UPS,
+            # names from the command line only: after "hey", alone, and mid-sentence
+            "extra": [t.format(first=first, n=n) for n in private for t in EXTRA_FORMS],
         }[a.set]
+        if a.set == "extra" and not texts:
+            p.error(f"--set extra needs names in Data/{PRIVATE_FILE} or ${PRIVATE_ENV}")
         items = [(f"{a.set[:2]}{i}", ph(t), False) for i, t in enumerate(texts)]
     speeds, levels = ([1.0], LEVELS[:1]) if a.quick else ([0.85, 1.0, 1.2], LEVELS)
     rng, rows = np.random.default_rng(7), []
@@ -178,10 +209,14 @@ def main() -> int:
         inserted = a.set != "wake" and bool(
             re.search(rf"(?<!\w){re.escape(name)}(?!\w)", heard.text, re.IGNORECASE)
         )
+        written = bool(private) and redact(heard.text, private) != heard.text
         rows.append(
             {
                 **row,
-                "text": heard.text,
+                # for private names no transcript is kept at all: redaction catches the
+                # exact spelling only, and a near-spelling would stay in clear
+                **({} if private else {"text": heard.text}),
+                "name_written": written,
                 "confidence": heard.confidence,
                 "outcome": d.outcome,
                 "phrase_inserted": inserted,
@@ -189,10 +224,11 @@ def main() -> int:
                 "stt_ms": round((time.perf_counter() - t0) * 1000),
             }
         )
+        # for private names: numbers, the outcome and "name written" only, never the text
+        said = f"name_written={written}" if private else repr(heard.text)
         print(
             f"{vname:9} {form:8} cmd={int(cmd)} sp={speed} g={gain} snr={snr} "
-            f"{heard.confidence or 0:.2f} {d.outcome:22} {'INS ' if inserted else ''}"
-            f"{heard.text!r}",
+            f"{heard.confidence or 0:.2f} {d.outcome:22} {'INS ' if inserted else ''}{said}",
             flush=True,
         )
     counts = Counter(r["outcome"] for r in rows)
@@ -200,7 +236,8 @@ def main() -> int:
     inserted_n = sum(bool(r.get("phrase_inserted")) for r in rows)
     print(
         f"\n{a.set}: {len(rows)} samples, {hits} woke; {dict(counts)}; "
-        f"phrase written but not said: {inserted_n}; hint={'off' if a.no_hint else 'on'}"
+        f"phrase written but not said: {inserted_n}; "
+        f"hint={'off' if a.no_hint or a.set == 'follow_up' else 'on'}"
     )
     out = s.paths.data_dir / "results"
     out.mkdir(parents=True, exist_ok=True)

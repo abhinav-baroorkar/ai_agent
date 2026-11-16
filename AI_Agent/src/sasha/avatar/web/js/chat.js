@@ -5,7 +5,7 @@ import { initial } from './clean.js';
 import { renderMarkdown } from './md.js';
 import { VoiceInput, voiceSupported } from './voice-input.js';
 import { cssColor } from './bot-look.js';
-import { miniOrb, wakeOrbs } from './faces/mini-orb.js';
+import { miniOrb, wakeOrbs, setOrb } from './faces/mini-orb.js';
 
 const HINT = 'Enter sends. Shift+Enter starts a new line.';
 // a refusal that means this server will never take voice on a chat: stop offering it
@@ -45,6 +45,8 @@ export class ChatView {
       conv: this.conv, owner: `chat:${bot.id}`,
       isVisible: () => !this.el.hidden && location.hash === '#chat',
       onChange: (v) => {
+        if (v.recording) this.showState('listening');
+        else if (this.orbState === 'listening') this.showState('idle');
         this.micBtn.setAttribute('aria-pressed', String(v.on));
         this.micBtn.dataset.phase = v.phase;
         this.hint.textContent = v.starting ? 'Starting the microphone…' : v.phase === 'finishing' ? 'Finishing…'
@@ -75,7 +77,11 @@ export class ChatView {
         this.offline.hidden = true;
         this.add(h('div', { class: 'msg error', role: 'alert' }, m.message));
       })
-      .on('state', (m) => this.setBusy(m.state !== 'idle' && m.state !== 'listening'))
+      .on('state', (m) => {
+        this.setBusy(m.state !== 'idle' && m.state !== 'listening');
+        this.showState(m.state === 'speaking' || m.state === 'thinking' ? m.state : this.voice.recording ? 'listening' : m.state);
+      })
+      .on('reply_delta', () => this.showState('speaking')) // the reply is arriving: it is talking
       .on('transcript', (m) => { if (m.final && String(m.text ?? '').trim()) this.addMine(String(m.text)); })
       .on('tool', (m) => this.reply().chips.append(chip(m)))
       .on('reply_delta', (m) => { const r = this.reply(); r.text += String(m.text ?? ''); this.paintSoon(r); })
@@ -103,9 +109,9 @@ export class ChatView {
     this.usesTag.textContent = look.uses.text;
     this.usesTag.dataset.kind = look.uses.kind;
     this.el.style.setProperty('--hue', cssColor(look.color));
-    if (this.orbColor !== String(look.color)) {
-      this.orbColor = String(look.color);
-      this.orb.replaceChildren(miniOrb(look.color, 44));
+    if (this.orbKey !== `${look.color}:${look.style}`) {
+      this.orbKey = `${look.color}:${look.style}`;
+      this.orb.replaceChildren(miniOrb(look.color, 44, { style: look.style, state: this.orbState || 'idle' }));
     }
     this.input.placeholder = `Message ${bot.name}`;
     wakeOrbs();
@@ -136,7 +142,7 @@ export class ChatView {
 
   showEmpty() {
     this.log.replaceChildren(h('div', { class: 'log-empty' },
-      miniOrb(this.look.color, 84),
+      miniOrb(this.look.color, 84, { style: this.look.style }),
       h('strong', {}, this.bot.name),
       h('p', {}, this.look.purpose),
       h('p', { class: 'hint' }, `${this.look.uses.text}. Runs on ${this.bot.model}, on this computer.`)));
@@ -205,6 +211,15 @@ export class ChatView {
     });
     this.input.value = '';
     this.grow();
+  }
+
+  // The orb in the header shows what the bot is doing, as the big one on Home does.
+  showState(state) {
+    const next = ['idle', 'listening', 'thinking', 'speaking'].includes(state) ? state : 'idle';
+    if (next === this.orbState) return;
+    this.orbState = next;
+    const canvas = this.orb.firstChild;
+    if (canvas) setOrb(canvas, { state: next });
   }
 
   addMine(text) {

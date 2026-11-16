@@ -72,6 +72,13 @@ export class VoiceInput {
     }
     this.starting = false;
     this.recording = true;
+    // "Send now" before the server was ready: send what was said once it is idle.
+    this.flush = () => {
+      if (!held.length) return;
+      this.conv.startAudio();
+      held.splice(0).forEach((frame) => this.conv.sendAudio(frame));
+      this.conv.stopAudio();
+    };
     this.conv.whenIdle(() => {
       if (mine !== this.attempt) return;
       this.conv.startAudio();
@@ -122,7 +129,8 @@ export class VoiceInput {
     this.backstops = [];
     const sent = this.sent;
     this.sent = false;
-    if (wasRecording && !sent) this.conv.waiting = null; // still waiting to start: drop it, tell nobody
+    // still waiting for the server: sending queues what was said for when it is idle; discarding drops it
+    if (wasRecording && !sent) this.conv.waiting = tellServer ? this.flush : null;
     else if (wasRecording && tellServer) this.conv.stopAudio();
     else if (wasRecording) this.conv.cancel(); // discard what the server has heard so far
     if (current === this) current = null;

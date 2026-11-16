@@ -1,6 +1,7 @@
 // The being of light. sphere.js draws its body and mist.js its breath;
 // this module is its behaviour: how it floats, wanders, leans in, hops,
 // settles, and what its small companion motes do.
+import { styleOf } from './styles.js';
 import { Stage, mix, rand } from './stage.js';
 import { WHITE, glow, Spring } from './parts.js';
 import { Sphere } from './sphere.js';
@@ -26,6 +27,11 @@ class Spirit extends Stage {
       a: (i / 8) * 6.283 + rand(0, 0.5), r: rand(1.3, 1.75), tilt: rand(-0.5, 0.5), sp: rand(0.35, 0.7) * (i % 2 ? 1 : -1),
       ph: rand(0, 6.28), size: rand(0.6, 1.1),
     }));
+  }
+
+  // How the being breathes (styles.js); the main assistant's choice, Glow by default.
+  setStyle(id) {
+    this.breath = styleOf(id);
   }
 
   setRinging(on) {
@@ -125,7 +131,7 @@ class Spirit extends Stage {
     ctx.rotate(dir);
     ctx.scale(1 + Math.min(0.12, speed * 0.1), 1 - Math.min(0.08, speed * 0.07));
     ctx.rotate(-dir);
-    this.sphere.draw(ctx, R, this, { shimmer: this.shimmer.p });
+    this.sphere.draw(ctx, R, this, { shimmer: this.shimmer.p, style: this.breath });
     ctx.restore();
 
     ctx.save();
