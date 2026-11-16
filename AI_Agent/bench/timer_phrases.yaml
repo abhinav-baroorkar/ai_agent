@@ -92,3 +92,12 @@ cases:
   - {say: "I have 3 eggs, how long should I boil them?", then: "Set a timer.", kind: timer, want: [ask]}
   - {say: "Is it cold at 6 am?", then: "Remind me to call mom.", kind: reminder, want: [ask]}
   - {say: "The meeting moved from 3 to 4.", then: "OK, remind me.", kind: reminder, want: [ask]}
+  # --- from the re-review of ea0b6e8: requests without "set"; the server's line is scored too
+  - {say: "Wake me up at 7.", kind: alarm, want: [ask]}
+  - {say: "Can you time 10 minutes?", kind: timer, want: ["2031-03-27 06:10:00"]}
+  - {say: "I need an alarm for 6.", kind: alarm, want: [ask]}  # 06:00 now: R1 asks
+  - {say: "Snooze it.", kind: alarm, want: [ask]}  # nothing is ringing
+  - {say: "Ten minute timer please.", kind: timer, want: ["2031-03-27 06:10:00"]}
+  - {say: "Give me a nudge at 3.", kind: reminder, want: [ask]}
+  - {say: "Ping me in 20 minutes.", kind: reminder, want: [ask, "2031-03-27 06:20"]}
+  - {say: "Turn off the alarm.", kind: alarm, want: [ask]}  # there is none

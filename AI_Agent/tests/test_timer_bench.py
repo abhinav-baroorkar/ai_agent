@@ -62,3 +62,17 @@ def test_verdicts() -> None:
     timer = {"kind": "timer", "want": ["2031-03-27 06:10:00"]}
     off_by_30s = BENCH.parse_local("2031-03-27 06:10:30")
     assert BENCH.verdict(timer, *item("timer", off_by_30s), [], "") == "wrong"  # to the second
+
+
+def test_run_case_scores_the_server_line(settings: Any, tmp_path: Path) -> None:
+    """Offline (a fake model): a false claim gets the server's line, so none is uncaught."""
+    from tests.server_fakes import FakeLLM, resp
+
+    paths = settings.paths.model_copy(update={"data_dir": tmp_path})
+    settings = settings.model_copy(update={"paths": paths})
+    case = {"say": "Wake me up at 7.", "kind": "alarm", "want": ["ask"]}
+    row = BENCH.run_case(settings, FakeLLM("m", [resp("Done, see you at 7.")]), case, DATA["start"])
+    assert row["server_line"] and not row["uncaught_claim"] and row["verdict"] == "none"
+    weather = {"say": "What's the weather?", "kind": "alarm", "want": ["ask"]}
+    honest = BENCH.run_case(settings, FakeLLM("m", [resp("Sunny.")]), weather, DATA["start"])
+    assert not honest["server_line"] and not honest["uncaught_claim"]

@@ -59,11 +59,25 @@ def claims_timer(text: str, cfg: TimersConfig) -> bool:
     return False
 
 
+_TIME_OBJECTS = {"me", "it", "this", "that", "my", "the", "a", "an"}  # "time the eggs"
+_NUMBER_WORDS = ("one", "two", "three", "four", "five", "ten", "fifteen", "twenty", "thirty")
+
+
 def asks_for_timer(command: str, cfg: TimersConfig) -> bool:
-    """The request asks to set, change or cancel one: a timer word and a request verb
-    ("how long is left on my timer?" is a question, not a request)."""
-    words = set(_words(command))
-    return bool(words & set(cfg.timer_words)) and bool(words & set(cfg.request_verbs))
+    """A timer request: any timer word or timer verb ("wake me at 7", "ping me in 20",
+    "can you time 10 minutes?", "turn off the alarm"), unless it is a status question
+    ("how long is left on my timer?"): it ends in "?" and opens with a wh-word or is,
+    are, do... "time" counts only as a verb, so "what time is it" is no request."""
+    words = _words(command)
+    if command.strip().endswith("?") and words and words[0] in set(cfg.status_starts):
+        return False
+    if set(words) & (set(cfg.timer_words) | set(cfg.timer_verbs)):
+        return True
+    return any(
+        w == "time" and i + 1 < len(words) and (words[i + 1].isdigit() or words[i + 1] in
+                                                 _TIME_OBJECTS | set(_NUMBER_WORDS))
+        for i, w in enumerate(words)
+    )  # fmt: skip
 
 
 class TimerTruth:

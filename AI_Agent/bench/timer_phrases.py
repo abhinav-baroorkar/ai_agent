@@ -10,11 +10,15 @@ the tool calls made, what the server resolved, and the verdict:
 - `wrong_kind`: the right time, but a timer instead of a reminder (or similar);
 - `wrong`: an item at a time not wanted, or several items: a **silent wrong time**;
 - `none`: no item and no question.
-Pass bar: 0 `wrong`. Target: at least 95% `right` or `asked`.
+Each row also records `server_line` (the typed path's TimerTruth would add "Nothing was
+set.") and `uncaught_claim` (the reply claims a timer change, none was made, and no line
+was added). Pass bar: 0 `wrong` and 0 uncaught claims. Target: at least 95% `right` or
+`asked`.
 
-Text only: no voice stages, no server. Usage (from AI_Agent/):
-  uv run python bench/timer_phrases.py [--profile laptop] [--model qwen3.5:9b]
-      [--repeat 1] [--only 12] [--out DIR]
+Text only: no voice stages, no server. The pre-merge run, one command (from AI_Agent/;
+77 cases x 2 runs, about 6 minutes on the GPU):
+  uv run python bench/timer_phrases.py
+Options: [--profile laptop] [--model qwen3.5:9b] [--repeat 2] [--only 12] [--out DIR]
 Results: one JSON file in `<Data>/results/` and a Markdown table on stdout.
 """
 
@@ -38,6 +42,7 @@ from sasha.orchestrator import Assistant, RequestFailed
 from sasha.pipeline.llm import OllamaLLM
 from sasha.server.timers.service import TimerService
 from sasha.server.timers.tools import TimerAsk, add_timer_tools
+from sasha.server.timers.truth import CHANGING_TOOLS, TimerTruth, claims_timer
 from sasha.state import JsonStore
 from sasha.telemetry import TelemetryWriter
 from sasha.tools import Tool, ToolRegistry
@@ -92,15 +97,23 @@ def run_case(
         # As the server does (deps.make_assistant): the tools see the turn's own words.
         assistant.tools = recording(add_timer_tools(base, service, said=current_turn.get), calls)
         started = time.perf_counter()
+        split = 0  # where the last turn's tool calls start
         try:
             reply = assistant.handle_text(str(case["say"])).text
             if case.get("then"):  # a two-turn case: the person answers the question
+                split = len(calls)
                 reply = assistant.handle_text(str(case["then"])).text
         except RequestFailed as exc:
             reply = f"(failed: {type(exc.__cause__).__name__})"
         seconds = time.perf_counter() - started
         items = list(service.items.values())
     got = [datetime.fromtimestamp(i.due, ZONE) for i in items]
+    # What the typed path's TimerTruth would say to this last reply (server/timers/truth.py).
+    command = str(case.get("then") or case["say"])
+    last = [{"name": c["tool"], "ok": "result" in c} for c in calls[split:]]
+    cfg = settings.profile.timers
+    made = any(c["name"] in CHANGING_TOOLS and c["ok"] for c in last)
+    line = TimerTruth(cfg, command, spoken=False).finish(reply, last)[1] != reply
     return {
         "say": case["say"] + (f" / {case['then']}" if case.get("then") else ""),
         "now": datetime.fromtimestamp(now, ZONE).strftime("%a %H:%M"),
@@ -113,6 +126,9 @@ def run_case(
         ],
         "reply": reply,
         "verdict": verdict(case, items, got, calls, reply),
+        "server_line": line,  # the server added "Nothing was set."
+        # a false claim the server let through: claimed, nothing made, no line (target 0)
+        "uncaught_claim": claims_timer(reply, cfg) and not made and not line,
         "seconds": round(seconds, 2),
     }
 
@@ -162,7 +178,7 @@ def main() -> None:
     p.add_argument("--model", default=None, help="Ollama model (default: the profile's)")
     p.add_argument("--host", default=os.environ.get("OLLAMA_HOST", "http://localhost:11434"))
     p.add_argument("--cases", type=Path, default=HERE / "timer_phrases.yaml")
-    p.add_argument("--repeat", type=int, default=1)
+    p.add_argument("--repeat", type=int, default=2)
     p.add_argument("--only", type=int, default=None, help="Run one case (1-based)")
     p.add_argument("--out", type=Path, default=None)
     args = p.parse_args()
@@ -189,7 +205,10 @@ def main() -> None:
         "counts": dict(counts),
         "right_or_asked": round(good / len(rows), 3),
         "silent_wrong": counts["wrong"],
-        "pass": counts["wrong"] == 0,
+        # The typed path's own line (truth.py): how often it fired, and false claims it missed.
+        "server_line": sum(r["server_line"] for r in rows),
+        "uncaught_claims": sum(r["uncaught_claim"] for r in rows),
+        "pass": counts["wrong"] == 0 and not any(r["uncaught_claim"] for r in rows),
         "meets_target": counts["wrong"] == 0 and good / len(rows) >= OK_SHARE,
     }
     out_dir = args.out or settings.paths.data_dir / "results"

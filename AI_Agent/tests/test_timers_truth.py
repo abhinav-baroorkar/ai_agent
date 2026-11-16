@@ -22,6 +22,20 @@ from tests.server_fakes import BASE_URL, WS, FakeTTS, Harness, resp
 from tests.test_timers_server import with_timers
 from tests.wake_fakes import frames, turn_frames
 
+# Re-review of ea0b6e8: requests the old rule (timer word AND request verb) missed.
+REVIEW_ROWS = [
+    ("wake me up at 7", "Sure, I'll wake you at 7 tomorrow."),
+    ("wake me up at 7", "Done, see you at 7."),
+    ("can you time 10 minutes", "Okay, I'll let you know in 10 minutes."),
+    ("I need an alarm for 6", "You got it, 6 am it is."),
+    ("snooze it", "Snoozed for 5 minutes."),
+    ("snooze it", "Okay, I'll ring again in 5 minutes."),
+    ("ten minute timer please", "Your timer is running."),
+    ("give me a nudge at 3", "Sure, I'll nudge you at 3."),
+    ("ping me in 20 minutes", "I'll ping you in 20."),
+    ("turn off the alarm", "The alarm is off."),
+]
+
 FALSE_CLAIMS = [
     "No problem, alarm set for 7.",
     "Done! Your timer is set, don't forget it.",
@@ -54,12 +68,27 @@ def test_detector(text: str, claims: bool) -> None:
         ("set an alarm for 7", True),
         ("remind me to call mom at 5", True),
         ("cancel my timer", True),
-        ("how long is left on my timer?", False),  # a question, not a request
+        *((command, True) for command, _ in [*(r for r in REVIEW_ROWS)]),
+        ("can you set a timer?", True),  # "Can you ...?" is still a request
+        ("time the eggs for me", True),
+        ("how long is left on my timer?", False),  # a status question
+        ("is my alarm set?", False),
+        ("what time is it", False),  # "time" is no verb here
         ("what's the weather", False),
     ],
 )
 def test_asks_for_timer(command: str, asks: bool) -> None:
     assert asks_for_timer(command, TimersConfig()) is asks
+
+
+@pytest.mark.parametrize(("command", "reply"), REVIEW_ROWS)
+def test_review_rows_get_the_line(command: str, reply: str) -> None:
+    """The reviewer's probes with no tool call: each one gets "Nothing was set."."""
+    cfg = TimersConfig()
+    assert TimerTruth(cfg, command, spoken=False).finish(reply, [])[1].endswith(cfg.nothing_set)
+    held = TimerTruth(cfg, command, spoken=True)
+    held.feed(reply)
+    assert held.finish(reply, []) == (cfg.nothing_set, cfg.nothing_set)  # never spoken
 
 
 def test_a_timer_request_always_gets_the_line_unless_made_or_asked_back() -> None:

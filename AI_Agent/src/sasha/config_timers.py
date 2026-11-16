@@ -113,11 +113,17 @@ class TimersConfig(BaseModel):
         default_factory=lambda: ["timer", "timers", "alarm", "alarms", "reminder",
                                  "reminders", "countdown", "remind"]
     )  # fmt: skip
-    # A request asks to change one when it has a timer word and one of these.
-    request_verbs: list[str] = Field(
-        default_factory=lambda: ["set", "start", "make", "create", "add", "put", "cancel",
-                                 "stop", "snooze", "remind", "wake", "schedule", "delete",
-                                 "remove", "change", "move"]
+    # A turn is a timer request if it has a timer word or one of these verbs ("wake me
+    # at 7", "ping me in 20"). "time" counts only as a verb ("time 10 minutes").
+    timer_verbs: list[str] = Field(
+        default_factory=lambda: ["wake", "remind", "snooze", "nudge", "ping", "alert"]
+    )
+    # ...unless it is a status question: it ends in "?" and starts with one of these
+    # ("how long is left on my timer?"). "Can you ...?" is still a request.
+    status_starts: list[str] = Field(
+        default_factory=lambda: ["what", "which", "when", "where", "who", "why", "how",
+                                 "is", "are", "do", "does", "did", "has", "have", "was",
+                                 "were", "what's", "when's", "how's", "how many", "how long"]
     )  # fmt: skip
     negation_words: list[str] = Field(
         default_factory=lambda: ["not", "can't", "cannot", "unable", "don't", "won't", "no"]
