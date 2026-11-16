@@ -20,7 +20,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
-from sasha.server.timers.model import REPEATS, TimerItem, clean_text, spoken_time
+from sasha.server.timers.model import REPEATS, TimerItem, clean_text, in_words, spoken_time
 from sasha.server.timers.resolve import (
     Ask,
     Resolved,
@@ -67,18 +67,6 @@ class TimerRefused(ToolError):
     def __init__(self, message: str, reason: str) -> None:
         super().__init__(message)
         self.reason = reason
-
-
-def _in_words(seconds: float) -> str:
-    seconds = round(seconds)
-    h, rest = divmod(seconds, 3600)
-    m, s = divmod(rest, 60)
-    parts = [
-        f"{v} {n}{'' if v == 1 else 's'}"
-        for v, n in ((h, "hour"), (m, "minute"), (s, "second"))
-        if v
-    ]
-    return " ".join(parts) or "0 seconds"
 
 
 class TimerTools:
@@ -175,7 +163,7 @@ class TimerTools:
         due = self.service.clock() + total
         item = self._add(TimerItem("", "timer", due, label=label))
         ends = datetime.fromtimestamp(due, self.service.zone)
-        return {"ok": True, "id": item.id, "kind": "timer", "length": _in_words(total),
+        return {"ok": True, "id": item.id, "kind": "timer", "length": in_words(total),
                 "ends_at": spoken_time(ends)}  # fmt: skip
 
     def set_alarm(
@@ -253,7 +241,7 @@ class TimerTools:
                 at = spoken_time(datetime.fromtimestamp(i.due, service.zone))
                 entry = {"id": i.id, "kind": i.kind, "state": i.state, "at": at}
                 if i.kind == "timer" and i.state == "scheduled":
-                    entry["left"] = _in_words(max(0.0, i.due - service.clock()))
+                    entry["left"] = in_words(max(0.0, i.due - service.clock()))
                 if self.source != "wake":  # user text isn't read out to the room
                     entry["label"], entry["text"] = i.label, i.text
                 elif i.created_by == "wake":  # a voice-made label was said aloud anyway

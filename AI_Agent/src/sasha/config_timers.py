@@ -104,6 +104,8 @@ class TimersConfig(BaseModel):
     voice_prefix: str = "Voice reminder: "
     # Typed and window turns: a reply claiming a timer change no tool made (truth.py).
     nothing_set: str = "Nothing was set."
+    nothing_yet: str = "Nothing is set yet."  # ...when the reply only offered or asked
+    nothing_changed: str = "Nothing was changed."  # ...after a stop or cancel request
     # When a timer tool asked the person back this turn, the server asks its own fixed
     # question for the reason (the tool's ask label; "tool.reason" wins over "reason"):
     # replacing a held spoken reply, or after a typed one that doesn't ask. Empty: no
@@ -144,21 +146,70 @@ class TimersConfig(BaseModel):
         default_factory=lambda: ["timer", "timers", "alarm", "alarms", "reminder",
                                  "reminders", "countdown", "remind"]
     )  # fmt: skip
-    # A turn is a timer request if it has a timer word or one of these verbs ("wake me
-    # at 7", "ping me in 20"). "time" counts only as a verb ("time 10 minutes").
+    # A turn is a timer request (Q2) if it has a timer verb ("wake me at 7", "ping me in
+    # 20"; "time" only as a verb: "time 10 minutes"), or a timer word together with a
+    # request verb or phrase ("set", "turn off") or a time expression (a number, "in 5",
+    # "tonight", "minutes"). "Thanks for the reminder" and "tell me about timers" aren't.
     timer_verbs: list[str] = Field(
         default_factory=lambda: ["wake", "remind", "snooze", "nudge", "ping", "alert"]
     )
+    request_verbs: list[str] = Field(
+        default_factory=lambda: ["set", "start", "make", "need", "want", "give", "cancel",
+                                 "stop", "delete", "remove", "change", "move", "schedule",
+                                 "add", "create", "clear", "dismiss", "reset", "put"]
+    )  # fmt: skip
+    request_phrases: list[str] = Field(
+        default_factory=lambda: ["turn off", "switch off", "shut off"]
+    )
+    time_expression_words: list[str] = Field(
+        default_factory=lambda: ["tonight", "tomorrow", "noon", "midnight", "o'clock", "am",
+                                 "pm", "half", "quarter", "hour", "hours", "minute",
+                                 "minutes", "min", "mins", "second", "seconds"]
+    )  # fmt: skip
     # ...unless it is a status question: it ends in "?" and starts with one of these
     # ("how long is left on my timer?"). "Can you ...?" is still a request.
     status_starts: list[str] = Field(
         default_factory=lambda: ["what", "which", "when", "where", "who", "why", "how",
                                  "is", "are", "do", "does", "did", "has", "have", "was",
-                                 "were", "what's", "when's", "how's", "how many", "how long"]
+                                 "were", "what's", "when's", "how's", "where's", "who's",
+                                 "what're", "how many", "how long"]
     )  # fmt: skip
-    # In a reply that asks back, a claim word right after one of these is an offer, not
-    # a claim ("I'd be happy to set a timer! How long?"); "I'll set it for 7." still is.
-    offer_words: list[str] = Field(default_factory=lambda: ["to", "can", "could", "may", "might"])
+    # A claim word right after one of these is an offer ("I'd be happy to set a timer"):
+    # it only picks the wording ("Nothing is set yet." instead of "Nothing was set.").
+    offer_words: list[str] = Field(
+        default_factory=lambda: ["happy to", "glad to", "want me to", "can", "could", "may",
+                                 "might"]
+    )  # fmt: skip
+    # On a request turn that sets nothing, a spoken reply's last question is kept after
+    # the line only if it asks for one of these ("What time?"); else the fixed question.
+    asking_words: list[str] = Field(
+        default_factory=lambda: ["time", "when", "long", "morning", "evening", "afternoon",
+                                 "night", "am", "pm", "which", "day", "date", "minutes",
+                                 "hours", "say"]
+    )  # fmt: skip
+    # A status question ("is my alarm set?") answered without list_timers: the server
+    # says the real state instead (status.py). Reminder text is never read out.
+    status_none: dict[str, str] = Field(
+        default_factory=lambda: {
+            "alarm": "You have no alarms set.", "timer": "You have no timers running.",
+            "reminder": "You have no reminders.",
+            "all": "You have no timers, alarms or reminders.",
+        }
+    )  # fmt: skip
+    # ...and only when it is about the owner's own items: one of these is in it.
+    status_words: list[str] = Field(
+        default_factory=lambda: ["my", "any", "have", "left", "set", "running", "active",
+                                 "next", "upcoming", "pending", "ringing"]
+    )  # fmt: skip
+    status_kinds: dict[str, str] = Field(
+        default_factory=lambda: {"timer": "Timer", "alarm": "Alarm", "reminder": "Reminder"}
+    )
+    status_at: str = "{kind}: {when}."
+    status_left: str = "{kind}: {left} left."
+    status_ringing: str = "{kind}: ringing now."
+    status_more: str = "And {count} more."
+    status_today: str = "today"
+    status_tomorrow: str = "tomorrow"
     negation_words: list[str] = Field(
         default_factory=lambda: ["not", "can't", "cannot", "unable", "don't", "won't", "no"]
     )

@@ -83,16 +83,18 @@ def test_asks_for_timer(command: str, asks: bool) -> None:
 
 @pytest.mark.parametrize(("command", "reply"), REVIEW_ROWS)
 def test_review_rows_get_the_line(command: str, reply: str) -> None:
-    """The reviewer's probes with no tool call: each one gets "Nothing was set."; spoken,
-    the server's line replaces the reply, with its question unless it was a cancel."""
+    """The reviewer's probes with no tool call: each one gets the server's line; spoken,
+    it replaces the reply, with its question unless it was a cancel."""
     cfg = TimersConfig()
-    assert TimerTruth(cfg, command, spoken=False).finish(reply, [])[1].endswith(cfg.nothing_set)
+    lines = (cfg.nothing_set, cfg.nothing_yet, cfg.nothing_changed)
+    assert TimerTruth(cfg, command, spoken=False).finish(reply, [])[1].endswith(lines)
     held = TimerTruth(cfg, command, spoken=True)
     held.feed(reply)
+    said, final = held.finish(reply, [])
     cancel = command.startswith(("snooze", "turn off"))
     question = cfg.ask_generic_timer if "timer" in command else cfg.ask_generic
-    said = cfg.nothing_set if cancel else f"{cfg.nothing_set} {question}"
-    assert held.finish(reply, []) == (said, said)  # the model's text is never spoken
+    assert said == final and said.startswith(lines)  # the model's text is never spoken
+    assert said == cfg.nothing_changed if cancel else said.endswith(question)
 
 
 def test_a_timer_request_always_gets_the_line_unless_made_or_asked_back() -> None:
@@ -100,7 +102,7 @@ def test_a_timer_request_always_gets_the_line_unless_made_or_asked_back() -> Non
     honest = "I couldn't do that just now."
     for reply in (*FALSE_CLAIMS, honest):
         truth = TimerTruth(cfg, "Set an alarm for 7.", spoken=False)
-        assert truth.finish(reply, [])[1].endswith(cfg.nothing_set)
+        assert truth.finish(reply, [])[1].endswith((cfg.nothing_set, cfg.nothing_yet))
     asked = TimerTruth(cfg, "Set an alarm for 7.", spoken=False)
     assert asked.finish("Morning or evening?", [])[1] == "Morning or evening?"
     made = TimerTruth(cfg, "Set an alarm for 7.", spoken=False)

@@ -4,7 +4,9 @@
 #
 # Each case: `say` (one typed turn), `kind` (timer | alarm | reminder), `want` (the
 # acceptable outcomes: a local due time "YYYY-MM-DD HH:MM[:SS]", or `ask` when asking
-# back is right), optional `now` (else `start`).
+# back is right, or `talk`: a mention-only or status command, where no item is right),
+# optional `now` (else `start`), `then` (a second turn), `mention: true` (the model's
+# answer must be spoken as it is).
 # Pass bar: 0 silent wrong times (an item made at a time not in `want`). Asking back
 # is correct only where `want` has `ask`; elsewhere it is counted, not failed.
 start: "2031-03-27 06:00"  # a Thursday
@@ -101,3 +103,42 @@ cases:
   - {say: "Give me a nudge at 3.", kind: reminder, want: [ask]}
   - {say: "Ping me in 20 minutes.", kind: reminder, want: [ask, "2031-03-27 06:20"]}
   - {say: "Turn off the alarm.", kind: alarm, want: [ask]}  # there is none
+  # --- from the re-review of b253796 -------------------------------------------------------
+  # Q2: commands that only mention a timer are no request: the model's answer is spoken.
+  - {say: "Thanks for the reminder.", kind: reminder, want: [talk], mention: true}
+  - {say: "My alarm app is broken, any tips?", kind: alarm, want: [talk], mention: true}
+  - {say: "What's a good timer for tea?", kind: timer, want: [talk], mention: true}
+  - {say: "Tell me about timers.", kind: timer, want: [talk], mention: true}
+  - {say: "My alarm didn't go off this morning.", kind: alarm, want: [talk], mention: true}
+  - {say: "I hate my alarm clock.", kind: alarm, want: [talk], mention: true}
+  # Status questions: the model calls list_timers, or the server says the real state.
+  - {say: "Is my alarm set?", kind: alarm, want: [talk]}
+  - {say: "Do I have any reminders?", kind: reminder, want: [talk]}
+  - {say: "How long is left on my timer?", kind: timer, want: [talk]}
+  - {say: "Set a timer for 10 minutes.", then: "How long is left on my timer?", kind: timer, want: ["2031-03-27 06:10:00"]}
+  - {say: "Set an alarm for 7 am tomorrow.", then: "Is my alarm set?", kind: alarm, want: ["2031-03-28 07:00"]}
+  # Requests that often get "Anything else?" at the end.
+  - {say: "Set an alarm for 7 am, thanks.", kind: alarm, want: ["2031-03-27 07:00"]}
+  - {say: "Remind me to call mom at 5 pm.", kind: reminder, want: ["2031-03-27 17:00"]}
+
+# Fixed replies judged without the model (Q1, Q2, the status line): `spoken` is what a
+# spoken window turn must say: `keep` (the reply), `line` (starts with the server's
+# line) or the exact text. `calls` are tool calls with `asked` (the tool's ask reason).
+probes:
+  - {say: "Set an alarm for 7.", reply: "Done. Anything else?", spoken: "Nothing was set. What time should it be?"}
+  - {say: "Set an alarm for 7.", reply: "Got it, 7 it is. Need anything else?", spoken: "Nothing is set yet. What time should it be?"}
+  - {say: "Set an alarm for 7.", reply: "All set for 7! Want it to repeat?", spoken: "Nothing was set. What time should it be?"}
+  - {say: "Remind me to call mom at 5.", reply: "Okay! Anything else I can help with?", spoken: "Nothing is set yet. What time should it be?"}
+  - {say: "Set a timer.", reply: "Of course! How long?", spoken: "Nothing is set yet. How long?"}
+  - {say: "Set an alarm for 7.", reply: "Alarm set for 7. Anything else?", spoken: "Nothing was set. What time should it be?"}
+  - {say: "Set an alarm for 7.", reply: "Morning or evening?", spoken: keep}
+  - {say: "Wake me up at 7.", reply: "Done. Anything else?", calls: [{tool: set_alarm, asked: ambiguous_period}], spoken: "Morning or evening?"}
+  - {say: "Morning.", answering: true, reply: "Got it! I'll set the alarm for 7:00 AM. Should it repeat?", spoken: "Nothing was set. What time should it be?"}
+  - {say: "Thanks for the reminder.", reply: "You're welcome!", spoken: keep}
+  - {say: "My alarm app is broken, any tips?", reply: "Try restarting your phone.", spoken: keep}
+  - {say: "What's a good timer for tea?", reply: "Three to five minutes is typical.", spoken: keep}
+  - {say: "Tell me about timers.", reply: "A timer counts down.", spoken: keep}
+  - {say: "Is my alarm set?", reply: "Yes, your alarm is set for 7.", spoken: "You have no alarms set."}
+  - {say: "Is my alarm set?", reply: "Yes, it's set for 7.", calls: [{tool: list_timers, ok: true}], spoken: keep}
+  - {say: "Turn off the alarm.", reply: "Done!", spoken: "Nothing was changed."}
+  - {say: "Set an alarm for 7.", reply: "Morning or evening? Let me know.", spoken: "Nothing is set yet. Morning or evening?"}

@@ -10,13 +10,18 @@ the tool calls made, what the server resolved, and the verdict:
 - `wrong_kind`: the right time, but a timer instead of a reminder (or similar);
 - `wrong`: an item at a time not wanted, or several items: a **silent wrong time**;
 - `none`: no item and no question.
-Each row also records `server_line` (the typed path's TimerTruth would add "Nothing was
-set.") and `uncaught_claim` (the reply claims a timer change, none was made, and no line
-was added, and it is no question back: the server's own `asks_back`). Pass bar: 0
-`wrong` and 0 uncaught claims. Target: at least 95% `right` or `asked`.
+- `talk` (want): a mention-only or status command; no item is right.
+Each row is also judged by the server's own TimerTruth, typed (`shown`) and spoken
+(`spoken`): `server_line` (it added its line, question or the real state),
+`spoken_claim` (the model's own claim was spoken with nothing made: target 0),
+`replaced` (the model's reply wasn't spoken; for mention-only commands, target 0) and
+`uncaught_claim` (typed: a claim, nothing made, nothing added). The `probes` in the
+YAML are fixed replies judged without the model ("Done. Anything else?"). Pass bar: 0
+`wrong`, 0 spoken claims, 0 uncaught claims, 0 replaced mention-only answers, 0 failed
+probes. Target: at least 95% `right` or `asked`.
 
 Text only: no voice stages, no server. The pre-merge run, one command (from AI_Agent/;
-77 cases x 2 runs, about 6 minutes on the GPU):
+about 90 cases x 2 runs, about 7 minutes on the GPU):
   uv run python bench/timer_phrases.py
 Options: [--profile laptop] [--model qwen3.5:9b] [--repeat 2] [--only 12] [--out DIR]
 Re-score a saved file (no GPU): uv run python bench/timer_phrases.py --rescore FILE
@@ -31,6 +36,7 @@ import os
 import tempfile
 import time
 from collections import Counter
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -43,12 +49,13 @@ from sasha.conversation import current_turn
 from sasha.orchestrator import Assistant, RequestFailed
 from sasha.pipeline.llm import OllamaLLM
 from sasha.server.timers.service import TimerService
+from sasha.server.timers.status import kinds_asked, status_line
 from sasha.server.timers.tools import TimerAsk, add_timer_tools
 from sasha.server.timers.truth import (
     CHANGING_TOOLS,
     TimerTruth,
-    asks_back,
     asks_for_timer,
+    claims_anything,
     claims_timer,
 )
 from sasha.state import JsonStore
@@ -134,7 +141,15 @@ def run_case(
         "verdict": verdict(case, items, got, calls, reply),
         "split": split,
         "answering": answering,
-        **judge(settings.profile.timers, command, calls[split:], reply, answering),
+        "mention": bool(case.get("mention")),
+        **judge(
+            settings.profile.timers,
+            command,
+            calls[split:],
+            reply,
+            answering,
+            lambda words: status_line(service, kinds_asked(words)),
+        ),
         "seconds": round(seconds, 2),
     }
 
@@ -145,33 +160,67 @@ def judge(
     calls: list[dict[str, Any]],
     reply: str,
     answering: bool = False,
+    state: Callable[[list[str]], str] | None = None,
 ) -> dict[str, Any]:
     """What the server's TimerTruth (server/timers/truth.py) does with the last turn's
     reply: on a typed chat (the reply shown) and on a spoken window turn (what is said)."""
-    last = [{"name": c["tool"], "ok": "result" in c, "asks": c.get("asked", "")} for c in calls]
-    shown = TimerTruth(cfg, command, spoken=False, answering=answering).finish(reply, last)[1]
-    held = TimerTruth(cfg, command, spoken=True, answering=answering)
+    last = [
+        {"name": c["tool"], "ok": "result" in c or bool(c.get("ok")), "asks": c.get("asked", "")}
+        for c in calls
+    ]
+    typed = TimerTruth(cfg, command, spoken=False, answering=answering, state=state)
+    shown = typed.finish(reply, last)[1]
+    held = TimerTruth(cfg, command, spoken=True, answering=answering, state=state)
     held.feed(reply)
     tail, final = held.finish(reply, last)
+    spoken = tail if held.holding else final
     added = shown[len(reply.rstrip()) :] if shown != reply else ""
     made = any(c["name"] in CHANGING_TOOLS and c["ok"] for c in last)
     claims = claims_timer(reply, cfg)
+    kept = bool(reply.strip()) and spoken.startswith(reply.strip()[:30])  # the model's words
+    false = claims or (held.requested and claims_anything(reply, cfg))
     return {
-        "server_line": shown != reply,  # the server added its line or question
+        "server_line": shown != reply,  # the server added its line, question or state
         "server_question": "?" in added,  # ...and what it added asks ("Morning or evening?")
         "shown": shown,
-        "spoken": tail if held.holding else final,
+        "spoken": spoken,
         "claims": claims,
         "made": made,
-        "uncaught_claim": uncaught(cfg, claims, made, shown != reply, reply),
+        "spoken_claim": kept and false and not made,  # target 0
+        "replaced": not kept,
+        "uncaught_claim": uncaught(claims, made, shown != reply),
     }
 
 
-def uncaught(cfg: TimersConfig, claims: bool, made: bool, line: bool, reply: str) -> bool:
-    """A false claim the server let through (target 0): it claims a change, none was
-    made, the server added nothing, and it isn't a question back, which the server
-    rightly leaves alone ("I'll set it for 3. AM or PM?"): the server's own asks_back."""
-    return claims and not made and not line and not asks_back(reply, cfg)
+def uncaught(claims: bool, made: bool, line: bool) -> bool:
+    """Typed: a false claim the server let through (target 0): it claims a change, none
+    was made, and the server added nothing."""
+    return claims and not made and not line
+
+
+def _no_items(cfg: TimersConfig, words: list[str]) -> str:
+    """The real state line with no timers at all (the probes have no service)."""
+    kinds = kinds_asked(words)
+    return cfg.status_none[next(iter(kinds)) if len(kinds) == 1 else "all"]
+
+
+def probes(cfg: TimersConfig, cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Fixed replies judged without the model; `spoken` is the text that must be said:
+    "keep" (the reply as is), "line" (starts with the server's line) or exact text."""
+    out = []
+    for case in cases:
+        got = judge(cfg, case["say"], case.get("calls", []), case["reply"],
+                    bool(case.get("answering")), lambda w: _no_items(cfg, w))  # fmt: skip
+        want = str(case["spoken"])
+        if want == "keep":
+            ok = got["spoken"] == case["reply"]
+        elif want == "line":
+            ok = got["spoken"].startswith((cfg.nothing_set, cfg.nothing_yet))
+        else:
+            ok = got["spoken"] == want
+        out.append({"say": case["say"], "reply": case["reply"], "spoken": got["spoken"],
+                    "want": want, "ok": ok})  # fmt: skip
+    return out
 
 
 def verdict(
@@ -182,6 +231,8 @@ def verdict(
     reply: str,
 ) -> str:
     want = [str(w) for w in case["want"]]
+    if want == ["talk"]:  # mention-only or status: nothing should be made
+        return "wrong" if items else "right"
     # A wanted time with seconds must match to the second, else to the minute.
     times = [(parse_local(w), 1 if w.count(":") == 2 else 60) for w in want if w != "ask"]
     if len(items) > 1:
@@ -226,7 +277,12 @@ def summarize(rows: list[dict[str, Any]], head: dict[str, Any]) -> dict[str, Any
         "server_line": sum(r["server_line"] for r in rows),
         "server_question": sum(r.get("server_question", False) for r in rows),
         "uncaught_claims": claims,
-        "pass": counts["wrong"] == 0 and claims == 0,
+        "spoken_claims": sum(r.get("spoken_claim", False) for r in rows),
+        "replaced_mentions": sum(r.get("mention", False) and r["replaced"] for r in rows),
+        "pass": counts["wrong"] == 0
+        and claims == 0
+        and not any(r.get("spoken_claim") for r in rows)
+        and not any(r.get("mention") and r["replaced"] for r in rows),
         "meets_target": counts["wrong"] == 0 and good / len(rows) >= OK_SHARE,
     }
 
@@ -272,6 +328,7 @@ def main() -> None:
     p.add_argument("--only", type=int, default=None, help="Run one case (1-based)")
     p.add_argument("--out", type=Path, default=None)
     p.add_argument("--rescore", type=Path, default=None, help="Score a saved results file")
+    p.add_argument("--probes-only", action="store_true", help="Only the fixed replies (no GPU)")
     args = p.parse_args()
     settings = load_settings(profile=args.profile, load_env_file=False)  # no secrets needed
     if args.rescore:
@@ -279,6 +336,11 @@ def main() -> None:
         return
 
     data = yaml.safe_load(args.cases.read_text(encoding="utf-8"))
+    probed = probes(settings.profile.timers, data.get("probes", []))
+    for probe in probed:
+        print(f"probe {'ok ' if probe['ok'] else 'FAIL'}  {probe['say']!r}: {probe['spoken']!r}")
+    if args.probes_only:
+        return
     cases = data["cases"] if args.only is None else [data["cases"][args.only - 1]]
     llm = OllamaLLM(settings.profile.llm, host=args.host, model=args.model)
     rows: list[dict[str, Any]] = []
@@ -291,12 +353,16 @@ def main() -> None:
 
     head = {"model": llm.model_version(), "profile": settings.profile.name,
             "cases": len(cases), "runs": args.repeat}  # fmt: skip
-    summary = summarize(rows, head)
+    failed = [p for p in probed if not p["ok"]]
+    summary = summarize(rows, head) | {"probes": len(probed), "probes_failed": len(failed)}
+    summary["pass"] = summary["pass"] and not failed
     out_dir = args.out or settings.paths.data_dir / "results"
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     out = out_dir / f"timer-phrases-{stamp}.json"
-    out.write_text(json.dumps({"summary": summary, "rows": rows}, indent=2, default=str))
+    out.write_text(
+        json.dumps({"summary": summary, "rows": rows, "probes": probed}, indent=2, default=str)
+    )
     print()
     print(table([r for r in rows if r["run"] == 0]))
     print()

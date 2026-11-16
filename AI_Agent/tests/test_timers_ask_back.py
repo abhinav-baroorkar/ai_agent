@@ -38,10 +38,11 @@ def test_a_tools_ask_gives_the_servers_question() -> None:
     question = CFG.ask_lines["ambiguous_period"]
     assert typed("Wake me up at 7.", STATEMENT_ASK, ASKED) == f"{STATEMENT_ASK} {question}"
     assert spoken("Wake me up at 7.", STATEMENT_ASK, ASKED) == (question, question)
-    # A false claim with the ask is never spoken either; on typed the question follows it.
+    # A false claim with the ask is never spoken either; on typed the line and the
+    # question follow it.
     claim = "Done, alarm set for 7."
     assert spoken("Wake me up at 7.", claim, ASKED) == (question, question)
-    assert typed("Wake me up at 7.", claim, ASKED) == f"{claim} {question}"
+    assert typed("Wake me up at 7.", claim, ASKED) == f"{claim} {CFG.nothing_set} {question}"
 
 
 def test_a_typed_question_back_is_left_alone() -> None:
@@ -75,29 +76,56 @@ def test_a_later_success_of_the_same_tool_clears_the_ask() -> None:
 def test_nothing_to_change_has_no_question() -> None:
     calls = [{"name": "cancel_timer", "ok": False, "asks": "none_active"}]
     reply = "There are no alarms to cancel."
-    assert typed("Cancel all alarms.", reply, calls) == f"{reply} {CFG.nothing_set}"
-    assert spoken("Cancel all alarms.", reply, calls) == (CFG.nothing_set, CFG.nothing_set)
+    line = CFG.nothing_changed  # a cancel request: nothing was changed
+    assert typed("Cancel all alarms.", reply, calls) == f"{reply} {line}"
+    assert spoken("Cancel all alarms.", reply, calls) == (line, line)
 
 
-# --- 2. no tool asked: "?" anywhere is a question back, unless a claim follows it ------
+# --- 2. no tool asked: only a reply that is all questions is left alone (Q1) ------------
 
 
-def test_a_question_anywhere_is_a_question_back() -> None:
-    reply = "Morning or evening? Let me know."
-    assert typed("Set an alarm for 7.", reply, []) == reply
-    claim = "Morning? I've set the alarm for 7."  # a claim after the question: the line
+def test_only_an_all_question_reply_is_left_alone() -> None:
+    assert typed("Set an alarm for 7.", "Morning or evening? Today?", []) == (
+        "Morning or evening? Today?"
+    )
+    reply = "Morning or evening? Let me know."  # one sentence isn't a question
+    assert typed("Set an alarm for 7.", reply, []) == f"{reply} {CFG.nothing_yet}"
+    said = f"{CFG.nothing_yet} Morning or evening?"  # the model's own question is kept
+    assert spoken("Set an alarm for 7.", reply, []) == (said, said)
+    claim = "Morning? I've set the alarm for 7."
     assert typed("Set an alarm for 7.", claim, []) == f"{claim} {CFG.nothing_set}"
+
+
+@pytest.mark.parametrize(
+    ("command", "reply", "line"),
+    [  # the re-review of b253796, Q1: a claim with no timer word, then any question
+        ("set an alarm for 7", "Done. Anything else?", CFG.nothing_set),
+        ("set an alarm for 7", "Got it, 7 it is. Need anything else?", CFG.nothing_yet),
+        ("set an alarm for 7", "All set for 7! Want it to repeat?", CFG.nothing_set),
+        ("remind me to call mom at 5", "Okay! Anything else I can help with?", CFG.nothing_yet),
+    ],
+)
+def test_a_trailing_question_exempts_no_claim(command: str, reply: str, line: str) -> None:
+    assert typed(command, reply, []) == f"{reply} {line}"
+    said = f"{line} {CFG.ask_generic}"  # "Anything else?" asks for no time: the fixed one
+    assert spoken(command, reply, []) == (said, said)
+
+
+def test_the_models_time_question_is_kept_after_the_line() -> None:
+    said = f"{CFG.nothing_yet} What time?"
+    assert spoken("Set an alarm.", "Of course! What time?", []) == (said, said)
 
 
 # --- 3. a held spoken reply the server replaces: the line and a question ---------------
 
 
 def test_a_replaced_spoken_reply_asks_again() -> None:
-    said = f"{CFG.nothing_set} {CFG.ask_generic}"
+    said = f"{CFG.nothing_yet} {CFG.ask_generic}"
     assert spoken("Wake me up at 7.", STATEMENT_ASK, []) == (said, said)
     # After a stop or cancel request the question would make no sense: the line alone.
     none = "There are no active alarms or timers to turn off."
-    assert spoken("Turn off the alarm.", none, []) == (CFG.nothing_set, CFG.nothing_set)
+    line = CFG.nothing_changed
+    assert spoken("Turn off the alarm.", none, []) == (line, line)
 
 
 # --- through the server: what is spoken, and the next answer read with the question -----
@@ -143,7 +171,7 @@ def test_the_answer_to_a_server_question_is_read_with_it(
     seen = h.llm("big-model").seen[-1][0]
     cfg = h.settings.profile.timers
     remembered = [m["content"] for m in seen if m["role"] == "assistant"]
-    assert remembered[0] == f"{cfg.nothing_set} {cfg.ask_generic}"
+    assert remembered[0] == f"{cfg.nothing_yet} {cfg.ask_generic}"
     assert len(service.items) == 1  # the hour from the request, the period from the answer
 
 
@@ -216,20 +244,22 @@ def test_a_claim_with_a_question_still_gets_the_line() -> None:
 
 
 @pytest.mark.parametrize(
-    ("reply", "line"),
-    [
-        ("I'd be happy to set a timer for you! How long would you like it to run?", False),
-        ("I'd be happy to help you set an alarm! Is it AM or PM?", False),
-        ("I can set that reminder. What time?", False),
-        ("I'll set the alarm for 7:00 AM. Should it repeat?", True),  # a promise
-        ("I'm going to set the alarm for 7. Okay?", True),
-        ("Alarm set for 7. Anything else?", True),
+    ("reply", "offer"),
+    [  # Q3: an offer only picks the wording; the line is added either way
+        ("I'd be happy to set a timer for you! How long would you like it to run?", True),
+        ("I can set that reminder. What time?", True),
+        ("I'd be happy to help you set an alarm! Is it AM or PM?", False),  # not right before
+        ("I'll set the alarm for 7:00 AM. Should it repeat?", False),  # a promise
+        ("I'm going to set the alarm for 7. Okay?", False),  # bare "to" is no offer
+        ("Happy to — set to 7. OK?", True),  # an offer's wording, but the line all the same
+        ("Alarm set for 7. Anything else?", False),
     ],
 )
-def test_an_offer_with_a_question_is_left_alone(reply: str, line: bool) -> None:
-    assert (typed("Set an alarm.", reply, []) != reply) is line
+def test_an_offer_only_picks_the_wording(reply: str, offer: bool) -> None:
+    line = CFG.nothing_yet if offer else CFG.nothing_set
+    assert typed("Set an alarm.", reply, []) == f"{reply} {line}"
 
 
 def test_the_generic_question_fits_a_timer() -> None:
-    said = f"{CFG.nothing_set} {CFG.ask_generic_timer}"
+    said = f"{CFG.nothing_yet} {CFG.ask_generic_timer}"
     assert spoken("Set a timer.", "Your timer is running.", []) == (said, said)

@@ -37,6 +37,8 @@ def test_about_forty_cases_of_each_kind() -> None:
 def test_case_is_well_formed(case: dict[str, Any]) -> None:
     assert case["kind"] in ("timer", "alarm", "reminder") and case["want"]
     now = BENCH.parse_local(str(case.get("now") or DATA["start"]))
+    if case["want"] == ["talk"]:  # mention-only or status: nothing should be made
+        return
     for want in case["want"]:
         if want != "ask":
             assert BENCH.parse_local(str(want)) > now  # always in the future
@@ -78,17 +80,25 @@ def test_run_case_scores_the_server_line(settings: Any, tmp_path: Path) -> None:
     assert not honest["server_line"] and not honest["uncaught_claim"]
 
 
-def test_a_question_back_is_no_uncaught_claim() -> None:
-    """The server leaves a question back alone, so the bench must not count it either."""
+def test_uncaught_claims_and_spoken_claims() -> None:
     from sasha.config_timers import TimersConfig
 
     cfg = TimersConfig()
-    asking = "I'll set an alarm for 3 o'clock. Is that AM or PM?"
-    assert not BENCH.uncaught(cfg, True, False, False, asking)
-    assert BENCH.uncaught(cfg, True, False, False, "Alarm set for 3.")
-    assert BENCH.uncaught(cfg, True, False, False, "Morning? I've set the alarm for 3.")
-    assert not BENCH.uncaught(cfg, True, True, False, "Alarm set for 3.")  # made
-    assert not BENCH.uncaught(cfg, True, False, True, "Alarm set for 3.")  # the line was added
+    assert BENCH.uncaught(True, False, False)
+    assert not BENCH.uncaught(True, True, False)  # made
+    assert not BENCH.uncaught(True, False, True)  # the line was added
+    got = BENCH.judge(cfg, "Set an alarm for 7.", [], "Done. Anything else?")
+    assert not got["spoken_claim"] and got["replaced"]  # the server's line was said
+    talk = BENCH.judge(cfg, "Thanks for the reminder.", [], "You're welcome!")
+    assert not talk["replaced"] and talk["spoken"] == "You're welcome!"
+
+
+def test_the_probes_pass() -> None:
+    """The fixed replies in the YAML (Q1, Q2, the status line), judged without a model."""
+    from sasha.config_timers import TimersConfig
+
+    failed = [p for p in BENCH.probes(TimersConfig(), DATA["probes"]) if not p["ok"]]
+    assert not failed
 
 
 def test_judge_sees_the_tools_ask() -> None:

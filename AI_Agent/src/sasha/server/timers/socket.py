@@ -10,6 +10,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from sasha.server.timers.service import TimerError
+from sasha.server.timers.status import kinds_asked, status_line
 from sasha.server.timers.tools import TIMER_TOOLS
 from sasha.server.timers.truth import TimerTruth, asks_for_timer
 
@@ -89,4 +90,11 @@ class TimerSocket:
             and asks_for_timer(previous, cfg)
             and (since is None or since <= cfg.answer_window_s)
         )
-        return TimerTruth(cfg, command, spoken=self.speak, answering=answering)
+        service = self.timers.service
+        return TimerTruth(
+            cfg,
+            command,
+            spoken=self.speak,
+            answering=answering,
+            state=lambda words: status_line(service, kinds_asked(words)),
+        )

@@ -105,3 +105,16 @@ def iso_now(now: float, zone: tzinfo) -> str:
 def spoken_time(when: datetime) -> str:
     """e.g. "Sat 15 Nov, 07:30" (what the tool result echoes back)."""
     return when.strftime("%a %d %b, %H:%M")
+
+
+def in_words(seconds: float) -> str:
+    """e.g. "1 hour 5 minutes" (a timer's time left)."""
+    seconds = round(seconds)
+    h, rest = divmod(seconds, 3600)
+    m, s = divmod(rest, 60)
+    parts = [
+        f"{v} {n}{'' if v == 1 else 's'}"
+        for v, n in ((h, "hour"), (m, "minute"), (s, "second"))
+        if v
+    ]
+    return " ".join(parts) or "0 seconds"
