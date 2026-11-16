@@ -122,3 +122,26 @@ re-run.
   shown otherwise.
 - Not tested for real: the wake word on a real microphone, the browser on a public site, search on
   the real engine, timers with real voice.
+
+## 2026-11-15: wake word, wake answers, timers bench, app shell (numbers as reported with the merges)
+
+Synthetic speech unless noted; no real-room data yet.
+
+| Measure | Result | Source |
+| --- | --- | --- |
+| Name recognised with a hint vs without (synthetic samples) | 102 of 108 vs 65 of 108 | `fix/wake-real-mic`, merged |
+| False wakes on ordinary samples (sets 1 and 3) | 0 of 216 | `fix/wake-hint-armed`, merged |
+| "Sacha" with the hint vs without | 18 of 18 vs 1 of 18 | same bench |
+| Unasked time or date mentioned on wake answers | 2 of 9 before, 0 of 27 after | `fix/wake-answers`, merged; the author's bench |
+| Timers bench, `qwen3.5:9b`, 77 cases x 2 runs | 0 silent wrong times; right or asked 0.961 | the author's bench at `feat/timers-server` `b253796`; **pending review**: the latest review of that commit has one blocking item and the branch is not merged |
+| App shell memory and cold start | 673 MB; about 0.46 s cold start, offscreen | reported with `feat/app-shell`; offscreen, no display, not the visible check |
+
+- "Sacha" and "Shasha" wake the assistant because they sound the same as the name; "Sacha" mostly
+  because of the hint (18 of 18 with it, 1 of 18 without).
+- **Network layers of the app window:** each of the three (the request interceptor, the content
+  security policy, the dead-proxy bypass) is reported to hold on its own, after
+  `fix/app-shell-hardening`. At the first review the dead-proxy layer was unverified, because the
+  probe passed on the interceptor alone.
+- The timers bench is earlier than the earlier "186 runs" row above (62 phrasings x 3 runs, before
+  the last change); the 77-case bench is the newer one. Neither is final until the branch is
+  reviewed and merged.

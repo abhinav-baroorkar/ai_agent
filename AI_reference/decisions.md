@@ -603,3 +603,44 @@ Summary of the design that passed review (two rounds). Opt-in until the measurem
   Both are fixed only when that branch is reviewed and merged.
 - **Rule for these documents:** a number or a "met" is attributed (whose run, at which commit) and
   marked pending until the branch it belongs to is reviewed and merged.
+
+## 2026-11-15 — Owner decisions and design choices since the browser phase (appended)
+
+- **The wake phrase is "hey" plus the assistant's name, read from config.** This **supersedes** the
+  2026-11-14 decision that the wake phrase is the name alone. Why: the name alone gave the
+  speech-to-text no context. With the "hey" prefix and a hint, 102 of 108 synthetic samples were
+  recognised, up from 65. No hint is given on the armed follow-up (`fix/wake-hint-armed`).
+- **Start-at-login is turned on** at the owner's request, under the rule in `team.md` (symlinks
+  to unit files inside the project only; the undo command is reported).
+- **The window becomes the assistant's own app:** Qt WebEngine through PySide6, in an optional `app`
+  extra (PySide6 is LGPL). The Chrome window stays as the fallback (`sasha window --chrome`) until
+  the owner's visible check passes. The wake phrase opens or raises the window with a calm orb
+  entrance. Limits on the opener: once per 30 s, at most 6 an hour, never when the screen is
+  locked.  Network layers (hardening branch): an interceptor that allows only the own loopback origin, a
+  content security policy with `connect-src 'self'`, and a bypass of loopback through the dead proxy; each is
+  meant to hold on its own.
+- **Bots area: Concept A** (owner's choice): a "Your bots" page with cards and one labelled entry
+  on Home, with a microphone in bot chats. The voice bot is not shown as a second main assistant.
+- **Per-bot breathing styles:** eight original particle styles (glow, ember, tide, gale, storm, mist,
+  bloom, stone), the main orb included; glow is the default. The style is a field on the bot
+  (contract v0.4.4), and a style name can only pick a real style.
+- **The persona line ties offered abilities to the tools present** (the owner approved the wording).
+  Why: an assistant must not offer what it cannot do; unknown tool names are left out.
+- **Memory design is approved with conditions; not built yet.** Notes are made only when explicitly
+  asked; notes made by voice stay pending until the owner keeps them on screen; wake turns read
+  only notes marked "ok to say aloud"; every word and number in a note comes from the owner's own
+  messages (checked word for word); no silent eviction at 200 notes (at the cap, new notes are
+  refused and the reply says so). Why: memory is a lasting prompt channel, so a write that is
+  only mostly checked becomes a lasting injection, and a read on a wake turn can leak.
+- **Manager's defaults:** "next <weekday>" within 2 days asks back; after the owner's own check of
+  sound-alike names, no extra confirmation is added to the wake phrase.
+- **Rule kept everywhere: a false claim of an action is never spoken.** For timers, the server
+  says its own "Nothing was set." or its own fixed question instead of the model's claim. Why: the
+  server, not the model, says what really happened.
+- **Spoken text is plain text:** no markdown is read aloud; a web address is never read (a bare URL is
+  said as its host); a hold on the model's text never lasts beyond 200 characters; "2*3" is spoken
+  as "2 times 3".
+- **The clock tool is called only when asked;** a stopped turn stays in history with only what was
+  released; Talk ends by itself when the owner stops speaking.
+- **Private sound-alike names** for the wake bench are read only from the owner's own file or
+  terminal and are never printed or saved in clear.

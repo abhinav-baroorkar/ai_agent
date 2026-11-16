@@ -4,7 +4,7 @@ Kept by the manager session ("Primary"). Updated whenever a task is assigned,
 reported, reviewed or merged. If the manager session is lost, a new session can
 pick up from this file plus `plan.md`, `decisions.md` and the newest devlog.
 
-Last updated: 2026-11-15, early morning.
+Last updated: 2026-11-15, evening.
 
 ## How the project is run
 
@@ -47,7 +47,20 @@ only for now; satellites on other devices come later.
 
 ## State of `main`
 
-- `main` is `39af3f3` (717 tests with all extras). API contract is v0.4.1 (see below).
+- `main` is `6a2c8f9` (2026-11-15, evening; all pushed). The last full count in the reviews was
+  775 passed on the bots-redesign merge; the count for `6a2c8f9` is not recorded here. API contract
+  is v0.4.4 (bots carry a breathing style). Merged since `5e89c34` (details in `devlog/2026-11-15.md`):
+  Talk ends by itself; plain-text spoken replies and real-ability prompts; wake phrase "hey" plus
+  the name with a speech-to-text hint; truthful wake answers; the app window (Qt WebEngine, optional
+  `app` extra, Chrome window as fallback with `sasha window --chrome`, opened by the wake phrase);
+  the "Your bots" page (Concept A); the persona offers only what its tools can do; eight breathing
+  styles per bot; spoken-text and address cleanups.
+- **In review:** timers (`feat/timers-server` at `b253796`; the latest review has one blocking item
+  about a false claim spoken when the reply ends with a question), `fix/voice-waiting` (finding
+  V1 is being fixed), `chore/review-followups` (`01c40b5`).
+- **Not verified:** the app window has not been looked at on screen (the owner's visible check is
+  still to come); the wake word on a real microphone in the new window; timers with real voice.
+- **Memory:** the design is approved with conditions and is not built (see `decisions.md`).
 - **Wake word:** all three parts are on `main`. The window runs from `main` with
   `health.wake.available` true. The wake word has not run on a real microphone: real-microphone
   checks are scheduled with the owner. **Rule: no real-microphone run without the owner present**
@@ -95,11 +108,18 @@ only for now; satellites on other devices come later.
 | `fix/warmup-timeouts` | | short connect timeout for the model warm-up; voice turns record the STT and TTS model versions in telemetry | merged and pushed |
 | `fix/stt-runtime-fallback` | | speech-to-text falls back to CPU for a request when the GPU fails | merged and pushed (`3f76eee`) |
 | `feat/wake-server` | Staff SDE | brain side of the wake word: gate, abuse limits, reserved socket, contract v0.2 | merged and pushed (`f0ce325`) after three review rounds |
+| `fix/talk-auto-stop`, `fix/spoken-text`, `fix/chat-behaviour`, `fix/spoken-followups`, `fix/spoken-urls` | | Talk ends by itself; plain-text spoken replies; clock only when asked; bounded spoken-text cleaner; no address read aloud | merged and pushed (2026-11-15) |
+| `fix/wake-real-mic`, `fix/wake-answers`, `fix/wake-hint-armed` | | wake phrase "hey" plus the name with a speech-to-text hint; wake turns answer the question; no hint on the armed follow-up | merged and pushed (`f5581ab`, `3a11e76`, `0d4ff75`) |
+| `feat/app-shell`, `fix/app-shell-hardening`, `fix/entrance-calm` | | the assistant's own window (Qt WebEngine, optional `app` extra), hardening, calmer entrance | merged and pushed (`895f8ff`, `0c440b7`, `06e5036`); not yet looked at on screen |
+| `feat/bots-redesign`, `fix/persona-abilities`, `feat/bot-styles`, `fix/style-lookup`, `feat/bot-style-field` | | "Your bots" page, abilities in the persona line, eight breathing styles, the style as a bot field (contract v0.4.4) | merged and pushed (`93d6b07`, `40cc959`, `860539b`, `214f41c`, `6a2c8f9`) |
+| `chore/bench-extra-soundalikes`, `chore/test-robustness` | | private sound-alike names for the bench; failing tests name themselves | merged and pushed (`15ad0c1`, `adaa220`) |
+| `fix/voice-waiting` | | voice waiting fix | in review; finding V1 is being fixed |
+| `chore/review-followups` | | review follow-ups | in review (`01c40b5`) |
 | `fix/wake-truthful-reply` | | truthful spoken replies for refused or failed device changes; gate for voice device control; clock tool | merged and pushed (`61aa277`); `fix/wake-request-phrases` (`d5c9c43`) added more request phrasings and a 42-phrase bench as a gate |
 | `feat/browser-core`, `feat/browser-wiring`, `feat/browser-live-view`, `feat/browser-ui`, `fix/browser-panel-followups`, `fix/browser-view-followups` | | the assistant's own browser, phase 1: core, tools, live view in the Bots screen, follow-ups | merged and pushed (`96636db`, `deda9ae`, `c462083`, `011b6f5`, `deb6b09`, `39af3f3`) |
 | `fix/listener-confirm-race`, `fix/listener-followups` | | the tray sign could disagree with the capture process | merged and pushed (`bda9732`, `4968ef5`) |
 | `feat/timers-ui` | | Home timers card | merged and pushed (`6c0a4b3`) |
-| `feat/timers-server` | | timers, alarms and reminders on the server | in its final review round |
+| `feat/timers-server` | | timers, alarms and reminders on the server | in review at `b253796`; one blocking item open (a false claim could be spoken when the reply ends with a question); not merged |
 | `feat/wake-listener` | Jack of all tasks | `sasha listen` (always-on listener), `sasha autostart` | merged and pushed after two review rounds; follow-up `fix/wake-listener-notes` merged |
 | `feat/wake-indicator` | Design expert | tray icon and chimes | merged and pushed; the send guard is stricter (exemptions pinned to exact lines, mail-sending calls forbidden in every file) |
 | `docs/scope-refresh` | Grunt work | plan.md, decisions.md, linkedin-notes.md, README, .env.example for the new scope | merged and pushed (`6fbc60d`, 86 tests pass) |
@@ -161,7 +181,12 @@ eyes; eyes stay as a switch.
 
 ## Decided by the owner (2026-11-14)
 
-- The wake phrase is the name alone, read from config.
+- The wake phrase is "hey" plus the name, read from config (2026-11-15; replaces the earlier "name alone": with a hint, recognition went from 65 to 102 of 108 synthetic samples).
+- Start-at-login is turned on, at the owner's request.
+- The window becomes its own app (Qt WebEngine via PySide6, optional `app` extra, LGPL); the Chrome window stays as the fallback until the owner's visible check. The wake phrase opens or raises it (once per 30 s, 6 an hour, never when locked).
+- Bots area: Concept A (a bots page with cards, one labelled entry on Home), with a microphone in bot chats.
+- Eight per-bot breathing styles (glow, ember, tide, gale, storm, mist, bloom, stone), glow by default.
+- Memory design approved with conditions (see `decisions.md`); not built.
 - Voice control is read-only by default; after the owner switches on device control for voice
   once in the Bots screen, limits apply (see `decisions.md`).
 - A session may create the start-at-login link, under the rule in `team.md`.
@@ -188,7 +213,7 @@ eyes; eyes stay as a switch.
 ## Risks
 
 - **Limits of the wake word v1:** anyone in earshot or a television can trigger it. A false
-  wake on the name alone makes the next sentence a command. In a fullscreen app only the
+  wake on the wake phrase makes the next sentence a command. In a fullscreen app only the
   sound shows a wake.
 
 - **Load order decides GPU placement.** With speech-to-text on the GPU first, the LLM
@@ -230,11 +255,12 @@ Build order set by the owner on 2026-11-14 (night). Our own design.
   for low-value sites only, media. Ideas from an
   earlier project of the owner's only; own code.
 - Postponed, conditional: Marathi–English support (Phase 2). The owner's condition: the base assistant must keep working properly. Marathi support is optional and may only be added if it doesn't slow the English path (latency and GPU placement measured before and after); otherwise it stays out.
-- Check the full voice loop and the wake word on a real microphone (checks are scheduled with the owner).
+- Check the full voice loop and the wake word on a real microphone (checks are scheduled with the owner), and the owner's visible check of the app window.
+- Next, in this order: the day resolver, memory, the owner's visible check of the app, then wake device control after a few days of real-room telemetry.
 
 In order, unless the owner changes it:
 
-1. Timers, alarms and reminders (the Home card is merged; the server part is in final review).
+1. Timers, alarms and reminders (the Home card is merged; the server part is in review at `b253796`, not merged).
 2. Memory ("remember that...").
 3. A morning brief. It needs calendar and mail, so the parked send-guard question is asked
    before the mail part.
