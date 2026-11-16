@@ -24,14 +24,14 @@ def entry_path(home: Path) -> Path:
     return home / ".local" / "share" / "applications" / f"{DESKTOP_ID}.desktop"
 
 
-def _escape(value: str) -> str:
+def desktop_escape(value: str) -> str:
     """Desktop-entry string values: no line breaks; backslash escaped."""
     return value.replace("\\", "\\\\").replace("\n", " ").replace("\r", " ")
 
 
-def _exec_arg(value: str) -> str:
+def exec_arg(value: str) -> str:
     """One quoted Exec argument (Desktop Entry spec): \\ " ` $ escaped by a backslash,
-    % doubled. The whole Exec value is then escaped again as a string (`_escape`)."""
+    % doubled. The whole Exec value is then escaped again as a string (`desktop_escape`)."""
     for ch in ("\\", '"', "`", "$"):
         value = value.replace(ch, "\\" + ch)
     return '"' + value.replace("%", "%%") + '"'
@@ -41,20 +41,20 @@ def entry_text(settings: Settings, python: Path, root: Path) -> str:
     name = settings.assistant.name
     comment = settings.assistant.app.menu_comment.replace("{name}", name)
     exec_line = " ".join(
-        [_exec_arg(str(python)), "-m", "sasha", "window"]
+        [exec_arg(str(python)), "-m", "sasha", "window"]
     )  # `sasha window` starts the brain if needed, then the shell (or raises it)
     return "\n".join(
         [
             "[Desktop Entry]",
             "Type=Application",
             "Version=1.5",
-            f"Name={_escape(name)}",
-            f"Comment={_escape(comment)}",
+            f"Name={desktop_escape(name)}",
+            f"Comment={desktop_escape(comment)}",
             # the key-file layer reads the value as a string first, so its backslashes
             # are doubled again: a path with a backslash survives both readings
-            f"Exec={_escape(f'env SASHA_ROOT={_exec_arg(str(root))} {exec_line}')}",
-            f"Path={_escape(str(root))}",
-            f"Icon={_escape(str(ICON))}",
+            f"Exec={desktop_escape(f'env SASHA_ROOT={exec_arg(str(root))} {exec_line}')}",
+            f"Path={desktop_escape(str(root))}",
+            f"Icon={desktop_escape(str(ICON))}",
             "Terminal=false",
             "Categories=Utility;",
             f"StartupWMClass={DESKTOP_ID}",
