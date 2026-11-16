@@ -24,10 +24,15 @@ _TABLE_SEP = re.compile(r"^\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?$")
 _HEADING = re.compile(r"^#{1,6}\s+")
 _QUOTE = re.compile(r"^(>\s?)+")
 _BULLET = re.compile(r"^([-*+•]|\d{1,3}[.)])\s+")
-# Linear (SP2): a link's text can't hold another "[", so "[[[[..." fails at once, and
-# both parts are bounded, so hostile input can't make the cleaner quadratic.
-_LINK = re.compile(r"!?\[([^\[\]\n]{0,300})\]\([^)\s]{0,500}\)")
-_LINK_REST = re.compile(r"\]\([^)\s]{0,500}\)?|[\[\]]")  # pieces of a link cut apart (SP1)
+# Linear (SP2): a link's text can't hold another "[" and its address no bracket, so each
+# match stops at the next bracket ("[[[[..." fails at once); an address of any length
+# goes whole (SF1: a 300-character one was half spoken).
+_ADDRESS = r"[^()\[\]\s]*"
+_LINK = re.compile(rf"!?\[([^\[\]\n]{{0,300}})\]\({_ADDRESS}\)")
+_LINK_REST = re.compile(rf"\]\({_ADDRESS}\)?|[\[\]]")  # pieces of a link cut apart (SP1)
+# SF1: a bare address is said as its host only ("see example.com"), never read out.
+_URL = re.compile(r"\b(?:https?://|www\.)([^/\s()\[\]<>]+)[^\s()\[\]<>]*", re.IGNORECASE)
+_SKIP_END = re.compile(r"[)\s]")  # where an address that is being dropped ends
 _TIMES = re.compile(r"(?<=\d)\s*\*\s*(?=\d)")  # "2*3": a multiplication, not emphasis
 _EMPHASIS = re.compile(r"\*+|~~|`+|(?<!\w)_+|_+(?!\w)")
 _SPACES = re.compile(r"[ \t]+")
@@ -56,6 +61,7 @@ def clean_line(line: str, line_start: bool = True, times: str = "times") -> str:
             made_sentence = made_sentence or bool(found)
     text = _LINK.sub(r"\1", text)
     text = _LINK_REST.sub("", text)  # a link cut by the hold limit: never its address
+    text = _URL.sub(lambda m: m.group(1).removeprefix("www."), text)  # its host only
     text = _TIMES.sub(f" {times} ", text)
     text = _EMPHASIS.sub("", text)
     text = _SPACES.sub(" ", text).strip()
@@ -72,6 +78,7 @@ class SpokenStream:
         self.line_open = False  # part of the current line was already released
         self.text = ""
         self.times = times  # how "2*3" is said (profile.prompt_lines, per language)
+        self.skipping = False  # dropping an address cut by the hold limit (SF1)
 
     def _out(self, part: str, line_start: bool) -> str:
         cleaned = clean_line(part, line_start, self.times)
@@ -84,27 +91,72 @@ class SpokenStream:
     def feed(self, piece: str) -> str:
         self.buffer += piece
         out = ""
+        self._skip()
         while "\n" in self.buffer:
             line, self.buffer = self.buffer.split("\n", 1)
             out += self._out(line, not self.line_open)
             self.line_open = False
-        while cut := self._cut() or self._forced_cut():  # until what is held fits
-            part, self.buffer = self.buffer[:cut], self.buffer[cut:]
-            out += self._out(part, not self.line_open)
-            self.line_open = True
+        while True:  # until what is held fits
+            cut = self._cut() or self._forced_cut()
+            if cut:
+                part, self.buffer = self.buffer[:cut], self.buffer[cut:]
+                out += self._out(part, not self.line_open)
+                self.line_open = True
+            if self.skipping:
+                self._skip()
+                if self.skipping:
+                    break  # still inside the address: wait for more text
+                continue
+            if not cut:
+                break
         return out
+
+    def _skip(self) -> None:
+        """SF1: drop the rest of an address cut by the hold limit, up to its ")" or the
+        next space (kept), so no part of it is ever read out."""
+        if not self.skipping:
+            return
+        end = _SKIP_END.search(self.buffer)
+        if end is None:
+            self.buffer = ""  # still inside it: drop what came, wait for its end
+            return
+        stop = end.end() if self.buffer[end.start()] == ")" else end.start()
+        self.buffer, self.skipping = self.buffer[stop:], False
 
     def _forced_cut(self) -> int:
         """SP1: held past MAX_HOLD (a long unclosed link, no sentence end): cut at the
-        last soft break before it, or hard at MAX_HOLD."""
+        last soft break before it, or hard at MAX_HOLD. SF1: never inside an address:
+        the text before it goes now (with the host, for a bare URL), the rest is
+        dropped."""
         if len(self.buffer) <= MAX_HOLD:
             return 0
         window = self.buffer[:MAX_HOLD]
+        cut = MAX_HOLD
         for mark in _SOFT_BREAKS:
             at = window.rfind(mark)
             if at > 0:
-                return at + len(mark)
-        return MAX_HOLD
+                cut = at + len(mark)
+                break
+        start = self._open_address(cut)
+        if start is None:
+            return cut
+        self.skipping = True
+        if self.buffer.startswith("](", start):
+            return start  # a link: its text is released, the whole address dropped
+        url = _URL.match(self.buffer, start)
+        return url.end(1) if url is not None else start  # a bare URL: up to its host
+
+    def _open_address(self, cut: int) -> int | None:
+        """Where an address still open at `cut` starts: a link's "](" with no ")" or
+        space after it, or a bare URL running through the cut."""
+        text = self.buffer[:cut]
+        link = text.rfind("](")
+        if link >= 0 and not _SKIP_END.search(text, link + 2):
+            return link
+        for m in _URL.finditer(self.buffer):
+            if m.start() < cut <= m.end() + 1:
+                return m.start()
+        return None
 
     def _cut(self) -> int:
         """Where the open line may be cut now: after its last complete sentence."""
@@ -122,6 +174,9 @@ class SpokenStream:
 
     def finish(self) -> str:
         """The rest, at the end of the answer."""
+        self._skip()
+        if self.skipping:  # the answer ended inside a dropped address
+            self.buffer, self.skipping = "", False
         rest, self.buffer = self.buffer, ""
         out = self._out(rest, not self.line_open)
         self.line_open = False
