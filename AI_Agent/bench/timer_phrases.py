@@ -12,13 +12,14 @@ the tool calls made, what the server resolved, and the verdict:
 - `none`: no item and no question.
 Each row also records `server_line` (the typed path's TimerTruth would add "Nothing was
 set.") and `uncaught_claim` (the reply claims a timer change, none was made, and no line
-was added). Pass bar: 0 `wrong` and 0 uncaught claims. Target: at least 95% `right` or
-`asked`.
+was added, and it is no question back: the server's own `asks_back`). Pass bar: 0
+`wrong` and 0 uncaught claims. Target: at least 95% `right` or `asked`.
 
 Text only: no voice stages, no server. The pre-merge run, one command (from AI_Agent/;
 77 cases x 2 runs, about 6 minutes on the GPU):
   uv run python bench/timer_phrases.py
 Options: [--profile laptop] [--model qwen3.5:9b] [--repeat 2] [--only 12] [--out DIR]
+Re-score a saved file (no GPU): uv run python bench/timer_phrases.py --rescore FILE
 Results: one JSON file in `<Data>/results/` and a Markdown table on stdout.
 """
 
@@ -42,7 +43,7 @@ from sasha.orchestrator import Assistant, RequestFailed
 from sasha.pipeline.llm import OllamaLLM
 from sasha.server.timers.service import TimerService
 from sasha.server.timers.tools import TimerAsk, add_timer_tools
-from sasha.server.timers.truth import CHANGING_TOOLS, TimerTruth, claims_timer
+from sasha.server.timers.truth import CHANGING_TOOLS, TimerTruth, asks_back, claims_timer
 from sasha.state import JsonStore
 from sasha.telemetry import TelemetryWriter
 from sasha.tools import Tool, ToolRegistry
@@ -127,10 +128,26 @@ def run_case(
         "reply": reply,
         "verdict": verdict(case, items, got, calls, reply),
         "server_line": line,  # the server added "Nothing was set."
-        # a false claim the server let through: claimed, nothing made, no line (target 0)
-        "uncaught_claim": claims_timer(reply, cfg) and not made and not line,
+        "claims": claims_timer(reply, cfg),
+        "made": made,
+        "uncaught_claim": uncaught(claims_timer(reply, cfg), made, line, reply),
         "seconds": round(seconds, 2),
     }
+
+
+def uncaught(claims: bool, made: bool, line: bool, reply: str) -> bool:
+    """A false claim the server let through (target 0): it claims a change, none was
+    made, no line was added, and it isn't a question back, which the server rightly
+    leaves alone ("I'll set it for 3. AM or PM?"): the server's own test, asks_back."""
+    return claims and not made and not line and not asks_back(reply)
+
+
+def rescored(row: dict[str, Any]) -> bool:
+    if "claims" in row:
+        return uncaught(row["claims"], row["made"], row["server_line"], row["reply"])
+    # Files from before `claims`/`made` were kept: their uncaught_claim was exactly
+    # claims and not made and not line, so only the question-back test is added.
+    return bool(row["uncaught_claim"]) and not asks_back(row["reply"])
 
 
 def verdict(
@@ -172,6 +189,42 @@ def table(rows: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def summarize(rows: list[dict[str, Any]], head: dict[str, Any]) -> dict[str, Any]:
+    counts = Counter(r["verdict"] for r in rows)
+    good = counts["right"] + counts["asked"]
+    claims = sum(r["uncaught_claim"] for r in rows)
+    return {
+        **head,
+        "counts": dict(counts),
+        "right_or_asked": round(good / len(rows), 3),
+        "silent_wrong": counts["wrong"],
+        # The typed path's own line (truth.py): how often it fired, and false claims it missed.
+        "server_line": sum(r["server_line"] for r in rows),
+        "uncaught_claims": claims,
+        "pass": counts["wrong"] == 0 and claims == 0,
+        "meets_target": counts["wrong"] == 0 and good / len(rows) >= OK_SHARE,
+    }
+
+
+def rescore(path: Path) -> None:
+    """Score a saved results file again (no model, no GPU); writes `<name>-rescored.json`."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    rows = data["rows"]
+    for row in rows:
+        row["uncaught_claim"] = rescored(row)
+    keep = ("model", "profile", "cases", "runs")
+    summary = summarize(rows, {k: data["summary"][k] for k in keep} | {"rescored": path.name})
+    out = path.with_name(f"{path.stem}-rescored.json")
+    out.write_text(json.dumps({"summary": summary, "rows": rows}, indent=2, default=str))
+    # For reading by eye: a "?" inside a reply that doesn't end with one gets the line.
+    for row in rows:
+        if "?" in row["reply"] and not asks_back(row["reply"]):
+            line = "line" if row["server_line"] else "no line"
+            print(f"[{row['run']}] {row['say']}: ({line}) {row['reply']!r}")
+    print(json.dumps(summary, indent=2))
+    print(f"Rescored: {out}")
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--profile", default=None)
@@ -181,7 +234,11 @@ def main() -> None:
     p.add_argument("--repeat", type=int, default=2)
     p.add_argument("--only", type=int, default=None, help="Run one case (1-based)")
     p.add_argument("--out", type=Path, default=None)
+    p.add_argument("--rescore", type=Path, default=None, help="Score a saved results file")
     args = p.parse_args()
+    if args.rescore:
+        rescore(args.rescore)
+        return
 
     settings = load_settings(profile=args.profile, load_env_file=False)  # no secrets needed
     data = yaml.safe_load(args.cases.read_text(encoding="utf-8"))
@@ -195,22 +252,9 @@ def main() -> None:
             rows.append(row)
             print(f"[{run}] {row['verdict']:>14}  {row['say']}", flush=True)
 
-    counts = Counter(r["verdict"] for r in rows)
-    good = counts["right"] + counts["asked"]
-    summary = {
-        "model": llm.model_version(),
-        "profile": settings.profile.name,
-        "cases": len(cases),
-        "runs": args.repeat,
-        "counts": dict(counts),
-        "right_or_asked": round(good / len(rows), 3),
-        "silent_wrong": counts["wrong"],
-        # The typed path's own line (truth.py): how often it fired, and false claims it missed.
-        "server_line": sum(r["server_line"] for r in rows),
-        "uncaught_claims": sum(r["uncaught_claim"] for r in rows),
-        "pass": counts["wrong"] == 0 and not any(r["uncaught_claim"] for r in rows),
-        "meets_target": counts["wrong"] == 0 and good / len(rows) >= OK_SHARE,
-    }
+    head = {"model": llm.model_version(), "profile": settings.profile.name,
+            "cases": len(cases), "runs": args.repeat}  # fmt: skip
+    summary = summarize(rows, head)
     out_dir = args.out or settings.paths.data_dir / "results"
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")

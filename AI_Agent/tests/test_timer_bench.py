@@ -76,3 +76,15 @@ def test_run_case_scores_the_server_line(settings: Any, tmp_path: Path) -> None:
     weather = {"say": "What's the weather?", "kind": "alarm", "want": ["ask"]}
     honest = BENCH.run_case(settings, FakeLLM("m", [resp("Sunny.")]), weather, DATA["start"])
     assert not honest["server_line"] and not honest["uncaught_claim"]
+
+
+def test_a_question_back_is_no_uncaught_claim() -> None:
+    """The server leaves a question back alone, so the bench must not count it either."""
+    asking = "I'll set an alarm for 3 o'clock. Is that AM or PM?"
+    assert not BENCH.uncaught(True, False, False, asking)
+    assert BENCH.uncaught(True, False, False, "Alarm set for 3.")
+    assert not BENCH.uncaught(True, True, False, "Alarm set for 3.")  # made
+    assert not BENCH.uncaught(True, False, True, "Alarm set for 3.")  # the line was added
+    old = {"uncaught_claim": True, "server_line": False, "reply": asking}  # an older file
+    assert not BENCH.rescored(old)
+    assert BENCH.rescored({**old, "reply": "Alarm set for 3."})

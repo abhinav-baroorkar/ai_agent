@@ -80,6 +80,11 @@ def asks_for_timer(command: str, cfg: TimersConfig) -> bool:
     )  # fmt: skip
 
 
+def asks_back(text: str) -> bool:
+    """The reply is a question back ("Morning or evening?"): the server leaves it alone."""
+    return text.strip().endswith("?")
+
+
 class TimerTruth:
     """One per typed or window turn of a bot with timer tools."""
 
@@ -99,7 +104,7 @@ class TimerTruth:
     def finish(self, text: str, tool_calls: list[dict[str, Any]]) -> tuple[str, str]:
         """(text still to send and speak, the final reply text)."""
         made = any(c.get("name") in CHANGING_TOOLS and c.get("ok") for c in tool_calls)
-        asked_back = text.strip().endswith("?")  # a question back ("morning or evening?")
+        asked_back = asks_back(text)
         # "Your alarm is set for 7." read from list_timers is a report, not a claim.
         listed = any(c.get("name") == "list_timers" and c.get("ok") for c in tool_calls)
         if self.requested:
