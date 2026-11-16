@@ -113,6 +113,12 @@ class TimersConfig(BaseModel):
         default_factory=lambda: ["timer", "timers", "alarm", "alarms", "reminder",
                                  "reminders", "countdown", "remind"]
     )  # fmt: skip
+    # A request asks to change one when it has a timer word and one of these.
+    request_verbs: list[str] = Field(
+        default_factory=lambda: ["set", "start", "make", "create", "add", "put", "cancel",
+                                 "stop", "snooze", "remind", "wake", "schedule", "delete",
+                                 "remove", "change", "move"]
+    )  # fmt: skip
     negation_words: list[str] = Field(
         default_factory=lambda: ["not", "can't", "cannot", "unable", "don't", "won't", "no"]
     )
