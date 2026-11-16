@@ -173,3 +173,37 @@ def test_timer_tool_marks(tmp_path: Path) -> None:
         assert marks[name] == (False, True), name  # their own said-check
     for name in ("cancel_timer", "snooze_timer"):
         assert marks[name] == (False, False), name  # no own check: the guard, fail closed
+
+
+# --- delta review E1-E3, and G1 with earlier targets -----------------------------------
+def test_an_earlier_target_fills_in_only_when_none_is_named_now() -> None:
+    names = {**NAMES, "media_player.tv": "TV"}
+    asked = "is the bedroom light on?"
+    many = {"domain": "light", "service": "turn_off",
+            "entity_id": ["light.kitchen", "light.bedroom"]}  # fmt: skip
+    assert not device_change_said("turn off the tv", OFF, names, earlier=asked)  # E1 row 1
+    assert not device_change_said("turn off the kitchen light", many, names, earlier=asked)
+    assert device_change_said("turn it off", OFF, names, earlier=asked)
+    assert device_change_said("switch it off", OFF, names, earlier=asked)  # a verb, not a kind
+    assert not device_change_said("don't turn it off", OFF, names, earlier=asked)  # G1
+
+
+def test_locks_and_covers_never_carry_a_target_over() -> None:
+    door = {"domain": "lock", "service": "unlock", "entity_id": "lock.front_door"}
+    assert not device_change_said("unlock it", door, NAMES, earlier="is the front door locked?")
+    assert device_change_said("unlock the front door", door, NAMES)
+
+
+def test_said_checked_tools_go_through_the_guard_while_tainted(
+    settings: Settings, tmp_path: Path
+) -> None:
+    """Review E3: their own check covers times, not every free-text field a page could
+    choose, so under a web-result taint they are guarded too (fail closed)."""
+    ran: list[str] = []
+    own = Tool(
+        "set_reminder", "r", OBJ, lambda: ran.append("own") or {"ok": True}, said_checked=True
+    )
+    a, llm, _, _, _ = _setup(settings, tmp_path, [own])
+    _turn(a, llm, "look up x", ToolCall(BROWSE_TOOL, {"task": "x"}))
+    _turn(a, llm, "remind me", ToolCall("set_reminder", {}))
+    assert ran == [] and SAY_IT in str(llm.seen[-1][0][-1]["content"])

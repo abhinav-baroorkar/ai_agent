@@ -91,6 +91,25 @@ def negated(owner_text: str, action_words: set[str], negations: tuple[str, ...])
     return False
 
 
+# Review E2: for these the target must be in the current message ("unlock it" never
+# carries a door over from an earlier question).
+NO_CARRY_OVER = {"lock", "alarm_control_panel", "cover"}
+
+
+def names_a_target(said: set[str], names: Mapping[str, str]) -> bool:
+    """Review E1: does the current message name a device of its own (a word of any real
+    device name, or a kind of device)? Then the earlier messages fill in nothing."""
+    actions = set().union(*ACTION_WORDS.values())
+    kinds = set().union(*KIND_WORDS.values()) - VERBS - actions  # "switch it off": a verb
+    if said & kinds:
+        return True
+    for entity, name in names.items():
+        domain = entity.split(".", 1)[0]
+        if said & _target_words(domain, entity, name):
+            return True
+    return False
+
+
 def _only_one_of_its_kind(domain: str, entity: str, names: Mapping[str, str]) -> bool:
     """Review G2: the house's only device of that kind may be named by the kind ("the
     tv"); with several, the kind word alone never names one (fails closed)."""
@@ -126,8 +145,10 @@ def device_change_said(
     orchestrator: "is the bedroom light on?" then "turn it off"); the action only ever
     from `owner_text`."""
     said = words(owner_text)
-    targets = said | words(earlier)
     domain, service = str(arguments.get("domain", "")), str(arguments.get("service", ""))
+    targets = said
+    if earlier and domain not in NO_CARRY_OVER and not names_a_target(said, names):
+        targets = said | words(earlier)  # "turn it off": the target he just asked about
     entities = _entities(arguments.get("entity_id"))
     if not entities:
         return False

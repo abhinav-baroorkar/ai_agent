@@ -328,8 +328,13 @@ class Assistant:
             return None
         if self._turn_browsed:  # the stricter first layer: never in the same turn
             message = SAME_TURN
-        elif not (self.tainted or self.always_guard) or tool.said_checked:
-            return None  # said_checked: the tool runs its own said-check
+        elif not (self.tainted or self.always_guard):
+            return None
+        elif tool.said_checked and not self.tainted:
+            # its own said-check covers memory's M1; under a web-result taint (P1) it
+            # goes through the guard too, since the tool checks times, not every free
+            # text field a page could choose (review E3)
+            return None
         else:
             guard = self.change_guard
             earlier = "" if self.tainted else self.earlier_owner_text()  # P1 stays strict
