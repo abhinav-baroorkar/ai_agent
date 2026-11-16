@@ -91,6 +91,15 @@ export function initSetup({ health, lists, saved, deleted }) {
         }))));
   }
 
+  // The server's refusals are written for developers; say the two about styles plainly.
+  function plain(message) {
+    if (/^style: /.test(message)) return 'That breathing style isn’t one the assistant knows. Pick one of the eight and save again.';
+    if (/wake-word bot shows the main bot's style/.test(message)) {
+      return `The wake-word bot always looks like ${health.assistant.name}. Change ${health.assistant.name}’s style instead.`;
+    }
+    return message;
+  }
+
   function styleBlock() {
     const color = s.bot ? colorOf(s.bot) : START_COLORS[s.start] || START_COLORS.blank;
     return stylePicker({ color, value: s.style, onPick: (id) => { s.style = id; } });
@@ -114,7 +123,7 @@ export function initSetup({ health, lists, saved, deleted }) {
       s = null;
       await saved(bot, isNew);
     } catch (err) {
-      s.error = err.message;
+      s.error = plain(err.message);
       render();
     }
     return undefined;
