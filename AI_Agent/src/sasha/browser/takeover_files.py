@@ -77,9 +77,11 @@ def start_page(root: Path, search_template: str | None, blocked: str | None) -> 
     parts = urlsplit(blocked)
     if parts.scheme != "https" or parts.hostname != urlsplit(home).hostname:
         return home
+    # "<" escaped, so no "</script>" can ever end the script early (review nit)
+    target = json.dumps(blocked).replace("<", "\\u003c")
     html = (
         "<!doctype html><meta charset=utf-8><title>Opening the check…</title>"
-        f"<script>location.replace({json.dumps(blocked)});</script>"
+        f"<script>location.replace({target});</script>"
     )
     return write_private(root / CHECK_PAGE, html.encode()).as_uri()
 

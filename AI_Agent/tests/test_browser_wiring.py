@@ -119,6 +119,10 @@ class FakeTabs:
 class FakeService:
     owner_stops = 0
     holder_epoch = 0
+    forgotten = 0
+
+    def forget_blocked(self) -> None:
+        FakeService.forgotten += 1
 
     def end_turn(self, holder: str) -> None:
         pass

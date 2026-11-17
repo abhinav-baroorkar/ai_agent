@@ -94,6 +94,7 @@ class TakeOver:
         self._launching: asyncio.Future[None] | None = None
         self.restore_failures = 0
         self.restore_problem: str | None = None  # after SAY_WHY_AFTER failures
+        self._window_ran = False  # the owner's window came up in this take-over
         self._lock = asyncio.Lock()
 
     @property
@@ -179,6 +180,7 @@ class TakeOver:
                 await self._restore()
             return
         self.owner_until = datetime.now().astimezone() + timedelta(seconds=MAX_OWNER_S)
+        self._window_ran = True  # his window is up: hand-back then forgets the check
         self._set("owner")
         await self._watch()
 
@@ -249,7 +251,9 @@ class TakeOver:
         refused, the marker kept, and a retry every RETRY_S."""
         # C3 first, so it holds whatever happens next: only the engine's cookies
         self.service.keep_cookies_of = self.engine_site()
-        self.service.forget_blocked()  # he had his chance; a new check sets it again
+        if self._window_ran:  # he had his chance; a start that failed keeps it (review)
+            self.service.forget_blocked()
+        self._window_ran = False
         if self.proxy is not None:
             await self.proxy.stop()
             self.proxy = None

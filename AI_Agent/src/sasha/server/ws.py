@@ -227,8 +227,9 @@ class Conversation(TimerSocket):  # the timer side: server/timers/socket.py
         else:
             self._emit_delta(piece)
 
-    def _on_tool(self, name: str, ok: bool) -> None:  # on the event loop
-        self.emit({"type": "tool", "name": name, "ok": ok})
+    def _on_tool(self, name: str, ok: bool, asks: str = "") -> None:  # on the event loop
+        # `asks`: the tool's fixed reason label (never text), so the page keys on it
+        self.emit({"type": "tool", "name": name, "ok": ok, **({"asks": asks} if asks else {})})
         if name == BROWSE_TOOL and ok and self.speak and self.lookup is None:
             if self.spoken is not None and (rest := self.spoken.finish()):
                 self._emit_delta(rest)  # what came before the lookup is said as it was
@@ -247,10 +248,10 @@ class Conversation(TimerSocket):  # the timer side: server/timers/socket.py
         if self.speaker is not None:
             self.speaker.feed(piece)
 
-    def _on_tool_threadsafe(self, name: str, ok: bool) -> None:  # from the worker thread
+    def _on_tool_threadsafe(self, name: str, ok: bool, asks: str = "") -> None:  # worker
         if (truth := self.timer_truth) is not None:
             truth.on_tool(name, ok)  # before any later text: a failed lookup holds it
-        self.loop.call_soon_threadsafe(self._on_tool, name, ok)  # in order with the text
+        self.loop.call_soon_threadsafe(self._on_tool, name, ok, asks)  # in order with text
 
     def _on_delta_threadsafe(self, piece: str) -> None:  # from the LLM worker thread
         truth = self.timer_truth
@@ -285,7 +286,14 @@ class Conversation(TimerSocket):  # the timer side: server/timers/socket.py
                 # wake turn's correction, the timers' "Nothing was set."), the lookup cap,
                 # and the speakable text on speak=1: not the model's raw text.
                 self.assistant.replace_reply(shown)
-                calls = [{"name": c["name"], "ok": c["ok"]} for c in reply.tool_calls]
+                calls = [
+                    {
+                        "name": c["name"],
+                        "ok": c["ok"],
+                        **({"asks": c["asks"]} if c.get("asks") else {}),
+                    }
+                    for c in reply.tool_calls
+                ]  # `asks`: the fixed label only (as on the `tool` frame)
                 self.emit(
                     {
                         "type": "reply",

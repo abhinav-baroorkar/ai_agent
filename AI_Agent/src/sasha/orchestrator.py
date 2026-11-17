@@ -170,7 +170,7 @@ class Assistant(GuardMixin):
                     made["report"] = result.report  # the tool's own summary (memory)
                 calls_made.append(made)
                 if hooks.on_tool:
-                    hooks.on_tool(call.name, result.ok)
+                    hooks.on_tool(call.name, result.ok, result.asks)
                 content = wrap_untrusted(call.name, result.content)
                 messages.append({"role": "tool", "tool_name": call.name, "content": content})
 
