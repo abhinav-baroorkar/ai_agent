@@ -34,7 +34,7 @@ setInterval(() => {
 </script>"""
 
 
-def _server(seen: list[str], sockets: list[str]) -> http.server.ThreadingHTTPServer:
+def _server(seen: list[str], sockets: list[str], port: int = 0) -> http.server.ThreadingHTTPServer:
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self) -> None:
             path = self.path.split("?")[0]
@@ -68,7 +68,7 @@ def _server(seen: list[str], sockets: list[str]) -> http.server.ThreadingHTTPSer
         def log_message(self, *args: object) -> None:
             pass
 
-    return http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    return http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler)
 
 
 def _until(check: object, seconds: float) -> bool:
@@ -114,3 +114,41 @@ def test_the_page_uses_the_new_token_after_a_brain_restart(tmp_path: Path) -> No
         proc.terminate()
         proc.wait(timeout=10)
         server.shutdown()
+
+
+@pytest.mark.skipif(not launcher.available(), reason="the `app` extra (PySide6) is not installed")
+def test_a_token_written_before_the_brain_listens_still_loads(tmp_path: Path) -> None:
+    """Review S1 (window-token-reload): the brain writes its token before it binds the
+    port. A watch tick in that gap loaded the new token against a closed port, got an
+    error page and never loaded again. Now the failed load is tried again."""
+    seen: list[str] = []
+    sockets: list[str] = []
+    server = _server(seen, sockets)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    port = server.server_address[1]
+    state, run = tmp_path / "state", tmp_path / "run"
+    run.mkdir(mode=0o700)
+    old, new = WindowToken(), WindowToken()
+    write_token(state, old)
+    env = {**os.environ, "QT_QPA_PLATFORM": "offscreen", "XDG_RUNTIME_DIR": str(run),
+           "QTWEBENGINE_CHROMIUM_FLAGS": "--disable-gpu"}  # fmt: skip
+    env.pop("DISPLAY", None)
+    env.pop("WAYLAND_DISPLAY", None)
+    cmd = [sys.executable, "-m", "sasha.app.shell", "--port", str(port), "--dead-proxy", "9",
+           "--profile", str(tmp_path / "profile"), "--state-dir", str(state)]  # fmt: skip
+    proc = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    revived = None
+    try:
+        assert _until(lambda: old.value in sockets, 30), "the page never used the first token"
+        server.shutdown()  # the old brain stops
+        server.server_close()
+        write_token(state, new)  # the new one writes its token first...
+        time.sleep(3.0)  # ...and a watch tick (2 s) lands before it listens
+        revived = _server(seen, sockets, port)  # now it listens, on the same port
+        threading.Thread(target=revived.serve_forever, daemon=True).start()
+        assert _until(lambda: new.value in sockets, 15), "stuck on the error page"
+    finally:
+        proc.terminate()
+        proc.wait(timeout=10)
+        if revived is not None:
+            revived.shutdown()

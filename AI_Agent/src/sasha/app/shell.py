@@ -22,7 +22,8 @@ from typing import Any
 from sasha.app import policy
 from sasha.app.exit_note import HANDOVER, ExitNotes
 from sasha.app.single import NoRuntimeDir, notify, socket_path
-from sasha.app.token_watch import WATCH_MS, TokenWatch
+from sasha.app.token_reload import reload_on_new_token
+from sasha.app.token_watch import TokenWatch
 from sasha.app.waiting import BrainWait, brain_up
 from sasha.server.window_token import read_token
 
@@ -271,36 +272,6 @@ def _quiet_after_start() -> None:
     from sasha.app.start_check import quiet_stderr
 
     QTimer.singleShot(QUIET_AFTER_MS, quiet_stderr)
-
-
-def reload_on_new_token(shell: Shell, watch: TokenWatch, url: Callable[[str], str]) -> None:
-    """Every WATCH_MS: if the brain has a new token, open the page again with it.
-
-    Found live (2026-11-16): loading `/#t=<new>` over the open page only changed its
-    fragment, a same-document navigation, so the page's script (api.js reads the token
-    once, at start) never ran again and every /ws/browser was refused. So the page goes
-    to about:blank first, and the address with the new token is a new document."""
-    from PySide6.QtCore import QTimer, QUrl
-
-    timer = QTimer(shell.window)
-    timer.setInterval(WATCH_MS)
-    waiting: list[str] = []  # the address to open once about:blank has loaded
-
-    def blank_loaded(ok: bool) -> None:
-        if waiting and shell.page.url().toString() == "about:blank":
-            shell.page.load(QUrl(waiting.pop()))
-
-    def tick() -> None:
-        if shell.stack is not None and shell.stack.currentIndex() == 0:
-            return  # --attach still waiting: it reads the token when the brain answers
-        new = watch.check()
-        if new is not None:
-            waiting[:] = [url(new)]  # the newest token wins
-            shell.page.load(QUrl("about:blank"))
-
-    shell.page.loadFinished.connect(blank_loaded)
-    timer.timeout.connect(tick)
-    timer.start()
 
 
 def main(argv: list[str] | None = None) -> int:
