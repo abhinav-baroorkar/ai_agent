@@ -2,7 +2,7 @@
 // only while we say we are watching, one frame in flight.
 // Events: 'status' (detail: 'connecting' | 'open' | 'retrying' | 'busy' | 'refused'
 // | 'offline' | 'closed'), 'state', 'frame', 'stopped' and 'error' with the message.
-import { openBrowserSocket } from './api.js';
+import { api, openBrowserSocket } from './api.js';
 
 const BUSY_TRIES = 4; // another viewer has the picture: try again after a second, a few times
 const BUSY_WAIT = 1000;
@@ -21,6 +21,10 @@ export class BrowserLink extends EventTarget {
     this.retry = RETRY_MIN;
     this.timer = null;
     this.stable = null;
+    // Why the server won't take this window ('token': its window token is not this start's,
+    // or it has none; 'forbidden': not allowed at all). Set with status 'refused'.
+    this.reason = '';
+    this.checking = false;
   }
 
   on(type, fn) {
@@ -43,6 +47,7 @@ export class BrowserLink extends EventTarget {
 
   // Called by the "Try again" button after 'busy' or 'refused'.
   again() {
+    this.reason = '';
     this.wanted = true;
     this.busyTries = 0;
     this.connect();
@@ -95,9 +100,33 @@ export class BrowserLink extends EventTarget {
       } else if (code === 1008) {
         this.set('refused'); // the server will not take this window; no point retrying
       } else {
-        this.later();
+        this.check(); // a refused handshake looks like any failure (1006): ask why first
       }
     };
+  }
+
+  // After a failed socket: the same window token on GET /api/browser says whether the brain
+  // refuses this window (401: not this start's token, as after a brain restart; 403: not
+  // allowed). Then retrying can't help, so it stops and says so. Any other answer, or none
+  // (the brain is down), keeps the usual retrying.
+  async check() {
+    if (this.checking) return;
+    this.checking = true;
+    let status = 0;
+    try {
+      await api('GET', '/api/browser');
+    } catch (err) {
+      status = Number(err && err.status) || 0;
+    }
+    this.checking = false;
+    if (!this.wanted || this.ws) return;
+    if (status === 401 || status === 403) {
+      this.reason = status === 401 ? 'token' : 'forbidden';
+      clearTimeout(this.timer);
+      this.set('refused');
+      return;
+    }
+    this.later();
   }
 
   later() {

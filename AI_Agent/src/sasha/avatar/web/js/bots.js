@@ -28,6 +28,7 @@ export function initBots(health) {
   const panel = initBrowserPanel(health);
   // What a chat needs of the browser: its panel, and which tool names are the web's.
   const browser = {
+    // takeOver returns '' or why it can't (the brain refuses this window)
     toggle: () => panel.toggle(), takeOver: () => panel.takeOver(), onChange: (fn) => panel.onChange(fn),
     isWebTool: (name) => name === 'browse' || connectors.some((c) => c.kind === 'browser' && c.tools.includes(name)),
   };

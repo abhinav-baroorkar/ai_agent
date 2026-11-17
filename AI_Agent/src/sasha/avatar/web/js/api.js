@@ -31,7 +31,7 @@ export async function api(method, path, body) {
       body: body ? JSON.stringify(body) : undefined,
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || `The server answered ${res.status}.`);
+    if (!res.ok) throw Object.assign(new Error(data.error || `The server answered ${res.status}.`), { status: res.status });
     return data;
   } catch (err) {
     if (err.name === 'AbortError') throw new Error('The server took too long to answer.');

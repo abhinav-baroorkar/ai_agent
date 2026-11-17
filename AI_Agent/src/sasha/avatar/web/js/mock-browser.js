@@ -6,6 +6,8 @@
 //   ?mock=1&browser=old       a server before take-over (no mode in the state)
 //   ?mock=1&browser=busy      another viewer already has the picture (close code 1013)
 //   ?mock=1&browser=down      the connection keeps failing (the offline state)
+//   ?mock=1&browser=oldwindow the brain restarted: this window's token is refused (socket 1006, GET 401)
+//   ?mock=1&browser=forbidden the brain refuses this window outright (socket 1006, GET 403)
 //   ?mock=1&browser=restoring a hand-back cleans up for 5 s first (mode `restoring`)
 //   ?mock=1&browser=stuck     ...and the clean-up keeps failing (with `restore_problem`)
 // Otherwise it starts when a message goes to a bot that has the browser connector.
@@ -165,6 +167,8 @@ export function stop(reason) {
 setInterval(() => viewers.forEach(sendFrame), 220);
 
 export function browserFetch(method, action, fail) {
+  if (has('oldwindow')) throw fail(401, 'Open the window with `sasha window`'); // the server's own words
+  if (has('forbidden')) throw fail(403, 'Loopback only');
   if (method === 'GET' && !action) return snapshot();
   if (method === 'POST' && ['take_over', 'hand_back', 'stop_turn'].includes(action)) return takeover(action, fail);
   if (method === 'POST' && action === 'stop') {
@@ -178,7 +182,7 @@ export class MockBrowserSocket {
   constructor() {
     this.watching = false;
     this.waiting = false;
-    if (mode === 'down') {
+    if (mode === 'down' || has('oldwindow') || has('forbidden')) { // a refused handshake is 1006 too
       setTimeout(() => this.onclose && this.onclose({ code: 1006 }), 120);
       return;
     }
