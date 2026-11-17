@@ -9,6 +9,8 @@ import { cssColor } from './bot-look.js';
 import { miniOrb, wakeOrbs, setOrb } from './faces/mini-orb.js';
 
 const HINT = 'Enter sends. Shift+Enter starts a new line.';
+// The server's person-check line says this (browser/pages.py PERSON_CHECK; a test keeps them in step).
+const PERSON_CHECK = /wants to check you[’']re a person/i;
 // a refusal that means this server will never take voice on a chat: stop offering it
 const VOICE_REFUSED = /not available|not allowed|not supported|unsupported/i;
 
@@ -19,7 +21,8 @@ function chip(tool) {
 
 export class ChatView {
   // look: { color: [r,g,b], uses: {text, kind}, purpose } (how this bot is shown; see bot-look.js)
-  constructor(bot, look, { health, onEdit, onClose }) {
+  constructor(bot, look, { health, onEdit, onClose, browser }) {
+    this.browser = browser; // the browser panel beside the chat, for a bot that may use the web
     this.bot = bot;
     this.busy = false;
     this.pending = null; // the assistant message being streamed
@@ -38,6 +41,19 @@ export class ChatView {
     this.stopBtn = h('button', { class: 'btn danger', type: 'button', hidden: true,
       onclick: () => this.conv.cancel() }, icon('stop'), 'Stop');
     this.hint = h('p', { class: 'hint' }, HINT);
+    // Always in the header of a chat whose bot may use the web: the way to its browser.
+    this.browserLabel = h('span', {}, 'Show browser');
+    this.browserBtn = h('button', { class: 'btn small browser-toggle', type: 'button', hidden: true,
+      'aria-controls': 'browser-panel', 'aria-pressed': 'false', onclick: () => browser && browser.toggle() }, icon('globe'), this.browserLabel);
+    this.lookupFailed = false; // a web tool failed in the reply being built
+    if (browser) {
+      browser.onChange(({ botId, canBrowse, shown }) => {
+        if (botId !== this.bot.id) return;
+        this.browserBtn.hidden = !canBrowse;
+        this.browserBtn.setAttribute('aria-pressed', String(shown));
+        this.browserLabel.textContent = shown ? 'Hide browser' : 'Show browser';
+      });
+    }
     this.refused = false;
     // Speak a message instead of typing it; the reply still comes as text.
     this.micBtn = h('button', { class: 'btn mic-chat', type: 'button', 'aria-pressed': 'false', 'aria-label': 'Speak a message',
@@ -59,7 +75,7 @@ export class ChatView {
     this.el = h('section', { class: 'chat' },
       h('header', { class: 'chat-head' }, this.orb,
         h('div', { class: 'who' }, h('span', { class: 'title' }, this.title, this.usesTag), this.purpose),
-        h('span', { class: 'grow' }), this.offline,
+        h('span', { class: 'grow' }), this.offline, this.browserBtn,
         h('button', { class: 'btn small quiet', type: 'button', onclick: () => onEdit(this.bot) }, 'Change'),
         h('button', { class: 'btn small quiet', type: 'button', onclick: () => this.restart() }, 'Clear chat'),
         h('button', { class: 'btn small quiet', type: 'button', onclick: () => onClose(this.bot) }, 'Close chat')),
@@ -84,7 +100,11 @@ export class ChatView {
       })
       .on('reply_delta', () => { this.showState('speaking'); this.lookupNote(false); }) // the reply is arriving: it is talking
       .on('transcript', (m) => { if (m.final && String(m.text ?? '').trim()) this.addMine(String(m.text)); })
-      .on('tool', (m) => { this.reply().chips.append(chip(m)); this.lookupNote(m.name === 'browse'); })
+      .on('tool', (m) => {
+        this.reply().chips.append(chip(m));
+        this.lookupNote(m.name === 'browse');
+        if (!m.ok && this.browser && this.browser.isWebTool(String(m.name ?? ''))) this.lookupFailed = true;
+      })
       .on('reply_delta', (m) => { const r = this.reply(); r.text += String(m.text ?? ''); this.paintSoon(r); })
       .on('reply', (m) => this.finish(m))
       .on('forgot', (m) => this.forgetSince(Number(m.since_s)))
@@ -190,6 +210,17 @@ export class ChatView {
     });
   }
 
+  // Right under a failed lookup: the same Take over as the browser panel's, so it never has to be found.
+  takeOverOffer(personCheck) {
+    const text = personCheck
+      ? 'The search site wants to check you’re a person. Take over the browser, solve the check yourself, hand it back, then ask again.'
+      : 'The web lookup didn’t work. If the site wants to check you’re a person, take over the browser and solve it yourself, then ask again.';
+    return h('div', { class: 'takeover-offer', role: 'group', 'aria-label': 'The web lookup didn’t work' },
+      h('p', {}, text),
+      h('button', { class: 'btn small primary', type: 'button', 'aria-controls': 'browser-panel', onclick: () => this.browser.takeOver() },
+        icon('globe'), 'Take over the browser'));
+  }
+
   // The bot's text gets its simple formatting (md.js builds nodes; nothing is parsed as HTML).
   paint(r) {
     cancelAnimationFrame(r.frame);
@@ -206,6 +237,8 @@ export class ChatView {
     this.lookupNote(false);
     const sites = lookedUp(m.sites);
     if (sites) r.col.append(h('span', { class: 'looked-up' }, `looked up: ${sites}`)); // text only, never links
+    if (this.lookupFailed) r.col.append(this.takeOverOffer(PERSON_CHECK.test(r.text)));
+    this.lookupFailed = false;
     if (m.timing && m.timing.total_ms != null) {
       const speed = m.timing.tokens_per_s ? ` · ${Math.round(m.timing.tokens_per_s)} tokens/s` : '';
       r.col.append(h('span', { class: 'timing' }, `${(m.timing.total_ms / 1000).toFixed(1)} s${speed}`));

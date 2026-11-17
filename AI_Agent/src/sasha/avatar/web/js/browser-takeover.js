@@ -84,5 +84,9 @@ export function initTakeover(root, health) {
       state = next;
       draw();
     },
+    // The same action as the strip's own button (a failed lookup offers it in the chat too).
+    start() {
+      if (!busy && state && state.mode === 'assistant' && state.enabled) post('take_over');
+    },
   };
 }

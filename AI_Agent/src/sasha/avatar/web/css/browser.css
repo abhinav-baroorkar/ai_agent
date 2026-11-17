@@ -52,3 +52,14 @@
 .takeover .to-row p { flex: 1 1 14rem; font-size: .84rem; color: var(--muted); line-height: 1.45; }
 .takeover .to-note { font-size: .82rem; color: var(--muted); }
 .takeover .count { font-family: var(--mono); color: var(--lamp); }
+
+/* The way to the browser, always in the header of a chat whose bot may use the web */
+.chat-head .browser-toggle { color: var(--listen); border-color: color-mix(in srgb, var(--listen) 45%, var(--line)); }
+.chat-head .browser-toggle[aria-pressed="true"] { background: color-mix(in srgb, var(--listen) 14%, var(--surface-2)); }
+.browser:focus { outline: none; }
+.browser:focus-visible { outline: 2px solid var(--lamp); outline-offset: -2px; }
+
+/* Right under a failed lookup: what happened and the one thing to do about it */
+.takeover-offer { display: grid; gap: .55rem; justify-items: start; margin-top: .5rem; padding: .7rem .85rem; border-radius: 12px;
+  background: color-mix(in srgb, var(--warn) 9%, transparent); border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent); max-width: 40rem; }
+.takeover-offer p { font-size: .92rem; line-height: 1.45; }
