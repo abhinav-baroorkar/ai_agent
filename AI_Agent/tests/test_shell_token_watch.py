@@ -33,10 +33,11 @@ def test_the_real_shell_reloads_with_the_new_token(tmp_path: Path) -> None:
 import json, pathlib, sys
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
-import sasha.app.shell as shell_module
-from sasha.app.shell import build, reload_on_new_token, start_url
+import sasha.app.token_reload as reload_module
+from sasha.app.shell import build, start_url
+from sasha.app.token_reload import reload_on_new_token
 from sasha.app.token_watch import TokenWatch
-shell_module.WATCH_MS = 100
+reload_module.WATCH_MS = 100
 app = QApplication([])
 file = {"t": "a" * 64}
 watch = TokenWatch(lambda: file["t"])
@@ -69,4 +70,8 @@ app.exec()
     r = json.loads(line[len("RESULT ") :])
     # once, with the new token, as a new document (about:blank first: review of the live
     # 403s, a fragment-only load kept the page's old token)
-    assert r["loads"] == ["about:blank", "http://127.0.0.1:9/#t=" + "b" * 64]
+    target = "http://127.0.0.1:9/#t=" + "b" * 64
+    assert r["loads"][:2] == ["about:blank", target]
+    # nothing listens on port 9, so the load fails and is tried again (review S1),
+    # always through about:blank and always with the new token
+    assert r["loads"] == ["about:blank", target] * (len(r["loads"]) // 2)
