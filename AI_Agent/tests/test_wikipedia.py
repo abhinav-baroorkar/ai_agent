@@ -229,3 +229,18 @@ def test_either_answer_is_config_only(agent: str) -> None:
     finally:
         current_turn.reset(token)
     assert all(headers["User-Agent"] == agent for _, headers, _ in http.calls)
+
+
+def test_a_direct_bot_with_both_kinds(settings: Settings) -> None:
+    """After the rebase on the take-over fix: a person check on the direct search and
+    a Wikipedia lookup in one turn. If Wikipedia worked, the model's answer stands; if it
+    failed too, the person check's line (beside this chat) is said."""
+    from sasha.browser.pages import PERSON_CHECK_HERE
+
+    truth = BrowseTruth(prompt_lines(settings), "Search for India on Wikipedia")
+    model = "India is a country in South Asia."
+    checked = {"name": "search", "ok": False, "asks": "person_check"}
+    worked = [checked, {"name": WIKI_TOOL, "ok": True}]
+    assert truth.finish(model, worked)[0] == model
+    failed = [checked, {"name": WIKI_TOOL, "ok": False, "asks": "nothing_found"}]
+    assert truth.finish(model, failed)[0] == PERSON_CHECK_HERE
