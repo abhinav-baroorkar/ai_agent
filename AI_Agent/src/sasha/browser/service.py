@@ -28,6 +28,7 @@ from sasha.browser.takeover_cleanup import finish_takeover, pending
 from sasha.browser.takeover_files import extensions_present
 
 log = logging.getLogger(__name__)
+BLOCKED_KEPT_S = 1800.0  # a person check older than this isn't reopened
 
 IDLE_S = 600.0
 # A turn's browser budget is 90 s, and one step can run up to 40 s past it (tools.py
@@ -83,6 +84,9 @@ class BrowserService:
         self.listeners: list[Callable[[], None]] = []  # told of every state change
         self.driving = False  # the owner's take-over is on (claimed before it starts)
         self.keep_cookies_of: str | None = None  # after a take-over: only this site's (C3)
+        # The last search that met a person check, and when (the server's own search URL,
+        # never a page's): the owner's take-over window opens there (takeover.py).
+        self._blocked: tuple[str, float] | None = None
 
     def changed(self) -> None:
         for listener in list(self.listeners):
@@ -165,6 +169,18 @@ class BrowserService:
                 await chrome.pipe.call("Target.closeTarget", {"targetId": target}, timeout=3)
         chrome.tab_targets, chrome.current_target = [], None
         self.holder_epoch += 1
+
+    def person_check_met(self, url: str) -> None:
+        self._blocked = (url, self.clock())
+
+    def blocked_search(self, max_age_s: float = BLOCKED_KEPT_S) -> str | None:
+        """The search a take-over should open on, if a person check met it recently."""
+        if self._blocked is None or self.clock() - self._blocked[1] > max_age_s:
+            return None
+        return self._blocked[0]
+
+    def forget_blocked(self) -> None:
+        self._blocked = None
 
     def touch(self) -> None:
         self._last_used = self.clock()

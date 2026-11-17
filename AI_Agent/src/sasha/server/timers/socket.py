@@ -125,6 +125,7 @@ class TimerSocket:
             wake = not self.timer_claims
             redact = assistant.redact_request
             checks.append(MemoryTruth(cfg, pair, self.speak, redact, wake=wake))
-        if BROWSE_TOOL in assistant.tools:  # a lookup that brought nothing back says so
+        # a lookup that brought nothing back says so; a person check, for both kinds
+        if BROWSE_TOOL in assistant.tools or "search" in assistant.tools:
             checks.append(BrowseTruth(prompt_lines(assistant.settings), command))
         return ChainCheck(checks) if checks else None

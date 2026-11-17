@@ -73,7 +73,12 @@ class BrowserView:
             **(
                 self.takeover.state()
                 if self.takeover is not None
-                else {"mode": "assistant", "owner_until": None, "owner_refused": {}}
+                else {
+                    "mode": "assistant",
+                    "owner_until": None,
+                    "owner_refused": {},
+                    "person_check": False,
+                }
             ),
         }
         if service is None or not self.running():

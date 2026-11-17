@@ -11,20 +11,26 @@ cleared for every other host that had a cookie. Browser-level DevTools calls onl
 from __future__ import annotations
 
 import contextlib
+import logging
 from typing import Any
 
 from sasha.browser.cdp import CDPError
 from sasha.browser.redirects import site_of
 
+log = logging.getLogger(__name__)
+
 
 async def keep_only_site_data(chrome: Any, site: str) -> int:
-    """Returns how many other sites were forgotten (counts only, nothing logged)."""
+    """Returns how many other sites were forgotten. Logs how many of the engine's cookies
+    came through, a count only: a pass the engine keeps in a session cookie is gone once
+    the owner's window closes (measured, 2026-11-16), and this line shows it."""
     pipe = chrome.pipe
     cookies = (await pipe.call("Storage.getCookies")).get("cookies", [])
     keep = [c for c in cookies if site_of(str(c.get("domain", "")).lstrip(".")) == site]
     others = {
         str(c.get("domain", "")).lstrip(".") for c in cookies if c not in keep and c.get("domain")
     }
+    log.info("After the take-over: kept %d cookie(s) of the search site", len(keep))
     await pipe.call("Storage.clearCookies")
     if keep:
         await pipe.call("Storage.setCookies", {"cookies": [_settable(c) for c in keep]})
