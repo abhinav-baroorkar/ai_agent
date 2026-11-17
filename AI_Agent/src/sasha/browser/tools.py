@@ -205,7 +205,11 @@ class BrowserConversation:
         except SearchRefusedError as e:
             raise ToolError(str(e)) from None
         try:
-            return self._op(lambda tabs: tabs.search_results(target))
+            found = self._op(lambda tabs: tabs.search_results(target))
+            # Review K1: results came back, so no check waits; a take-over would else
+            # open an old search for up to 30 minutes
+            self.bridge.service.forget_blocked()
+            return found
         except ToolError as e:
             # The direct tools' bot has the panel beside its own chat; the helper's
             # main assistant keeps the line that leads to its chat (pages.py).

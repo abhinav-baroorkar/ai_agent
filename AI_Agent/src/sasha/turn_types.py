@@ -13,12 +13,13 @@ from typing import Any
 class TurnHooks:
     """Optional callbacks for one request (the server uses them; the CLI doesn't).
 
-    `on_delta` gets answer text as it streams, `on_tool(name, ok)` fires after each tool,
+    `on_delta` gets answer text as it streams, `on_tool(name, ok, asks)` fires after
+    each tool (`asks`: the tool's reason label, such as "person_check", or ""),
     and `should_stop()` returning true cancels the request (raises `LLMCancelled`).
     """
 
     on_delta: Callable[[str], None] | None = None
-    on_tool: Callable[[str, bool], None] | None = None
+    on_tool: Callable[[str, bool, str], None] | None = None
     should_stop: Callable[[], bool] | None = None
 
 
