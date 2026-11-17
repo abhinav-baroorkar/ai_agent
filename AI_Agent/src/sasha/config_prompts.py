@@ -67,6 +67,7 @@ class PromptLines(BaseModel):
             "call_service": "switch and adjust the smart-home devices",
             **dict.fromkeys(_BROWSER, _CAN_BROWSE),
             "browse": _CAN_LOOK_UP,
+            "wikipedia": "look topics up on Wikipedia (say when an answer came from it)",
             **dict.fromkeys(_TIMERS, _CAN_TIMERS),
             "snooze_timer": _CAN_TIMERS,
             **dict.fromkeys(_MEMORY, _CAN_MEMORY),
@@ -88,6 +89,15 @@ class PromptLines(BaseModel):
     web_nothing_found: str = "I couldn't find that on the web."
     web_failed: str = "I couldn't check the web for that."
     web_unchecked: str = "I couldn't check the web. From what I already know:"
+    wiki_nothing_found: str = "I couldn't find that on Wikipedia."
+    wiki_failed: str = "I couldn't reach Wikipedia just now."
+    wiki_wake: str = "I can't look things up on Wikipedia from a wake-word request."
+    wiki_own_words: str = "Tell me in your own words what to look up on Wikipedia."
+    wiki_refused: str = "I didn't send that to Wikipedia: it held details from our conversation."
+    wiki_not_set_up: str = (
+        "I can't look things up on Wikipedia yet: how I name myself to Wikipedia "
+        "hasn't been chosen in my settings."
+    )
     # A message with one of these asks for a lookup: the reply is held from the start
     # (browse_truth.py, review BT2), so nothing is said before the web has been checked.
     lookup_words: list[str] = Field(

@@ -146,6 +146,11 @@ class BrowserConversation:
             raise ToolError(f"Browser time limit reached ({SECONDS_PER_TURN:.0f} s per request)")
         return ctx.user_messages
 
+    def _queries(self) -> list[str]:
+        """The turn's queries, shared with the Wikipedia lookup (turn context)."""
+        ctx = current_turn.get()
+        return ctx.queries if ctx is not None else self.queries
+
     def _release(self) -> None:
         self.bridge.call_soon(self.bridge.service.end_turn, self.holder)
 
@@ -188,7 +193,7 @@ class BrowserConversation:
     def search(self, q: str) -> dict[str, Any]:
         owner = self._turn()
         try:
-            check_query(str(q), owner[:-1], owner[-1] if owner else "", self.queries)
+            check_query(str(q), owner[:-1], owner[-1] if owner else "", self._queries())
         except QueryLeakError as e:
             raise ToolError(str(e)) from None
         if self.helper_task is not None:
@@ -197,7 +202,7 @@ class BrowserConversation:
             except ValueError as e:
                 self.blocked_queries += 1
                 raise ToolError(str(e)) from None
-        self.queries.append(str(q))  # the turn's searches are checked together (W2)
+        self._queries().append(str(q))  # the turn's queries are checked together (W2)
         if not self.search_template:
             raise ToolError("No search engine is set yet; the owner can choose one in Settings")
         try:

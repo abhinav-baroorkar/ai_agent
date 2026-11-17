@@ -10,6 +10,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from sasha.browser.helper import BROWSE_TOOL
+from sasha.browser.wikipedia import WIKI_TOOL
 from sasha.memory.check import owner_pair
 from sasha.memory.tools import MEMORY_TOOLS
 from sasha.memory.truth import MemoryTruth
@@ -125,7 +126,12 @@ class TimerSocket:
             wake = not self.timer_claims
             redact = assistant.redact_request
             checks.append(MemoryTruth(cfg, pair, self.speak, redact, wake=wake))
-        # a lookup that brought nothing back says so; a person check, for both kinds
-        if BROWSE_TOOL in assistant.tools or "search" in assistant.tools:
+        # a lookup (the web, Wikipedia) that brought nothing back says so; a person
+        # check, for the direct browser too
+        if (
+            BROWSE_TOOL in assistant.tools
+            or WIKI_TOOL in assistant.tools
+            or "search" in assistant.tools
+        ):
             checks.append(BrowseTruth(prompt_lines(assistant.settings), command))
         return ChainCheck(checks) if checks else None

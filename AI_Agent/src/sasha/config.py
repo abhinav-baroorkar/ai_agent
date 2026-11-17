@@ -21,6 +21,7 @@ from sasha.config_prompts import PromptLines
 from sasha.config_timers import TimersConfig
 from sasha.config_wake import ReplyLines as ReplyLines  # re-exported: moved, not renamed
 from sasha.config_wake import WakeConfig as WakeConfig
+from sasha.config_wikipedia import WikipediaConfig
 
 # src/sasha/config.py -> sasha -> src -> AI_Agent -> repo root
 _DEFAULT_ROOT = Path(__file__).resolve().parents[3]
@@ -152,6 +153,7 @@ class Profile(BaseModel):
     timers: TimersConfig = Field(default_factory=TimersConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     window: WindowConfig = Field(default_factory=WindowConfig)
+    wikipedia: WikipediaConfig = Field(default_factory=WikipediaConfig)
     prompt_lines: dict[str, PromptLines] = Field(default_factory=lambda: {"en": PromptLines()})
 
 

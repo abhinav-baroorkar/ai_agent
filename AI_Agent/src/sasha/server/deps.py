@@ -12,6 +12,7 @@ from typing import Any
 from sasha.bots import BUILTIN_IDS, MAIN_ID, Bot, BotStore
 from sasha.browser.helper import BROWSE_TOOL, BrowseHelper, browse_tool
 from sasha.browser.policy import BROWSER
+from sasha.browser.wikipedia import WIKI_TOOL, WikipediaLookup, wikipedia_tool
 from sasha.config import Settings, reload_secrets
 from sasha.connectors import (
     ConnectorError,
@@ -87,6 +88,11 @@ class ServerDeps:
             tools, warnings = self.connectors.tools_for(bot.connectors)
             if (helper := self._browse_helper(bot, llm)) is not None:
                 tools.register(browse_tool(helper))
+            # Wikipedia beside the browser (owner's decision, 2026-11-16): the main
+            # assistant's lookups, or a bot with the browser itself ("open_url" is its tool)
+            if (helper is not None or "open_url" in tools) and WIKI_TOOL not in tools:
+                # the main assistant's topic: the owner's own words (review F1)
+                tools.register(wikipedia_tool(self.wikipedia(owner_words=helper is not None)))
         finally:
             building_for_bot.reset(token)
         if CLOCK_TOOL not in tools:  # every bot: read-only, so no guessed times
@@ -140,6 +146,12 @@ class ServerDeps:
             return None
         return connector, settings
 
+    def wikipedia(self, owner_words: bool = False) -> WikipediaLookup:
+        """In the assistant's default language (assistant.yaml), English for now."""
+        language = self.settings.assistant.languages.default
+        config = self.settings.profile.wikipedia
+        return WikipediaLookup(language, config, owner_words=owner_words)
+
     def connector_view(self, view: dict[str, Any]) -> dict[str, Any]:
         """The API's Connector, plus `browse` in the browser connector's `tools` while
         the main assistant is offered web lookups (contract v0.5.1)."""
@@ -149,9 +161,12 @@ class ServerDeps:
             offered = self._browse_source(self.bots.get(MAIN_ID)) is not None
         except Exception:  # never break the connectors list
             offered = False
-        if offered and BROWSE_TOOL not in view["tools"]:
-            return {**view, "tools": [*view["tools"], BROWSE_TOOL]}
-        return view
+        tools = list(view["tools"])
+        if offered and BROWSE_TOOL not in tools:
+            tools.append(BROWSE_TOOL)
+        if WIKI_TOOL not in tools:  # every bot that browses, and the main one's lookups
+            tools.append(WIKI_TOOL)
+        return {**view, "tools": tools}
 
     def _browse_helper(self, bot: Bot, llm: LLM) -> BrowseHelper | None:
         if (source := self._browse_source(bot)) is None:

@@ -14,6 +14,9 @@ A bot with the browser itself (the direct tools) gets the same for a person chec
 when its search met one and no browser step worked, the reply is the server's line,
 which says where Take over is for that bot (found live, 2026-11-16: the model reworded
 the tool's line and sent the owner to the wrong chat).
+
+A Wikipedia lookup (browser/wikipedia.py) counts as a lookup too: when every lookup of
+the turn failed and they were all Wikipedia's, the line says Wikipedia, not the web.
 """
 
 from __future__ import annotations
@@ -24,7 +27,10 @@ from typing import Any
 from sasha.browser.helper import BROWSE_TOOL
 from sasha.browser.pages import PERSON_CHECK, PERSON_CHECK_HERE
 from sasha.browser.tools import DIRECT_TOOLS
+from sasha.browser.wikipedia import WIKI_TOOL
 from sasha.config_prompts import PromptLines
+
+LOOKUP_TOOLS = (BROWSE_TOOL, WIKI_TOOL)
 
 
 def asks_for_lookup(command: str, lines: PromptLines) -> bool:
@@ -44,16 +50,26 @@ class BrowseTruth:
 
     def on_tool(self, name: str, ok: bool) -> None:
         """Called on the worker thread as each tool returns, before any later text."""
-        if name in (BROWSE_TOOL, "search") and not ok:
+        if name in (*LOOKUP_TOOLS, "search") and not ok:
             self.holding = True
 
-    def line(self, reason: str, here: bool = False) -> str:
-        """`here`: the bot has the browser itself, so Take over is beside its chat."""
+    def line(self, reason: str, here: bool = False, wiki: bool = False) -> str:
+        """`here`: the bot has the browser itself, so Take over is beside its chat;
+        `wiki`: every failed lookup was Wikipedia's."""
         if reason == "person_check":
             return PERSON_CHECK_HERE if here else PERSON_CHECK
         if reason == "nothing_found":
-            return self.lines.web_nothing_found
-        return self.lines.web_failed
+            return self.lines.wiki_nothing_found if wiki else self.lines.web_nothing_found
+        if wiki:  # Wikipedia's own refusals: nothing was sent, and the line says why
+            refusals = {
+                "not_set_up": self.lines.wiki_not_set_up,  # the setting is empty
+                "wake_turn": self.lines.wiki_wake,
+                "not_owner_words": self.lines.wiki_own_words,
+                "not_private": self.lines.wiki_refused,
+            }
+            if reason in refusals:
+                return refusals[reason]
+        return self.lines.wiki_failed if wiki else self.lines.web_failed
 
     def finish(self, text: str, tool_calls: list[dict[str, Any]]) -> tuple[str, str]:
         final = self.finish_chain(text, text, tool_calls)
@@ -63,17 +79,17 @@ class BrowseTruth:
         """Review BT1: replace only the model's own words; the lines the other checks
         added (the timers' "Nothing was set.", memory's secret line) stay, after it.
         `model`: the model's text; `final`: what the checks before made of it."""
-        calls = [c for c in tool_calls if c.get("name") == BROWSE_TOOL]
-        here = not calls
-        if here:  # the direct tools: only a person check is said by the server
-            calls = [c for c in tool_calls if c.get("name") in DIRECT_TOOLS]
-            if not any(c.get("asks") == "person_check" for c in calls):
-                return final
-        if not calls or any(c.get("ok") for c in calls):
-            return final
+        lookups = [c for c in tool_calls if c.get("name") in LOOKUP_TOOLS]
+        direct = [c for c in tool_calls if c.get("name") in DIRECT_TOOLS]
+        # the direct tools: only a person check is said by the server
+        here = any(c.get("asks") == "person_check" for c in direct)
+        calls = lookups + (direct if here else [])
+        if not calls or any(c.get("ok") for c in lookups + direct):
+            return final  # nothing to say, or something worked
         reasons = [str(c.get("asks") or "") for c in calls]
         reason = "person_check" if "person_check" in reasons else reasons[-1]
-        line = self.line(reason, here)
+        wiki = all(c.get("name") == WIKI_TOOL for c in calls)
+        line = self.line(reason, here, wiki)
         own = model.rstrip()
         if not final.startswith(own):  # a check replaced the model's text (a spoken
             return f"{line} {final}".strip()  # timer line, a secret): never bring it back
