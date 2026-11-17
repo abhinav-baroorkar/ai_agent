@@ -32,6 +32,10 @@ class TurnContext:
     since_previous_s: float | None = None  # seconds since the previous turn ended
     # The turn's own stop (the Stop button), so a helper inside a tool can see it too.
     should_stop: Callable[[], bool] | None = field(default=None, compare=False)
+    # The turn's outgoing queries so far (web searches and Wikipedia topics, the browse
+    # helper's too: it runs inside this turn), checked together so nothing private
+    # leaves in pieces (leaks.check_query's `before`, W2).
+    queries: list[str] = field(default_factory=list, compare=False)
 
 
 current_turn: contextvars.ContextVar[TurnContext | None] = contextvars.ContextVar(

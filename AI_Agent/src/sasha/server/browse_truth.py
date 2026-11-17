@@ -60,8 +60,15 @@ class BrowseTruth:
             return PERSON_CHECK_HERE if here else PERSON_CHECK
         if reason == "nothing_found":
             return self.lines.wiki_nothing_found if wiki else self.lines.web_nothing_found
-        if reason == "not_set_up" and wiki:  # nothing was sent: the setting is empty
-            return self.lines.wiki_not_set_up
+        if wiki:  # Wikipedia's own refusals: nothing was sent, and the line says why
+            refusals = {
+                "not_set_up": self.lines.wiki_not_set_up,  # the setting is empty
+                "wake_turn": self.lines.wiki_wake,
+                "not_owner_words": self.lines.wiki_own_words,
+                "not_private": self.lines.wiki_refused,
+            }
+            if reason in refusals:
+                return refusals[reason]
         return self.lines.wiki_failed if wiki else self.lines.web_failed
 
     def finish(self, text: str, tool_calls: list[dict[str, Any]]) -> tuple[str, str]:

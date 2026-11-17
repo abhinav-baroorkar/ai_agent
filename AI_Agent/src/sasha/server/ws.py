@@ -25,6 +25,7 @@ from typing import Any
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from sasha.browser.helper import BROWSE_TOOL
+from sasha.browser.wikipedia import WIKI_TOOL
 from sasha.orchestrator import Assistant, Reply, RequestFailed, TurnHooks
 from sasha.pipeline.llm import LLMCancelled
 from sasha.server.speech import Speaker
@@ -215,7 +216,7 @@ class Conversation(TimerSocket):  # the timer side: server/timers/socket.py
 
     def _on_tool(self, name: str, ok: bool, asks: str = "") -> None:  # on the event loop
         self.emit(tool_frame(name, ok, asks))  # `asks`: a well-formed label only
-        if name == BROWSE_TOOL and ok and self.speak and self.lookup is None:
+        if name in (BROWSE_TOOL, WIKI_TOOL) and ok and self.speak and self.lookup is None:
             if self.spoken is not None and (rest := self.spoken.finish()):
                 self._emit_delta(rest)  # what came before the lookup is said as it was
             self._before_lookup = self.released

@@ -369,8 +369,12 @@ Wikimedia's own public API (no key, no account, no person check).
   `browse`), and every bot with the direct browser. Never wake-word turns.
 - **Requests:** the server builds every address on `<language>.wikipedia.org`, where
   the language is assistant.yaml's default (`en`). That's two GETs in series: the
-  wiki's REST search, then the page summary. The topic passes the same leak check as
-  a web search.
+  wiki's REST search, then the page summary.
+- **Topic rules:**
+  - Every bot: the same leak check as a web search, together with the turn's earlier
+    searches and topics, so a number can't leave in pieces.
+  - The main assistant, in addition: every word must come from the owner's current or
+    previous message, as for a `browse` task.
 - **User-Agent:** `profile.wikipedia.user_agent`, **empty by default**. It's sent with
   every lookup, so the owner chooses it himself. Wikimedia's policy asks for a program
   name, "bot" and a web address or email. While it's empty or has no contact, nothing
@@ -383,15 +387,19 @@ Connectors: the browser connector's `tools` always list `"wikipedia"`. It's the
 browser's tool; whether a bot really gets it follows the rules above.
 
 Main socket (`/ws`):
-- A `tool` frame with `name:"wikipedia"` marks the lookup (`ok:false` when nothing
-  matched, Wikipedia couldn't be reached, or the topic was refused).
+- A `tool` frame with `name:"wikipedia"` marks the lookup. It's `ok:false` when nothing
+  matched, Wikipedia couldn't be reached, or the topic was refused. The `asks` label
+  then says which: `nothing_found`, `failed`, `not_set_up`, `wake_turn`,
+  `not_owner_words` or `not_private`.
 - `reply.sites` includes `<language>.wikipedia.org` after a lookup that worked.
 - When every lookup of the turn failed and all of them were `wikipedia`, the reply is
-  the server's line: "I couldn't find that on Wikipedia." or "I couldn't reach
-  Wikipedia just now." (`prompt_lines`). Any marked "from what I already know" part
-  follows it, as for `browse`.
-- The `speak=1` 500-character cap and the added "From <site>." stay `browse`-only. The
-  prompt asks the model to say when an answer came from Wikipedia.
+  the server's line for the label (`prompt_lines`):
+  - "I couldn't find that on Wikipedia."
+  - "I couldn't reach Wikipedia just now."
+  - the not-set-up, wake, own-words or private-details line.
+  Any marked "from what I already know" part follows it, as for `browse`.
+- `speak=1`, after a `wikipedia` call that worked: the same 500-character cap as after
+  `browse`, then the server adds "From Wikipedia." unless the answer already named it.
 
 UI: the "looked up: <site>" line under a reply covers it (it reads `sites`). While a
 `tool` frame for `wikipedia` is the latest one, the status can read "Looking it up…".

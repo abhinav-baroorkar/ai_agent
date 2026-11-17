@@ -91,6 +91,9 @@ class PromptLines(BaseModel):
     web_unchecked: str = "I couldn't check the web. From what I already know:"
     wiki_nothing_found: str = "I couldn't find that on Wikipedia."
     wiki_failed: str = "I couldn't reach Wikipedia just now."
+    wiki_wake: str = "I can't look things up on Wikipedia from a wake-word request."
+    wiki_own_words: str = "Tell me in your own words what to look up on Wikipedia."
+    wiki_refused: str = "I didn't send that to Wikipedia: it held details from our conversation."
     wiki_not_set_up: str = (
         "I can't look things up on Wikipedia yet: how I name myself to Wikipedia "
         "hasn't been chosen in my settings."

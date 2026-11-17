@@ -6,7 +6,9 @@ sentences at a time up to `SPOKEN_LOOKUP_CHARS`, the same cap as the lookup's ow
 answer; what doesn't fit is neither shown nor spoken. Then, unless the answer already
 named it, the server adds "From <site>." with the first site the tabs really loaded
 (the server's own record, P4), so the owner hears where it came from. The site is a
-hostname from the server's record ("www." dropped), never model text.
+hostname from the server's record ("www." dropped), never model text. A Wikipedia
+lookup (`wikipedia`) gets the same, said as "From Wikipedia." (review of
+feat/wikipedia-lookup: from the server, not left to the prompt).
 """
 
 from __future__ import annotations
@@ -18,10 +20,17 @@ SPOKEN_LOOKUP_CHARS = 500
 _SENTENCE_END = re.compile(r"[.!?]+(\s+|$)")
 
 
+def spoken_site(site: str) -> str:
+    """How a site is said: Wikipedia by name (any language's host), else the host."""
+    site = site.lower().removeprefix("www.")
+    return "Wikipedia" if site == "wikipedia.org" or site.endswith(".wikipedia.org") else site
+
+
 def _named(site: str, said: str) -> bool:
     label = site.split(".", 1)[0]
     text = said.lower()
-    return site in text or (len(label) >= 3 and label in text)
+    name = spoken_site(site).lower()
+    return site in text or name in text or (len(label) >= 3 and label in text)
 
 
 class LookupCap:
@@ -62,4 +71,4 @@ class LookupCap:
         site = sites[0].lower().removeprefix("www.") if sites else ""
         if site and not _named(site, before + self.said):
             space = "" if not self.said or self.said.endswith((" ", "\n")) else " "
-            self.release(f"{space}From {site}.")
+            self.release(f"{space}From {spoken_site(site)}.")

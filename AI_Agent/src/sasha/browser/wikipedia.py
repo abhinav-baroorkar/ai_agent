@@ -26,9 +26,11 @@ from urllib.parse import quote, urlencode
 
 from sasha.browser.leaks import QueryLeakError, check_query
 from sasha.browser.reader import clean
+from sasha.browser.task_check import OWN_WORDS, TASK_WORDS, outside
 from sasha.browser.tools import NOTE
 from sasha.config_wikipedia import WikipediaConfig
 from sasha.conversation import current_turn
+from sasha.said import words
 from sasha.tools import Tool, ToolError
 
 WIKI_TOOL = "wikipedia"
@@ -68,13 +70,31 @@ def http_get(url: str, headers: dict[str, str], timeout: float) -> tuple[int, An
         return 200, None
 
 
+def _refused(message: str, label: str) -> ToolError:
+    err = ToolError(message)
+    err.asks = label
+    return err
+
+
 class WikipediaLookup:
-    def __init__(self, language: str, config: WikipediaConfig, fetch: Fetch = http_get) -> None:
+    def __init__(
+        self,
+        language: str,
+        config: WikipediaConfig,
+        fetch: Fetch = http_get,
+        owner_words: bool = False,
+    ) -> None:
+        """`owner_words`: the main assistant's lookups (beside `browse`). Its context
+        holds memory notes, device names and earlier chat, so every word of the topic
+        must come from the owner's current or previous message, as a `browse` task's
+        (task_check, design 10.2; review F1). A bot with the direct browser is held to
+        the leak check only, as its own `search` is."""
         if not _LANGUAGE.match(language):
             raise ValueError(f"not a Wikipedia language code: {language!r}")
         self.host = f"{language}.wikipedia.org"
         self.config = config
         self.fetch = fetch
+        self.owner_words = owner_words
 
     def _get(self, url: str) -> Any:
         headers = {"User-Agent": self.config.user_agent, "Accept": "application/json"}
@@ -95,15 +115,21 @@ class WikipediaLookup:
         ctx = current_turn.get()
         if ctx is None:
             raise ToolError("Wikipedia can only be used in a conversation")
-        if ctx.input_mode == "wake":
-            raise ToolError("Wikipedia isn't available for wake-word requests")
+        if ctx.input_mode == "wake":  # its own label: the reply says the real reason
+            raise _refused("Wikipedia isn't available for wake-word requests", "wake_turn")
         if not topic:
             raise ToolError("Say what to look up on Wikipedia")
         owner = ctx.user_messages
-        try:  # the same rule as a web search: nothing private leaves in the topic
-            check_query(topic, owner[:-1], owner[-1] if owner else "")
+        current = owner[-1] if owner else ""
+        if self.owner_words:
+            previous = owner[-2] if len(owner) > 1 else ""
+            if outside(topic, words(current) | words(previous) | TASK_WORDS):
+                raise _refused(OWN_WORDS, "not_owner_words")
+        try:  # the leak check, with the turn's earlier queries (searches too, W2)
+            check_query(topic, owner[:-1], current, ctx.queries)
         except QueryLeakError as e:
-            raise ToolError(str(e)) from None
+            raise _refused(str(e), "not_private") from None
+        ctx.queries.append(topic)
         found = self._get(
             f"https://{self.host}/w/rest.php/v1/search/page?" + urlencode({"q": topic, "limit": 1})
         )
@@ -114,7 +140,7 @@ class WikipediaLookup:
         pages = found.get("pages")
         page = pages[0] if isinstance(pages, list) and pages else None
         key = page.get("key") if isinstance(page, dict) else None
-        if not isinstance(key, str) or not key or len(key) > 300:
+        if not isinstance(key, str) or key in ("", ".", "..") or len(key) > 300:
             err = ToolError(NOTHING)
             err.asks = "nothing_found"
             raise err

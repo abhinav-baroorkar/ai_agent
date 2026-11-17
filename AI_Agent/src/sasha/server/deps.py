@@ -91,7 +91,8 @@ class ServerDeps:
             # Wikipedia beside the browser (owner's decision, 2026-11-16): the main
             # assistant's lookups, or a bot with the browser itself ("open_url" is its tool)
             if (helper is not None or "open_url" in tools) and WIKI_TOOL not in tools:
-                tools.register(wikipedia_tool(self.wikipedia()))
+                # the main assistant's topic: the owner's own words (review F1)
+                tools.register(wikipedia_tool(self.wikipedia(owner_words=helper is not None)))
         finally:
             building_for_bot.reset(token)
         if CLOCK_TOOL not in tools:  # every bot: read-only, so no guessed times
@@ -145,10 +146,11 @@ class ServerDeps:
             return None
         return connector, settings
 
-    def wikipedia(self) -> WikipediaLookup:
+    def wikipedia(self, owner_words: bool = False) -> WikipediaLookup:
         """In the assistant's default language (assistant.yaml), English for now."""
         language = self.settings.assistant.languages.default
-        return WikipediaLookup(language, self.settings.profile.wikipedia)
+        config = self.settings.profile.wikipedia
+        return WikipediaLookup(language, config, owner_words=owner_words)
 
     def connector_view(self, view: dict[str, Any]) -> dict[str, Any]:
         """The API's Connector, plus `browse` in the browser connector's `tools` while
