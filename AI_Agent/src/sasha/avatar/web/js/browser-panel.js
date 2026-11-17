@@ -62,11 +62,7 @@ export function initBrowserPanel(health) {
       return `${bot ? bot.name : 'This bot'} can’t use the web.`;
     }
     if (link.status === 'busy') return 'Another window is already watching the browser. Only one can watch at a time.';
-    if (link.status === 'refused') {
-      return HAS_TOKEN
-        ? 'The assistant refused this window’s request to watch the browser.'
-        : 'Open the window with “sasha window” (or reopen it) to watch the browser.';
-    }
+    if (link.status === 'refused') return refusedText(link.reason, HAS_TOKEN, health.assistant.name);
     if (link.status === 'offline') return 'Can’t reach the assistant. Trying again…';
     if (link.status !== 'open') return 'Connecting…';
     if (!state.enabled) return 'The browser is off. Turn it on in Settings.';
@@ -101,7 +97,8 @@ export function initBrowserPanel(health) {
     const text = failed || message();
     el.msg.textContent = text;
     el.msg.hidden = !text;
-    el.again.hidden = !(hasConnector && (link.status === 'busy' || link.status === 'refused'));
+    // "Try again" can't help a window whose token belongs to an earlier start: it must be reopened
+    el.again.hidden = !(hasConnector && (link.status === 'busy' || (link.status === 'refused' && link.reason !== 'token')));
 
     const tab = state.tabs.find((t) => t.current) || state.tabs[0];
     el.site.textContent = live && tab ? tab.site || '(no site)' : '';
@@ -200,15 +197,27 @@ export function initBrowserPanel(health) {
       if (shown) el.panel.focus();
     },
     // A failed lookup's Take over: open the panel and press its Take over.
+    // Returns why it can't, in words, when the brain refuses this window or can't be reached,
+    // so the card that was pressed can say so too (it would otherwise seem to do nothing).
     takeOver() {
       pinned = true;
       putAway = false;
       sync();
       el.panel.focus();
+      if (link.status !== 'open') return message(); // refused, or not connected: the panel's own true words
       takeover.start();
+      return '';
     },
     onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); },
   };
+}
+
+// What the panel says when the brain won't take this window. The name is the assistant's own
+// (from config, through the health check); nothing about it is written here.
+export function refusedText(reason, hasToken, name) {
+  if (reason === 'token' && hasToken) return `This window was opened for an earlier start of ${name}. Close it and open it again.`;
+  if (!hasToken) return 'Open the window with “sasha window” (or reopen it) to watch the browser.';
+  return 'The assistant refused this window’s request to watch the browser.';
 }
 
 // Whether the panel shows itself (without the owner's Browser button): while the browser

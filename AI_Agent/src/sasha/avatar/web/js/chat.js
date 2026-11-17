@@ -210,8 +210,13 @@ export class ChatView {
   takeOverOffer() {
     return h('div', { class: 'takeover-offer', role: 'group', 'aria-label': 'The search site wants to check you’re a person' },
       h('p', {}, 'The search site wants to check you’re a person. Take over the browser, solve the check yourself, hand it back, then ask again.'),
-      h('button', { class: 'btn small primary', type: 'button', 'aria-controls': 'browser-panel', onclick: () => this.browser.takeOver() },
-        icon('globe'), 'Take over the browser'));
+      h('button', { class: 'btn small primary', type: 'button', 'aria-controls': 'browser-panel', onclick: (ev) => {
+        const why = this.browser.takeOver(); // '' or the reason it can't, said here as well as in the panel
+        const card = ev.currentTarget.parentElement;
+        const note = card.querySelector('.takeover-why') || card.appendChild(h('p', { class: 'takeover-why', role: 'status' }));
+        note.textContent = why;
+        note.hidden = !why;
+      } }, icon('globe'), 'Take over the browser'));
   }
 
   // The bot's text gets its simple formatting (md.js builds nodes; nothing is parsed as HTML).
