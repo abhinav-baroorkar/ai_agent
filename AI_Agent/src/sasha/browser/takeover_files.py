@@ -24,6 +24,7 @@ from urllib.parse import urlsplit
 
 from sasha.browser.chrome import BACKGROUND_FEATURES_OFF, BACKGROUND_FLAGS
 from sasha.server.launch import ISOLATION_FLAGS
+from sasha.server.window_token import write_private
 
 CONFIG_FILES = ("Default/Preferences", "Default/Secure Preferences", "Local State")
 EXTENSION_DIRS = (
@@ -36,8 +37,12 @@ EXTENSION_DIRS = (
     "Default/Managed Extension Settings",
 )
 DOWNLOADS = "takeover-downloads"
+# The owner's window opens on this local page when a person check is waiting: it
+# forwards to the search that met the check, so the query never reaches a command line
+# (C2: /proc is readable by other users). 0600 in the 0700 profile; wiped at hand-back.
+CHECK_PAGE = "takeover-check.html"
 TAKEOVER_WIPE = (DOWNLOADS, "Default/Web Data", "Default/Web Data-journal",
-                 "Default/Login Data", "Default/Login Data-journal")  # fmt: skip
+                 "Default/Login Data", "Default/Login Data-journal", CHECK_PAGE)  # fmt: skip
 BLOCKED = ("media_stream_mic", "media_stream_camera", "geolocation", "notifications",
            "usb_guard", "serial_guard", "hid_guard", "midi_sysex", "clipboard",
            # review S1
@@ -58,6 +63,25 @@ def engine_home(search_template: str | None) -> str:
     if parts.scheme != "https" or not parts.hostname:
         return "about:blank"
     return f"https://{parts.hostname}/"
+
+
+def start_page(root: Path, search_template: str | None, blocked: str | None) -> str:
+    """What the owner's window opens (found live, 2026-11-16: it opened the engine's home
+    page, so the check he was asked to solve wasn't there). With a search that met a
+    person check on the engine's own https site: a private local page that forwards to
+    that search, where the engine shows its check again. Otherwise the home page (C2).
+    The address is the server's own (search_url), never a page's or the model's."""
+    home = engine_home(search_template)
+    if blocked is None or home == "about:blank":
+        return home
+    parts = urlsplit(blocked)
+    if parts.scheme != "https" or parts.hostname != urlsplit(home).hostname:
+        return home
+    html = (
+        "<!doctype html><meta charset=utf-8><title>Opening the check…</title>"
+        f"<script>location.replace({json.dumps(blocked)});</script>"
+    )
+    return write_private(root / CHECK_PAGE, html.encode()).as_uri()
 
 
 def visible_flags(profile: Path, proxy_port: int, home: str) -> list[str]:

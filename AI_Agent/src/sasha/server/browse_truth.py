@@ -9,6 +9,11 @@ it to use ("I couldn't check the web. From what I already know: ..."). Once a lo
 has failed, the rest of the reply is held (typed and spoken turns alike) so nothing
 that reads like a web result is shown or spoken first. A turn with a lookup that
 worked is left alone.
+
+A bot with the browser itself (the direct tools) gets the same for a person check:
+when its search met one and no browser step worked, the reply is the server's line,
+which says where Take over is for that bot (found live, 2026-11-16: the model reworded
+the tool's line and sent the owner to the wrong chat).
 """
 
 from __future__ import annotations
@@ -17,7 +22,8 @@ import re
 from typing import Any
 
 from sasha.browser.helper import BROWSE_TOOL
-from sasha.browser.pages import PERSON_CHECK
+from sasha.browser.pages import PERSON_CHECK, PERSON_CHECK_HERE
+from sasha.browser.tools import DIRECT_TOOLS
 from sasha.config_prompts import PromptLines
 
 
@@ -38,12 +44,13 @@ class BrowseTruth:
 
     def on_tool(self, name: str, ok: bool) -> None:
         """Called on the worker thread as each tool returns, before any later text."""
-        if name == BROWSE_TOOL and not ok:
+        if name in (BROWSE_TOOL, "search") and not ok:
             self.holding = True
 
-    def line(self, reason: str) -> str:
+    def line(self, reason: str, here: bool = False) -> str:
+        """`here`: the bot has the browser itself, so Take over is beside its chat."""
         if reason == "person_check":
-            return PERSON_CHECK
+            return PERSON_CHECK_HERE if here else PERSON_CHECK
         if reason == "nothing_found":
             return self.lines.web_nothing_found
         return self.lines.web_failed
@@ -57,11 +64,16 @@ class BrowseTruth:
         added (the timers' "Nothing was set.", memory's secret line) stay, after it.
         `model`: the model's text; `final`: what the checks before made of it."""
         calls = [c for c in tool_calls if c.get("name") == BROWSE_TOOL]
+        here = not calls
+        if here:  # the direct tools: only a person check is said by the server
+            calls = [c for c in tool_calls if c.get("name") in DIRECT_TOOLS]
+            if not any(c.get("asks") == "person_check" for c in calls):
+                return final
         if not calls or any(c.get("ok") for c in calls):
             return final
         reasons = [str(c.get("asks") or "") for c in calls]
         reason = "person_check" if "person_check" in reasons else reasons[-1]
-        line = self.line(reason)
+        line = self.line(reason, here)
         own = model.rstrip()
         if not final.startswith(own):  # a check replaced the model's text (a spoken
             return f"{line} {final}".strip()  # timer line, a secret): never bring it back

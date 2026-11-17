@@ -9,8 +9,9 @@ Modes: `assistant` (headless, normal), `waiting` (asked; a running turn is finis
 2. The headless Chrome stops (the usual history wipe runs). The configuration files are
    copied aside (C1) and the take-over preferences seeded; a failure refuses.
 3. A visible Chrome starts on the same marked profile, with no DevTools connection at
-   all, no extensions or sync, through its own guard proxy, on the search engine's home
-   page only (C2). The death-signal wrapper ends it with the brain.
+   all, no extensions or sync, through its own guard proxy. It opens the search that
+   met a person check, through a private local page so no query is on its command line,
+   or else the engine's home page (C2). The death-signal wrapper ends it with the brain.
 4. Hand-back: the window closes (by him, the button or the time limit). The process must
    be fully gone (`wait_until_free`); then the configuration is restored, extensions
    removed, the take-over files, the sites' storage (K1) and the usual history wiped.
@@ -50,9 +51,9 @@ from sasha.browser.takeover_cleanup import (
 )
 from sasha.browser.takeover_files import (
     TakeoverRefused,
-    engine_home,
     seed_takeover_preferences,
     snapshot_config,
+    start_page,
     visible_flags,
 )
 from sasha.listener.capture import with_death_signal
@@ -115,6 +116,9 @@ class TakeOver:
             "owner_until": until,
             "owner_refused": owner_refused,
             "restore_problem": self.restore_problem,
+            # a search met a person check and waits for him (yes or no, never the query):
+            # the panel keeps Take over in view even when the browser has stopped
+            "person_check": self.service.blocked_search() is not None,
         }
 
     def _set(self, mode: str) -> None:
@@ -183,7 +187,8 @@ class TakeOver:
         assert exe is not None
         self.proxy = self.service.proxy_factory()
         port = await self.proxy.start()
-        home = engine_home(self.search_template())
+        # the search that met the person check (found live: the home page alone lost it)
+        home = start_page(root, self.search_template(), self.service.blocked_search())
         argv, hook = with_death_signal([exe, *visible_flags(root, port, home)])
         self.process = await self.spawn(
             *argv,
@@ -244,6 +249,7 @@ class TakeOver:
         refused, the marker kept, and a retry every RETRY_S."""
         # C3 first, so it holds whatever happens next: only the engine's cookies
         self.service.keep_cookies_of = self.engine_site()
+        self.service.forget_blocked()  # he had his chance; a new check sets it again
         if self.proxy is not None:
             await self.proxy.stop()
             self.proxy = None

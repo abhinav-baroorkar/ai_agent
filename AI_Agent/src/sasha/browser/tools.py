@@ -19,9 +19,10 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import re
 import threading
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Any, TypeVar
 from urllib.parse import urlsplit
@@ -29,7 +30,16 @@ from urllib.parse import urlsplit
 from sasha.browser.backstop import LogOnlyBackstop
 from sasha.browser.leaks import QueryLeakError, check_query
 from sasha.browser.origin import SearchRefusedError, check_open_url, search_url
-from sasha.browser.pages import PERSON_CHECK, BrowserTabs, PageError, TabHook
+from sasha.browser.pages import (
+    NOT_RESULTS,
+    NOT_RESULTS_HERE,
+    PERSON_CHECK,
+    PERSON_CHECK_HERE,
+    BrowserTabs,
+    PageError,
+    TabHook,
+)
+from sasha.browser.redirects import site_of
 from sasha.browser.service import BrowserBusyError, BrowserService, BrowserStoppedError
 from sasha.browser.task_check import MAX_PAGE_WORDS, check_search_words
 from sasha.conversation import current_turn, on_turn_end
@@ -121,6 +131,7 @@ class BrowserConversation:
         if ctx.turn_id != self.turn_id:
             self.turn_id, self.steps, self.started = ctx.turn_id, 0, time.monotonic()
             self.queries = []
+            self.person_check = False  # per turn, as the helper clears it per lookup
             self.owner_stops = self.bridge.service.owner_stops
             # the turn holds the browser from its first step (acquire) until it ends
             on_turn_end(ctx.turn_id, self._release)
@@ -170,10 +181,7 @@ class BrowserConversation:
         owner = self._turn()
         verdict = check_open_url(str(url), owner)
         if not verdict.allowed or verdict.url is None:
-            raise ToolError(
-                "Only addresses the owner wrote in this conversation can be opened; "
-                "use search, or follow a numbered link on the current page"
-            )
+            raise ToolError(open_url_refusal(str(url), verdict.reason, owner))
         target = verdict.url
         return self._op(lambda tabs: tabs.navigate(target, new_tab=bool(new_tab)))
 
@@ -199,8 +207,17 @@ class BrowserConversation:
         try:
             return self._op(lambda tabs: tabs.search_results(target))
         except ToolError as e:
+            # The direct tools' bot has the panel beside its own chat; the helper's
+            # main assistant keeps the line that leads to its chat (pages.py).
+            here = self.helper_task is None
             if str(e) == PERSON_CHECK:
                 self.person_check = True  # the helper then says so plainly
+                self.bridge.service.person_check_met(target)  # take-over opens it
+                err = ToolError(PERSON_CHECK_HERE if here else PERSON_CHECK)
+                err.asks = "person_check"  # a reason label for the server's line
+                raise err from None
+            if str(e) == NOT_RESULTS and here:
+                raise ToolError(NOT_RESULTS_HERE) from None
             raise
 
     def read_page(self, part: int = 1) -> dict[str, Any]:
@@ -227,6 +244,33 @@ class BrowserConversation:
     def switch_tab(self, number: int) -> dict[str, Any]:
         self._turn()
         return self._op(lambda tabs: tabs.switch(int(number)))
+
+
+# The direct tools' names (the browser connector), for the server's own lines.
+DIRECT_TOOLS = (
+    "search", "open_url", "read_page", "click", "scroll", "back", "list_tabs", "switch_tab"
+)  # fmt: skip
+OWN_ADDRESSES = "only web addresses the owner wrote in this conversation can be opened"
+
+
+def open_url_refusal(url: str, reason: str, owner: Sequence[str]) -> str:
+    """Why open_url said no, in plain words (found live, 2026-11-16: "Search for India
+    on Wikipedia" named a site but held no address, and the refusal didn't say so)."""
+    if reason == "not_a_web_address":
+        return "That isn't a web address. Use search instead."
+    host = urlsplit(url if "//" in url else f"//{url}").hostname or ""
+    name = site_of(host).split(".")[0] if host else ""
+    said = {w.lower() for m in owner for w in re.findall(r"[\w-]+", m)}
+    if name and name.lower() in said:
+        return (
+            f"The owner named {name} but didn't write its address, and {OWN_ADDRESSES}. "
+            "Use search instead (the site's name can be part of the query), or ask the "
+            "owner for the address."
+        )
+    return (
+        f"Not opened: {OWN_ADDRESSES}, and this one isn't one of them. Use search, or "
+        "follow a numbered link on the current page."
+    )
 
 
 def _obj(props: dict[str, Any], required: list[str] | None = None) -> dict[str, Any]:

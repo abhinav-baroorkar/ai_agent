@@ -35,6 +35,14 @@ NOT_RESULTS = (
     "No results came back. If this keeps happening, the search site may want to check "
     f"you're a person: {WHERE_TAKE_OVER}"
 )
+# A bot with the browser itself (connector `browser`) has the panel beside its own chat
+# (found live, 2026-11-16: its line sent the owner to the main assistant's chat).
+WHERE_HERE = "press Take over in the browser panel beside this chat and solve it once."
+PERSON_CHECK_HERE = f"The search site wants to check you're a person: {WHERE_HERE}"
+NOT_RESULTS_HERE = (
+    "No results came back. If this keeps happening, the search site may want to check "
+    f"you're a person: {WHERE_HERE}"
+)
 # Words a person check uses (DuckDuckGo: "bots use DuckDuckGo too ... confirm this
 # search was made by a human"); matched on the page only by the server, never shown.
 _ASKS_FOR_A_PERSON = re.compile(

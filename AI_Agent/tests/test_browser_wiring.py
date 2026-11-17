@@ -158,7 +158,7 @@ def test_open_url_navigates_only_to_the_rebuilt_owner_address(conv: BrowserConve
     token = _in_turn(("read example.org/news and summarise",))
     try:
         conv.open_url("https://example.org/news#steer-me")
-        with pytest.raises(ToolError, match="Only addresses the owner wrote"):
+        with pytest.raises(ToolError, match="only web addresses the owner wrote"):
             conv.open_url("https://evil.example/steal")
     finally:
         current_turn.reset(token)
