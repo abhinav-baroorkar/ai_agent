@@ -8,18 +8,16 @@ Order per segment (design sections 2 to 5):
    never logged, never in telemetry, never sent to the LLM or the client (only
    `wake{heard:false}`). "Dropped" is structural: this path calls the Assistant only
    through `_turn`, and only with a hit's command.
-Telemetry gets one line per check with labels and timings, never text.
+Telemetry gets one line per check with labels and timings, never text. Segments,
+the armed window and the telemetry lines are in server/wake_segment.py.
 """
 
 from __future__ import annotations
 
 import asyncio
-import functools
 import json
 import logging
-import time
 from collections.abc import Callable
-from datetime import datetime, timezone
 from typing import Any
 
 from starlette.websockets import WebSocket
@@ -27,7 +25,6 @@ from starlette.websockets import WebSocket
 from sasha.config import ReplyLines, WakeConfig
 from sasha.conversation import current_turn
 from sasha.orchestrator import Assistant, Reply
-from sasha.pipeline.stt import Transcript
 from sasha.server.speaking import ListenerPresence
 from sasha.server.speech import Speaker
 from sasha.server.timers.hub import Hub
@@ -37,12 +34,12 @@ from sasha.server.voice import MIC_SAMPLE_RATE, VoiceStages
 from sasha.server.wake import WakeGate
 from sasha.server.wake_confirm import ConfirmFlow, PlaybackClock
 from sasha.server.wake_policy import RateLimiter, WakeToolPolicy
+from sasha.server.wake_segment import BYTES_PER_S, WakeSegments
 from sasha.server.wake_truth import TruthfulReply
-from sasha.server.ws import Conversation, Frame
+from sasha.server.ws import Frame
 from sasha.telemetry import TelemetryWriter
 
 log = logging.getLogger(__name__)
-BYTES_PER_S = MIC_SAMPLE_RATE * 2
 RELOAD_MS = 1000.0  # an LLM stage with load_ms above this means Ollama reloaded the model
 
 
@@ -51,7 +48,7 @@ def _reloaded(reply: Reply) -> bool:
     return any(float(s.get("meta", {}).get("load_ms") or 0) > RELOAD_MS for s in stages)
 
 
-class ListenerConversation(Conversation):
+class ListenerConversation(WakeSegments):
     """Opened by server/wake_open.py (`open_listener`)."""
 
     def __init__(
@@ -251,143 +248,3 @@ class ListenerConversation(Conversation):
             self._miss(reason, len(audio))
             return
         self._start(self._segment(audio))
-
-    def _drop_reason(self, own_segment: bool = False) -> str | None:
-        """`own_segment`: asked from inside a segment's task, which is the busy one."""
-        if self.paused:
-            return "dropped_paused"
-        if self.busy and not own_segment:
-            return "dropped_busy"
-        if self.voice.speaking.speaking():
-            return "dropped_speaking"
-        if self.voice.speaking.in_cooldown():
-            return "cooldown_drop"
-        return None
-
-    # --- one segment -------------------------------------------------------------------
-    async def _segment(self, audio: bytes, stop_for: str | None = None) -> None:
-        assert self.stt is not None
-        queued = time.perf_counter()
-        segment_bytes = len(audio)
-        # The phrase as a hint, without which a short phrase comes out as anything. Not on
-        # the armed follow-up (the command after the phrase alone): there the hint could
-        # write the phrase into the command (review H1).
-        hotwords = None if self.gate.armed else self.gate.matcher.phrase
-        try:
-            async with self.voice.stt_lock:  # waits while another socket transcribes
-                started = time.perf_counter()
-                heard = await asyncio.to_thread(
-                    functools.partial(self.stt.transcribe, hotwords=hotwords),
-                    audio,
-                    MIC_SAMPLE_RATE,
-                )
-        except Exception as exc:
-            log.error("Speech recognition failed: %s", type(exc).__name__)
-            self._miss("stt_error", segment_bytes)
-            return
-        finally:
-            del audio
-        done = time.perf_counter()
-        window = self.stop_window
-        if stop_for is not None and window is not None:
-            if window.judge(stop_for, heard):
-                return  # a stop word in the stop window: handled, the text dropped
-            if reason := self._drop_reason(own_segment=True):  # T7: as any other segment
-                self._miss(reason, segment_bytes)
-                return
-        stt_times = {
-            "stt_ms": round((done - started) * 1000, 1),  # decoding only
-            "stt_wait_ms": round((started - queued) * 1000, 1),  # queued behind others
-        }
-        await self._decide(heard, segment_bytes, stt_times)
-
-    async def _decide(
-        self, heard: Transcript, segment_bytes: int, stt_times: dict[str, float]
-    ) -> None:
-        assert self.stt is not None
-        decision = self.gate.decide(heard.text, heard.confidence)
-        language = heard.language or self.language
-        confidence = heard.confidence
-        del heard  # the transcript lives no longer than this decision
-        timings: dict[str, Any] = {
-            **stt_times,
-            "stt_device": self.stt.model_version(),
-            "variant": decision.variant,
-            # numbers only, never the text: how sure the decoder was, and the bar
-            "confidence": None if confidence is None else round(confidence, 3),
-            "min_confidence": self.gate.min_confidence,
-        }
-        if not decision.heard:
-            self._miss(decision.outcome, segment_bytes, timings)
-            return
-        if decision.armed:
-            self.emit(
-                {
-                    "type": "wake",
-                    "heard": True,
-                    "command": False,
-                    "armed_s": self.config.armed_window_s,
-                }
-            )
-            self._arm()
-            self._check(decision.outcome, segment_bytes, timings)
-            return
-        self._disarm()
-        command = decision.command or ""
-        self.emit({"type": "wake", "heard": True, "command": True})
-        self._check(decision.outcome, segment_bytes, timings)
-        self.emit({"type": "transcript", "text": command, "final": True})
-        self.policy.begin_turn()
-        self.turn_language = language
-        await self._turn(command, language, "wake")
-
-    def _miss(self, outcome: str, segment_bytes: int, extra: dict[str, Any] | None = None) -> None:
-        # `reason` is the outcome label only (never text), so the listener can say why
-        self.emit({"type": "wake", "heard": False, "command": False, "reason": outcome})
-        self._check(outcome, segment_bytes, extra or {})
-
-    # --- armed window ---------------------------------------------------------------------
-    def _arm(self) -> None:
-        if self.armed_timer is not None:
-            self.armed_timer.cancel()
-        self.armed_timer = self.loop.call_later(self.config.armed_window_s + 0.05, self._expire)
-
-    def _disarm(self) -> None:
-        if self.armed_timer is not None:
-            self.armed_timer.cancel()
-            self.armed_timer = None
-        self.gate.disarm()
-
-    def _expire(self) -> None:
-        self.armed_timer = None
-        if self.gate.expired():
-            self.audio = None  # an expired window drops what was being sent, like a miss
-            self.emit({"type": "armed_expired"})
-            self._check("followup_expired", 0, {})
-
-    # --- telemetry (labels and numbers only) ---------------------------------------------
-    def _check(self, outcome: str, segment_bytes: int, extra: dict[str, Any]) -> None:
-        self._write(
-            {
-                "kind": "wake_check",
-                "outcome": outcome,
-                "segment_ms": round(segment_bytes / BYTES_PER_S * 1000),
-                **extra,
-            }
-        )
-
-    def record_tool(self, decision: str) -> None:
-        self._write({"kind": "wake_tool", "decision": decision})
-
-    def _write(self, record: dict[str, Any]) -> None:
-        if not self.telemetry.enabled:
-            return
-        base = {
-            "schema": 1,
-            "started_at": datetime.now(timezone.utc).isoformat(),
-            "profile": self.telemetry.profile,
-        }
-        try:
-            self.telemetry.write({**base, **record})
-        except OSError as exc:
-            log.warning("Wake telemetry not written: %s", type(exc).__name__)

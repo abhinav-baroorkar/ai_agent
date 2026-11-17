@@ -24,6 +24,7 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+from sasha.app import exit_note
 from sasha.config import Settings
 
 START_CHECK_S = 10.0
@@ -49,6 +50,21 @@ def open_log(settings: Settings) -> int:
     fd = os.open(path, flags, 0o600)
     os.fchmod(fd, 0o600)
     return fd
+
+
+def note(settings: Settings, text: str) -> None:
+    """One line of our own (never a subprocess's output) at the end of the start log."""
+    path = log_path(settings)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | os.O_NOFOLLOW
+    try:
+        fd = os.open(path, flags, 0o600)
+    except OSError:
+        return
+    try:
+        os.write(fd, f"[launcher] {text}\n".encode())
+    finally:
+        os.close(fd)
 
 
 def quiet_stderr(fd: int = 2) -> None:
@@ -97,6 +113,14 @@ def failure_reason(text: str) -> str:
         return "it couldn't reach the screen"
     if "no module named" in low:
         return "a part of the app extra is missing; run `uv sync --extra app`"
+    if "fatal python error" in low:  # faulthandler (app/exit_note.py)
+        return f"it crashed; the details are in Data/logs/{LOG_NAME}"
+    if "systemd-run could not" in low:
+        return "systemd couldn't start the window unit"
+    if f"{exit_note.STOPPED} sig" in low:
+        return "something stopped it with a signal"
+    if exit_note.CLOSED in low:
+        return "the window was closed as it opened"
     return "it stopped as soon as it started"
 
 

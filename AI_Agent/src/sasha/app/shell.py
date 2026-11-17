@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from sasha.app import policy
+from sasha.app.exit_note import HANDOVER, ExitNotes
 from sasha.app.single import NoRuntimeDir, notify, socket_path
 from sasha.app.token_watch import WATCH_MS, TokenWatch
 from sasha.app.waiting import BrainWait, brain_up
@@ -305,12 +306,15 @@ def main(argv: list[str] | None = None) -> int:
     a = p.parse_args(argv)
     from sasha.app.single import SingleInstance
 
+    notes = ExitNotes()  # every way out leaves a line in the start log (app/exit_note.py)
+    notes.catch_crashes()
     try:
         single = SingleInstance(socket_path())
     except NoRuntimeDir as exc:  # never a socket in a shared folder such as /tmp
         print(f"[refused] {exc}", file=sys.stderr)
         return 2
     if single.hand_over("wake" if a.wake else "raise"):
+        notes.write(HANDOVER)
         return 0  # the window is already open: it raised itself
     harden_environment(os.environ, a.dead_proxy, a.port)
     from PySide6.QtWidgets import QApplication
@@ -318,6 +322,7 @@ def main(argv: list[str] | None = None) -> int:
     app = QApplication(sys.argv[:1])
     app.setApplicationName("assistant-window")  # the window class, for the menu entry
     app.setDesktopFileName("assistant-window")
+    notes.watch(app)
     attach = a.wait_for_brain is not None
     waiting = a.starting_notice if attach else None
 
@@ -350,7 +355,19 @@ def main(argv: list[str] | None = None) -> int:
         bring_up(app, shell, True, a.notice)
     code = int(app.exec())
     single.close()
+    tear_down(shell)
+    notes.ended(code)
     return code
+
+
+def tear_down(shell: Shell) -> None:
+    """The window, then the page, then its profile. Left to Python's exit, the profile
+    went first and the shell segfaulted after a clean quit (libQt6Quick, 2026-11-16)."""
+    import shiboken6
+
+    for obj in (shell.window, shell.page, shell.profile):
+        if obj is not None and shiboken6.isValid(obj):
+            shiboken6.delete(obj)
 
 
 if __name__ == "__main__":

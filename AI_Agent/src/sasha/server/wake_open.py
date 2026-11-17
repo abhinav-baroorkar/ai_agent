@@ -45,7 +45,14 @@ async def open_listener(
         voice,
         language=settings.assistant.languages.default,
         config=config,
-        gate=WakeGate(matcher, config.armed_window_s, config.min_confidence),
+        gate=WakeGate(
+            matcher,
+            config.armed_window_s,
+            config.min_confidence,
+            min_command_confidence=config.min_command_confidence,
+            sure_command_confidence=config.sure_command_confidence,
+            recheck_from_s=config.recheck_from_s,
+        ),
         limiter=deps.wake_limiter,
         # Checked on every call: the opt-in, and truthful replies still on (the gate).
         device_control=lambda: (

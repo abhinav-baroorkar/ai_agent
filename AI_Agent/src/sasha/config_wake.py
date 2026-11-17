@@ -98,6 +98,17 @@ class WakeConfig(BaseModel):
     max_segment_s: float = Field(default=8.0, gt=0, le=30)
     # Phrase alone: correct ones score 0.45-0.60 (synthetic, 2026-11-16); reset from telemetry.
     min_confidence: float = Field(default=0.35, ge=0, le=1)
+    # "Phrase, command" needs evidence the phrase was said (false wakes, 2026-11-16, at
+    # 0.26-0.46 on 5.4-7.5 s segments; bench/wake_false_accepts.py): refused below the
+    # first bar; below the second, a segment of recheck_from_s or longer is decoded again
+    # without the hint (opening words only) and must still have a word of the phrase, or
+    # one of its word_variants, among its first two words. With a one-word phrase that
+    # word is the name, which the decoder may not write without the hint: such a wake is
+    # then refused. Real wakes with a command: 0.38-0.78 (synthetic, room included); the
+    # owner's own commands score 0.44-0.73 and run 3-5.5 s. Reset from telemetry.
+    min_command_confidence: float = Field(default=0.35, ge=0, le=1)
+    sure_command_confidence: float = Field(default=0.55, ge=0, le=1)
+    recheck_from_s: float = Field(default=4.0, ge=0, le=30)
     max_entities_per_turn: int = Field(default=3, ge=1, le=50)  # more needs a spoken yes
     max_calls_per_minute: int = Field(default=6, ge=1, le=60)  # device changes, brain-wide
     volume_cap: float = Field(default=0.6, ge=0, le=1)
