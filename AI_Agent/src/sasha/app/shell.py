@@ -186,6 +186,8 @@ def build(
     def loaded(ok: bool) -> None:
         if not ok:  # e.g. a refused navigation: the page we have is still there
             return
+        if page.url().toString() == "about:blank":  # a token reload's step: not the page
+            return
         shell.loaded = True
         if shell.pending_wake:
             shell.pending_wake = False
@@ -272,19 +274,31 @@ def _quiet_after_start() -> None:
 
 
 def reload_on_new_token(shell: Shell, watch: TokenWatch, url: Callable[[str], str]) -> None:
-    """Every WATCH_MS: if the brain has a new token, load the page again with it."""
+    """Every WATCH_MS: if the brain has a new token, open the page again with it.
+
+    Found live (2026-11-16): loading `/#t=<new>` over the open page only changed its
+    fragment, a same-document navigation, so the page's script (api.js reads the token
+    once, at start) never ran again and every /ws/browser was refused. So the page goes
+    to about:blank first, and the address with the new token is a new document."""
     from PySide6.QtCore import QTimer, QUrl
 
     timer = QTimer(shell.window)
     timer.setInterval(WATCH_MS)
+    waiting: list[str] = []  # the address to open once about:blank has loaded
+
+    def blank_loaded(ok: bool) -> None:
+        if waiting and shell.page.url().toString() == "about:blank":
+            shell.page.load(QUrl(waiting.pop()))
 
     def tick() -> None:
         if shell.stack is not None and shell.stack.currentIndex() == 0:
             return  # --attach still waiting: it reads the token when the brain answers
         new = watch.check()
         if new is not None:
-            shell.page.load(QUrl(url(new)))
+            waiting[:] = [url(new)]  # the newest token wins
+            shell.page.load(QUrl("about:blank"))
 
+    shell.page.loadFinished.connect(blank_loaded)
     timer.timeout.connect(tick)
     timer.start()
 
