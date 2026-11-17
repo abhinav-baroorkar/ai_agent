@@ -67,4 +67,6 @@ app.exec()
     line = next((x for x in done.stdout.splitlines() if x.startswith("RESULT ")), None)
     assert line, done.stderr[-2000:]
     r = json.loads(line[len("RESULT ") :])
-    assert r["loads"] == ["http://127.0.0.1:9/#t=" + "b" * 64]  # once, with the new token
+    # once, with the new token, as a new document (about:blank first: review of the live
+    # 403s, a fragment-only load kept the page's old token)
+    assert r["loads"] == ["about:blank", "http://127.0.0.1:9/#t=" + "b" * 64]
