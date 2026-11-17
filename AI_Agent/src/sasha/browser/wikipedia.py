@@ -37,10 +37,20 @@ TITLE_CHARS = 200
 _LANGUAGE = re.compile(r"^[a-z]{2,3}(-[a-z]{2,8})?$")
 _TAGS = re.compile(r"<[^>]*>")
 FAILED = "Wikipedia couldn't be reached just now."
+NOT_SET_UP = (
+    "Wikipedia lookups aren't set up: the owner hasn't chosen how this assistant names "
+    "itself to Wikipedia (profile setting wikipedia.user_agent)."
+)
+_CONTACT = re.compile(r"https?://[^\s()]+\.[^\s()]+|[^\s()@]+@[^\s()@]+\.[^\s()@]+")
 NOTHING = "Nothing on Wikipedia matched that."
 
 # GET url with headers and a timeout -> (HTTP status, decoded JSON or None)
 Fetch = Callable[[str, dict[str, str], float], tuple[int, Any]]
+
+
+def has_contact(user_agent: str) -> bool:
+    """Wikimedia's policy: an agent names a way to reach its maker (a URL or an email)."""
+    return bool(_CONTACT.search(user_agent or ""))
 
 
 def http_get(url: str, headers: dict[str, str], timeout: float) -> tuple[int, Any]:
@@ -77,6 +87,10 @@ class WikipediaLookup:
         return data if status == 200 and isinstance(data, dict) else None
 
     def lookup(self, topic: str) -> dict[str, Any]:
+        if not has_contact(self.config.user_agent):  # nothing is sent (the owner's call)
+            err = ToolError(NOT_SET_UP)
+            err.asks = "not_set_up"
+            raise err
         topic = " ".join(str(topic).split())[:MAX_TOPIC]
         ctx = current_turn.get()
         if ctx is None:

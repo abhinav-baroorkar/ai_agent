@@ -91,6 +91,10 @@ class PromptLines(BaseModel):
     web_unchecked: str = "I couldn't check the web. From what I already know:"
     wiki_nothing_found: str = "I couldn't find that on Wikipedia."
     wiki_failed: str = "I couldn't reach Wikipedia just now."
+    wiki_not_set_up: str = (
+        "I can't look things up on Wikipedia yet: how I name myself to Wikipedia "
+        "hasn't been chosen in my settings."
+    )
     # A message with one of these asks for a lookup: the reply is held from the start
     # (browse_truth.py, review BT2), so nothing is said before the web has been checked.
     lookup_words: list[str] = Field(

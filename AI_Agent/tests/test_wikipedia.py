@@ -194,3 +194,38 @@ def test_one_real_lookup() -> None:
         current_turn.reset(token)
     assert out["url"].startswith("https://en.wikipedia.org/wiki/")
     assert "Python" in out["title"] and len(out["extract"]) > 50
+
+
+@pytest.mark.parametrize("agent", ["", "   ", "ai_agent-lookup-bot/0.1", "bot (no contact here)"])
+def test_no_contact_means_no_request_and_a_plain_line(agent: str, settings: Settings) -> None:
+    """The owner's call is open (2026-11-16): an empty or contact-less User-Agent sends
+    nothing at all, and the server says why (in text and aloud: the reply is its line)."""
+    http = FakeHTTP()
+    token = current_turn.set(new_turn(("Search for India on Wikipedia",), "text"))
+    try:
+        with pytest.raises(ToolError) as caught:
+            WikipediaLookup("en", WikipediaConfig(user_agent=agent), http).lookup("India")
+    finally:
+        current_turn.reset(token)
+    assert caught.value.asks == "not_set_up" and not http.calls
+    lines = prompt_lines(settings)
+    calls = [{"name": WIKI_TOOL, "ok": False, "asks": "not_set_up"}]
+    assert BrowseTruth(lines, "on Wikipedia").finish("India is…", calls)[0] == lines.wiki_not_set_up
+
+
+@pytest.mark.parametrize(
+    "agent",
+    [
+        f"ai_agent-lookup-bot/0.1 ({REPO_URL})",  # (a) the repo
+        "ai_agent-lookup-bot/0.1 (https://example.org/assistant)",  # (b) another URL
+        "ai_agent-lookup-bot/0.1 (someone@example.org)",  # an email also counts
+    ],
+)
+def test_either_answer_is_config_only(agent: str) -> None:
+    http = FakeHTTP((200, SEARCH), (200, SUMMARY))
+    token = current_turn.set(new_turn(("Search for India on Wikipedia",), "text"))
+    try:
+        WikipediaLookup("en", WikipediaConfig(user_agent=agent), http).lookup("India")
+    finally:
+        current_turn.reset(token)
+    assert all(headers["User-Agent"] == agent for _, headers, _ in http.calls)

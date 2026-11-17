@@ -14,6 +14,9 @@ REPO_URL = "https://github.com/abhinav-baroorkar/ai_agent"
 
 
 class WikipediaConfig(BaseModel):
+    # The owner's choice (2026-11-16, open): this URL, another one without his name, or
+    # empty. Empty, or without a contact (a URL or an email), means no lookup at all:
+    # the tool refuses rather than send an agent Wikimedia may block (browser/wikipedia.py).
     user_agent: str = f"ai_agent-lookup-bot/0.1 ({REPO_URL})"
     timeout_s: float = Field(default=6.0, gt=0, le=30)  # each of the two requests
     extract_chars: int = Field(default=1200, ge=100, le=4000)
