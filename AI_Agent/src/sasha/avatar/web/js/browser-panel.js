@@ -73,6 +73,7 @@ export function initBrowserPanel(health) {
     if (state.mode === 'owner') return 'The browser is in its own window on your screen. Nothing of it is shown here.';
     if (state.mode === 'switching') return 'Opening the browser in its own window…';
     if (state.mode === 'restoring') return 'Cleaning up after your window…';
+    if (!state.running && state.person_check) return 'The search site wants to check you’re a person. Press Take over above to solve it in your own window.';
     if (!state.running) return [lastStop, WAITING].filter(Boolean).join(' ');
     return el.img.hidden ? 'Waiting for the first picture…' : '';
   }
@@ -80,10 +81,8 @@ export function initBrowserPanel(health) {
   function render() {
     // The panel is there only while this bot's browser is: running, just stopped, or
     // when the owner needs telling why it can't be watched.
-    const takingOver = link.status === 'open' && state.mode && state.mode !== 'assistant';
-    if (takingOver) putAway = false; // his window is open or closing: the panel always says so
-    const auto = link.status === 'busy' || link.status === 'refused' ||
-      (link.status === 'open' && (state.running || takingOver || performance.now() < stopNoteUntil));
+    if (link.status === 'open' && state.mode && state.mode !== 'assistant') putAway = false; // his window: always said
+    const auto = showsByItself(link.status, state, performance.now() < stopNoteUntil);
     const wanted = open && hasConnector && !putAway && (pinned || auto);
     shown = wanted;
     for (const fn of listeners) fn({ botId: bot && bot.id, canBrowse: open && hasConnector, shown });
@@ -210,6 +209,17 @@ export function initBrowserPanel(health) {
     },
     onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); },
   };
+}
+
+// Whether the panel shows itself (without the owner's Browser button): while the browser
+// runs, during a take-over, just after a stop, when watching was refused or busy, and while
+// a search's person check waits for him (person_check), so the server's line "Take over in
+// the browser panel beside this chat" stays true after the browser has stopped.
+export function showsByItself(linkStatus, state, justStopped) {
+  if (linkStatus === 'busy' || linkStatus === 'refused') return true;
+  if (linkStatus !== 'open') return false;
+  const takingOver = !!state.mode && state.mode !== 'assistant';
+  return state.running || takingOver || state.person_check || justStopped;
 }
 
 // "3 addresses refused" and friends: the safety net, in one quiet line.

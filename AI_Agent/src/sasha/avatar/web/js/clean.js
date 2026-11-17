@@ -73,14 +73,18 @@ export function cleanBrowserState(b) {
     mode: MODES.includes(s.mode) ? s.mode : null, owner_until: Number.isFinite(until) ? until : 0, owner_refused: ownerRefused,
     // `restoring`: why the clean-up after his window keeps failing (after 3 tries), in plain words
     restore_problem: typeof s.restore_problem === 'string' ? s.restore_problem.slice(0, 200) : '',
+    // a search met the person check and waits for him (cleared by the server: a search that
+    // works, or a take-over whose window came up); a yes/no only
+    person_check: s.person_check === true,
   };
 }
 
-// A reply's own tool_calls ([{name, ok}], sent by the server with the reply) decide whether
-// its lookup failed: a web tool failed and none worked. Nothing carries over between turns.
-export function failedLookup(calls, isWebTool) {
+// A reply's own tool_calls ([{name, ok, asks?}], sent by the server with the reply) decide
+// whether its lookup met the search site's person check: a web tool failed with the fixed
+// label asks === "person_check" and none worked. Never from text; nothing carries over.
+export function metPersonCheck(calls, isWebTool) {
   const web = (Array.isArray(calls) ? calls : []).filter((c) => c && typeof c === 'object' && isWebTool(str(c.name)));
-  return web.some((c) => c.ok === false) && !web.some((c) => c.ok === true);
+  return web.some((c) => c.ok === false && c.asks === 'person_check') && !web.some((c) => c.ok === true);
 }
 
 // reply.sites (v0.5.1): the hostnames a web lookup really used, joined for one line of

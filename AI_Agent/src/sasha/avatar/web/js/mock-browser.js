@@ -24,7 +24,7 @@ const PAGES = [
 ];
 const state = {
   enabled: mode !== 'off', running: false, agent: 'idle', holder: null, holder_bot: null, tabs: [],
-  mode: 'assistant', owner_until: null, owner_refused: {}, restore_problem: null,
+  mode: 'assistant', owner_until: null, owner_refused: {}, restore_problem: null, person_check: false,
   guard: { allowed: 0, refused: {}, background_refused: 0 },
 };
 let current = 0;
@@ -62,8 +62,15 @@ function takeover(action, fail) {
   return { ok: true };
 }
 
+// A search met the person check (the mock's "search ..." turn); his window coming up, or a
+// search that works, forgets it, as on the server.
+export function personCheckMet() {
+  state.person_check = true;
+  changed();
+}
+
 function ownerDrives() {
-  Object.assign(state, { mode: 'owner', owner_until: new Date(Date.now() + 15 * 60000).toISOString(), owner_refused: { private_network: 1 }, tabs: [] });
+  Object.assign(state, { person_check: false, mode: 'owner', owner_until: new Date(Date.now() + 15 * 60000).toISOString(), owner_refused: { private_network: 1 }, tabs: [] });
   changed();
   clearTimeout(ownerTimer);
   ownerTimer = setTimeout(handBack, 15 * 60000);
@@ -133,7 +140,7 @@ export function use(helper = false) {
   if (!state.enabled || mode === 'busy' || state.mode === 'restoring') return; // bots are refused while it cleans up
   clearTimeout(stopTimer);
   const holder_bot = helper ? { id: 'main', name: assistantName(), via: 'helper' } : { id: 'b-web', name: 'Web researcher', via: 'direct' };
-  Object.assign(state, { running: true, agent: 'working', holder: 'conversation-1', holder_bot, tabs: tabs() });
+  Object.assign(state, { running: true, agent: 'working', holder: 'conversation-1', holder_bot, tabs: tabs(), person_check: false });
   state.guard.allowed += 7;
   state.guard.refused = { private_network: 2, not_https: 1 };
   state.guard.background_refused += 4;
