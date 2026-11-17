@@ -371,8 +371,11 @@ Wikimedia's own public API (no key, no account, no person check).
   the language is assistant.yaml's default (`en`). That's two GETs in series: the
   wiki's REST search, then the page summary. The topic passes the same leak check as
   a web search.
-- **User-Agent:** `profile.wikipedia.user_agent`, the project's public repo URL, no
-  email.
+- **User-Agent:** `profile.wikipedia.user_agent`, **empty by default**. It's sent with
+  every lookup, so the owner chooses it himself. Wikimedia's policy asks for a program
+  name, "bot" and a web address or email. While it's empty or has no contact, nothing
+  is sent: the tool fails with `asks:"not_set_up"`, and the reply is the server's line
+  ("I can't look things up on Wikipedia yet: …").
 - **Result:** title, a short extract (at most 1200 characters) and the page address,
   all untrusted data.
 

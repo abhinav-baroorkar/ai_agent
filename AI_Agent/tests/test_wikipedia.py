@@ -23,7 +23,7 @@ from sasha.browser.wikipedia import (
     wikipedia_tool,
 )
 from sasha.config import Settings
-from sasha.config_wikipedia import REPO_URL, WikipediaConfig
+from sasha.config_wikipedia import WikipediaConfig
 from sasha.conversation import current_turn, new_turn
 from sasha.orchestrator import Assistant
 from sasha.pipeline.llm import ToolCall
@@ -34,6 +34,9 @@ from sasha.tools import ToolError, ToolRegistry
 from tests.server_fakes import FakeLLM, resp
 from tests.test_browse_taint import harness  # noqa: F401  (the fixture)
 
+# A made-up agent for the tests (the real default is empty: the owner's choice).
+AGENT = "test-lookup-bot/0.1 (https://example.org/test-assistant)"
+SET_UP = WikipediaConfig(user_agent=AGENT)
 SEARCH = {
     "pages": [
         {
@@ -65,7 +68,7 @@ def look(http: FakeHTTP, topic: str = "India", said: str = "Search for India on 
          mode: str = "text") -> dict[str, Any]:  # fmt: skip
     token = current_turn.set(new_turn((said,), mode))
     try:
-        return WikipediaLookup("en", WikipediaConfig(), http).lookup(topic)
+        return WikipediaLookup("en", SET_UP, http).lookup(topic)
     finally:
         current_turn.reset(token)
 
@@ -83,7 +86,7 @@ def test_two_server_built_requests_and_an_untrusted_result() -> None:
     assert parse_qs(parts.query) == {"q": ["India history"], "limit": ["1"]}
     assert summary[0] == "https://en.wikipedia.org/api/rest_v1/page/summary/India"
     ua = search[1]["User-Agent"]
-    assert "bot" in ua and REPO_URL in ua and "@" not in ua  # policy: contact, no email
+    assert ua == AGENT  # exactly the configured agent
     assert search[2] == WikipediaConfig().timeout_s
     assert out["site"] == "en.wikipedia.org" and out["title"] == "India"
     assert (
@@ -129,15 +132,15 @@ def test_the_browsers_rules_apply() -> None:
     with pytest.raises(ToolError, match="wake-word"):
         look(FakeHTTP(), mode="wake")
     with pytest.raises(ToolError, match="conversation"):
-        WikipediaLookup("en", WikipediaConfig(), FakeHTTP()).lookup("India")
+        WikipediaLookup("en", SET_UP, FakeHTTP()).lookup("India")
     with pytest.raises(ValueError):
         WikipediaLookup("en.evil.example/", WikipediaConfig())
-    tool = wikipedia_tool(WikipediaLookup("en", WikipediaConfig(), FakeHTTP()))
+    tool = wikipedia_tool(WikipediaLookup("en", SET_UP, FakeHTTP()))
     assert tool.read_only and tool.taints  # outside text: the change guard applies after it
 
 
 def test_the_site_is_named_and_the_result_is_wrapped(settings: Settings, tmp_path: Path) -> None:
-    lookup = WikipediaLookup("en", WikipediaConfig(), FakeHTTP((200, SEARCH), (200, SUMMARY)))
+    lookup = WikipediaLookup("en", SET_UP, FakeHTTP((200, SEARCH), (200, SUMMARY)))
     llm = FakeLLM("main")
     llm.responses = [resp(calls=[ToolCall(WIKI_TOOL, {"topic": "India"})]), resp("A country.")]
     telemetry = TelemetryWriter(tmp_path, "a", "p", enabled=False)
@@ -184,10 +187,12 @@ def test_who_gets_it(harness: Any) -> None:  # noqa: F811
 
 @pytest.mark.skipif(os.environ.get("WIKIPEDIA_LIVE") != "1", reason="reaches Wikipedia")
 def test_one_real_lookup() -> None:
-    """Run by hand: WIKIPEDIA_LIVE=1 uv run pytest tests/test_wikipedia.py -k real"""
+    """Run by hand, with the owner's agent: WIKIPEDIA_LIVE=1 WIKIPEDIA_USER_AGENT='…'
+    uv run pytest tests/test_wikipedia.py -k real"""
     token = current_turn.set(new_turn(("Look up Python on Wikipedia",), "text"))
     try:
-        out = WikipediaLookup("en", WikipediaConfig(), http_get).lookup(
+        agent = os.environ.get("WIKIPEDIA_USER_AGENT", "")  # the owner's own choice
+        out = WikipediaLookup("en", WikipediaConfig(user_agent=agent), http_get).lookup(
             "Python programming language"
         )
     finally:
@@ -216,7 +221,7 @@ def test_no_contact_means_no_request_and_a_plain_line(agent: str, settings: Sett
 @pytest.mark.parametrize(
     "agent",
     [
-        f"ai_agent-lookup-bot/0.1 ({REPO_URL})",  # (a) the repo
+        "ai_agent-lookup-bot/0.1 (https://github.com/example/project)",  # (a) a repo
         "ai_agent-lookup-bot/0.1 (https://example.org/assistant)",  # (b) another URL
         "ai_agent-lookup-bot/0.1 (someone@example.org)",  # an email also counts
     ],
@@ -244,3 +249,37 @@ def test_a_direct_bot_with_both_kinds(settings: Settings) -> None:
     assert truth.finish(model, worked)[0] == model
     failed = [checked, {"name": WIKI_TOOL, "ok": False, "asks": "nothing_found"}]
     assert truth.finish(model, failed)[0] == PERSON_CHECK_HERE
+
+
+def test_the_default_is_off_until_the_owner_chooses() -> None:
+    """Privacy first (owner's call, 2026-11-16): the shipped default names nobody and
+    sends nothing; the reason is said plainly."""
+    assert WikipediaConfig().user_agent == ""
+    http = FakeHTTP()
+    token = current_turn.set(new_turn(("Search for India on Wikipedia",), "text"))
+    try:
+        with pytest.raises(ToolError, match="aren't set up") as caught:
+            WikipediaLookup("en", WikipediaConfig(), http).lookup("India")
+    finally:
+        current_turn.reset(token)
+    assert caught.value.asks == "not_set_up" and not http.calls
+
+
+def test_only_well_formed_labels_reach_the_page() -> None:
+    """Review S1 (takeover-followups): `asks` goes into a frame only as a label."""
+    from sasha.server.ws_frames import call_summaries, tool_frame
+
+    assert tool_frame("search", False, "person_check")["asks"] == "person_check"
+    assert tool_frame("x", False, "ambiguous_period:am")["asks"] == "ambiguous_period:am"
+    for bad in ["", "Person check!", "a" * 33, "x:" + "y" * 17, "x y", "<b>", "ok:AM", "x\n"]:
+        assert "asks" not in tool_frame("x", False, bad), bad
+    calls = [
+        {"name": "a", "ok": False, "asks": "free text here", "arguments": {"q": "x"}},
+        {"name": "b", "ok": False, "asks": "nothing_found"},
+        {"name": "c", "ok": True},
+    ]
+    assert call_summaries(calls) == [
+        {"name": "a", "ok": False},
+        {"name": "b", "ok": False, "asks": "nothing_found"},
+        {"name": "c", "ok": True},
+    ]

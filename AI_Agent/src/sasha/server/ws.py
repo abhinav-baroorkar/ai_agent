@@ -9,7 +9,8 @@ until the first token arrives (the HTTP stream is closed then).
 
 Each socket is its own conversation (own history), even for the same bot. With
 `speak=1` every answer is also spoken while it streams, whatever started the turn,
-if the TTS stage can speak the turn's language (see `speech.Speaker`).
+if the TTS stage can speak the turn's language (see `speech.Speaker`). The tool and
+reply frames' shapes are in server/ws_frames.py.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from sasha.browser.helper import BROWSE_TOOL
 from sasha.orchestrator import Assistant, Reply, RequestFailed, TurnHooks
-from sasha.pipeline.llm import LLMCancelled, OllamaError
+from sasha.pipeline.llm import LLMCancelled
 from sasha.server.speech import Speaker
 from sasha.server.spoken import SpokenStream
 from sasha.server.spoken_cap import LookupCap
@@ -34,26 +35,11 @@ from sasha.server.timers.ring import RingPlayer
 from sasha.server.timers.socket import TimerSocket
 from sasha.server.turn_check import ChainCheck
 from sasha.server.voice import MIC_SAMPLE_RATE, VoiceStages, max_recording_bytes
+from sasha.server.ws_frames import call_summaries, failure_message, timing, tool_frame
 
 log = logging.getLogger(__name__)
 MAX_TEXT_CHARS = 8000
 Frame = dict[str, Any] | bytes
-
-
-def _timing(reply: Reply) -> dict[str, Any]:
-    stages = reply.telemetry.get("stages", [])
-    tps = [s["meta"]["tokens_per_s"] for s in stages if s["meta"].get("tokens_per_s")]
-    return {
-        "total_ms": reply.telemetry.get("total_ms", 0),
-        "tokens_per_s": tps[-1] if tps else None,
-    }
-
-
-def _failure_message(failed: RequestFailed) -> str:
-    cause = failed.__cause__
-    if isinstance(cause, OllamaError):
-        return str(cause)
-    return f"Something went wrong ({type(cause).__name__})"
 
 
 class Conversation(TimerSocket):  # the timer side: server/timers/socket.py
@@ -228,8 +214,7 @@ class Conversation(TimerSocket):  # the timer side: server/timers/socket.py
             self._emit_delta(piece)
 
     def _on_tool(self, name: str, ok: bool, asks: str = "") -> None:  # on the event loop
-        # `asks`: the tool's fixed reason label (never text), so the page keys on it
-        self.emit({"type": "tool", "name": name, "ok": ok, **({"asks": asks} if asks else {})})
+        self.emit(tool_frame(name, ok, asks))  # `asks`: a well-formed label only
         if name == BROWSE_TOOL and ok and self.speak and self.lookup is None:
             if self.spoken is not None and (rest := self.spoken.finish()):
                 self._emit_delta(rest)  # what came before the lookup is said as it was
@@ -286,21 +271,14 @@ class Conversation(TimerSocket):  # the timer side: server/timers/socket.py
                 # wake turn's correction, the timers' "Nothing was set."), the lookup cap,
                 # and the speakable text on speak=1: not the model's raw text.
                 self.assistant.replace_reply(shown)
-                calls = [
-                    {
-                        "name": c["name"],
-                        "ok": c["ok"],
-                        **({"asks": c["asks"]} if c.get("asks") else {}),
-                    }
-                    for c in reply.tool_calls
-                ]  # `asks`: the fixed label only (as on the `tool` frame)
+                calls = call_summaries(reply.tool_calls)  # as on the `tool` frame
                 self.emit(
                     {
                         "type": "reply",
                         "text": shown,
                         "tool_calls": calls,
                         "sites": reply.sites,
-                        "timing": _timing(reply),
+                        "timing": timing(reply),
                     }
                 )
             if self.speaker is not None:
@@ -336,7 +314,7 @@ class Conversation(TimerSocket):  # the timer side: server/timers/socket.py
             reply = await asyncio.to_thread(self.assistant.handle_text, text, hooks, input_mode)
         except RequestFailed as failed:
             if not isinstance(failed.__cause__, LLMCancelled):
-                self.error(_failure_message(failed))
+                self.error(failure_message(failed))
             return None
         finally:
             self.timer_truth = None
