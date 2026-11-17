@@ -76,6 +76,13 @@ export function cleanBrowserState(b) {
   };
 }
 
+// A reply's own tool_calls ([{name, ok}], sent by the server with the reply) decide whether
+// its lookup failed: a web tool failed and none worked. Nothing carries over between turns.
+export function failedLookup(calls, isWebTool) {
+  const web = (Array.isArray(calls) ? calls : []).filter((c) => c && typeof c === 'object' && isWebTool(str(c.name)));
+  return web.some((c) => c.ok === false) && !web.some((c) => c.ok === true);
+}
+
 // reply.sites (v0.5.1): the hostnames a web lookup really used, joined for one line of
 // text. Only plain hostnames are kept, at most five; null when there are none.
 export function lookedUp(sites) {

@@ -70,6 +70,19 @@ for (const [name, state] of [
   await tick();
   out[name] = posted.slice();
 }
+const { failedLookup } = await import(`${dir}/clean.js`);
+const web = (name) => ['browse', 'search', 'open_url'].includes(name);
+const turns = {
+  failed: [{ name: 'search', ok: false }],
+  failed_then_worked: [{ name: 'search', ok: false }, { name: 'open_url', ok: true }],
+  plain_question_after_a_stop: [], // the next reply's own calls: nothing of the stopped turn
+  no_tool_calls_field: undefined,
+  other_tool_failed: [{ name: 'call_service', ok: false }],
+  device_failed_lookup_worked: [{ name: 'call_service', ok: false }, { name: 'browse', ok: true }],
+  junk: [null, 'search', { name: 'search', ok: 'no' }],
+};
+const card = ([k, calls]) => [k, failedLookup(calls, web)];
+out.card = Object.fromEntries(Object.entries(turns).map(card));
 console.log(JSON.stringify(out));
 """
 
@@ -80,7 +93,7 @@ export async function api(method, path) { posted.push(`${method} ${path}`); retu
 
 
 @pytest.fixture(scope="module")
-def presses(tmp_path_factory: pytest.TempPathFactory) -> dict[str, list[str]]:
+def presses(tmp_path_factory: pytest.TempPathFactory) -> dict[str, object]:
     node = shutil.which("node")
     if node is None:
         pytest.skip("Node is not installed")
@@ -95,16 +108,37 @@ def presses(tmp_path_factory: pytest.TempPathFactory) -> dict[str, list[str]]:
         timeout=60,
         check=True,
     )
-    out: dict[str, list[str]] = json.loads(done.stdout.strip().splitlines()[-1])
+    out: dict[str, object] = json.loads(done.stdout.strip().splitlines()[-1])
     return out
 
 
-def test_take_over_from_the_chat_is_the_panels_own_action(presses: dict[str, list[str]]) -> None:
+def test_take_over_from_the_chat_is_the_panels_own_action(presses: dict[str, object]) -> None:
     assert presses["assistant"] == ["POST /api/browser/take_over"]
 
 
 @pytest.mark.parametrize("when", ["off", "owner", "restoring", "old_server"])
 def test_take_over_from_the_chat_sends_nothing_when_it_cannot_start(
-    presses: dict[str, list[str]], when: str
+    presses: dict[str, object], when: str
 ) -> None:
     assert presses[when] == []
+
+
+def test_the_card_is_decided_by_the_replys_own_tool_calls(presses: dict[str, object]) -> None:
+    """Review L1: only a reply whose web tools all failed gets the card. A Stop, an error
+    or Clear chat leaves nothing behind (the next reply has its own calls), and a lookup
+    that failed and then worked gets no card under the good answer."""
+    assert presses["card"] == {
+        "failed": True,
+        "failed_then_worked": False,
+        "plain_question_after_a_stop": False,
+        "no_tool_calls_field": False,
+        "other_tool_failed": False,
+        "device_failed_lookup_worked": False,
+        "junk": False,
+    }
+
+
+def test_nothing_in_the_chat_keeps_a_lookup_mark_between_turns() -> None:
+    source = (WEB_JS / "chat.js").read_text(encoding="utf-8")
+    assert "lookupFailed" not in source
+    assert "failedLookup(m.tool_calls" in source  # decided in finish() from the reply itself

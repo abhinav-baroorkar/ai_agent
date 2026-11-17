@@ -3,7 +3,7 @@ import { h, icon, setText } from './dom.js';
 import { Conversation } from './socket.js';
 import { initial } from './clean.js';
 import { renderMarkdown } from './md.js';
-import { lookedUp } from './clean.js';
+import { lookedUp, failedLookup } from './clean.js';
 import { VoiceInput, voiceSupported } from './voice-input.js';
 import { cssColor } from './bot-look.js';
 import { miniOrb, wakeOrbs, setOrb } from './faces/mini-orb.js';
@@ -45,9 +45,8 @@ export class ChatView {
     this.browserLabel = h('span', {}, 'Show browser');
     this.browserBtn = h('button', { class: 'btn small browser-toggle', type: 'button', hidden: true,
       'aria-controls': 'browser-panel', 'aria-pressed': 'false', onclick: () => browser && browser.toggle() }, icon('globe'), this.browserLabel);
-    this.lookupFailed = false; // a web tool failed in the reply being built
     if (browser) {
-      browser.onChange(({ botId, canBrowse, shown }) => {
+      this.offBrowser = browser.onChange(({ botId, canBrowse, shown }) => {
         if (botId !== this.bot.id) return;
         this.browserBtn.hidden = !canBrowse;
         this.browserBtn.setAttribute('aria-pressed', String(shown));
@@ -103,7 +102,6 @@ export class ChatView {
       .on('tool', (m) => {
         this.reply().chips.append(chip(m));
         this.lookupNote(m.name === 'browse');
-        if (!m.ok && this.browser && this.browser.isWebTool(String(m.name ?? ''))) this.lookupFailed = true;
       })
       .on('reply_delta', (m) => { const r = this.reply(); r.text += String(m.text ?? ''); this.paintSoon(r); })
       .on('reply', (m) => this.finish(m))
@@ -237,8 +235,9 @@ export class ChatView {
     this.lookupNote(false);
     const sites = lookedUp(m.sites);
     if (sites) r.col.append(h('span', { class: 'looked-up' }, `looked up: ${sites}`)); // text only, never links
-    if (this.lookupFailed) r.col.append(this.takeOverOffer(PERSON_CHECK.test(r.text)));
-    this.lookupFailed = false;
+    // Decided from this reply's own tool calls only (review L1): a Stop, an error or Clear chat
+    // can't leave a mark for the next reply, and a lookup that failed then worked gets no card.
+    if (this.browser && failedLookup(m.tool_calls, this.browser.isWebTool)) r.col.append(this.takeOverOffer(PERSON_CHECK.test(r.text)));
     if (m.timing && m.timing.total_ms != null) {
       const speed = m.timing.tokens_per_s ? ` · ${Math.round(m.timing.tokens_per_s)} tokens/s` : '';
       r.col.append(h('span', { class: 'timing' }, `${(m.timing.total_ms / 1000).toFixed(1)} s${speed}`));
@@ -304,6 +303,7 @@ export class ChatView {
   close() {
     this.voice.cancel();
     this.conv.close();
+    if (this.offBrowser) this.offBrowser(); // a closed chat stops following the panel (review nit)
     this.el.remove();
   }
 }

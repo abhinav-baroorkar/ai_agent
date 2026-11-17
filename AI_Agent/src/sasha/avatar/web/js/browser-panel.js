@@ -208,7 +208,7 @@ export function initBrowserPanel(health) {
       el.panel.focus();
       takeover.start();
     },
-    onChange(fn) { listeners.add(fn); },
+    onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); },
   };
 }
 
