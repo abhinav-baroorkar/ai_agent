@@ -1,4 +1,4 @@
-# Brain API contract v0.6 (server, UI and listener all build against this)
+# Brain API contract v0.6.2 (server, UI and listener all build against this)
 
 Owner of this file: Primary. Staff SDE copies it to `AI_reference/api-contract.md`
 in the server branch. To change it, ask Primary; don't change it on your own.
@@ -359,6 +359,40 @@ Live view: `holder_bot` adds `via:"helper"|"direct"`. `helper`: the main assista
 web lookup holds the browser (suggested text: "In use by <name> (web lookup)");
 `direct`: a bot with the direct browser. Frames, Stop and take-over work the same.
 
+## Wikipedia lookups (v0.6.2)
+
+The owner's decision (2026-11-16): no keyed search service; Wikipedia through
+Wikimedia's own public API (no key, no account, no person check).
+- **Tool:** `wikipedia` (`{topic}`), read-only, its result outside text like a web
+  page's.
+- **Who gets it:** the main assistant while it is offered web lookups (beside
+  `browse`), and every bot with the direct browser. Never wake-word turns.
+- **Requests:** the server builds every address on `<language>.wikipedia.org`, where
+  the language is assistant.yaml's default (`en`). That's two GETs in series: the
+  wiki's REST search, then the page summary. The topic passes the same leak check as
+  a web search.
+- **User-Agent:** `profile.wikipedia.user_agent`, the project's public repo URL, no
+  email.
+- **Result:** title, a short extract (at most 1200 characters) and the page address,
+  all untrusted data.
+
+Connectors: the browser connector's `tools` always list `"wikipedia"`. It's the
+browser's tool; whether a bot really gets it follows the rules above.
+
+Main socket (`/ws`):
+- A `tool` frame with `name:"wikipedia"` marks the lookup (`ok:false` when nothing
+  matched, Wikipedia couldn't be reached, or the topic was refused).
+- `reply.sites` includes `<language>.wikipedia.org` after a lookup that worked.
+- When every lookup of the turn failed and all of them were `wikipedia`, the reply is
+  the server's line: "I couldn't find that on Wikipedia." or "I couldn't reach
+  Wikipedia just now." (`prompt_lines`). Any marked "from what I already know" part
+  follows it, as for `browse`.
+- The `speak=1` 500-character cap and the added "From <site>." stay `browse`-only. The
+  prompt asks the model to say when an answer came from Wikipedia.
+
+UI: the "looked up: <site>" line under a reply covers it (it reads `sites`). While a
+`tool` frame for `wikipedia` is the latest one, the status can read "Looking it up…".
+
 ## Memory (v0.6)
 
 Notes the owner asked the assistant to remember, across days (design:
@@ -464,5 +498,8 @@ note about the bus"), never by an id.
   up" line and bot form wording.
 - v0.6 (2026-11-16): memory: `/api/memory` routes; `memory` and `forgot` frames;
   `Bot.memory`.
+- v0.6.2 (2026-11-16): Wikipedia lookups: the `wikipedia` tool; `"wikipedia"` in the
+  browser connector's `tools`; its site in `reply.sites`; the server's lines when it
+  fails.
 - Planned for v0.7 (not built yet): `POST /api/connectors` and
   `DELETE /api/connectors/{id}` to add and remove MCP connectors from Settings.
