@@ -26,6 +26,11 @@ export function initBots(health) {
   const orbs = new Map(); // "id:size" -> canvas, so an orb is made once per place
   const listeners = new Set();
   const panel = initBrowserPanel(health);
+  // What a chat needs of the browser: its panel, and which tool names are the web's.
+  const browser = {
+    toggle: () => panel.toggle(), takeOver: () => panel.takeOver(), onChange: (fn) => panel.onChange(fn),
+    isWebTool: (name) => name === 'browse' || connectors.some((c) => c.kind === 'browser' && c.tools.includes(name)),
+  };
 
   // A bot with the direct browser, or the main assistant while web lookups are on (v0.5.1):
   // its chat can show the live view while its browser is in use.
@@ -101,7 +106,7 @@ export function initBots(health) {
     el.note.hidden = true;
     if (!open.has(id) && open.size >= MAX_OPEN) return atLimit(bot);
     if (!open.has(id)) {
-      const chat = new ChatView(bot, look(bot), { health, onEdit: (b) => setup.begin({ bot: b }), onClose: (b) => { closeChat(b.id); location.hash = '#bots'; } });
+      const chat = new ChatView(bot, look(bot), { health, browser, onEdit: (b) => setup.begin({ bot: b }), onClose: (b) => { closeChat(b.id); location.hash = '#bots'; } });
       open.set(id, chat);
       el.chats.append(chat.el);
     }

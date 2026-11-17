@@ -154,8 +154,9 @@ export class MockSocket {
     timers.onFrame(msg);
     // a message to a bot that may browse puts the mock browser to work
     const bot = data.bots.find((b) => b.id === this.botId);
-    if (msg.type === 'text' && bot && bot.connectors.includes('browser')) browser.use();
-    if (msg.type === 'text') this.answer(pick(msg.text, this), false);
+    const step = msg.type === 'text' ? pick(msg.text, this) : null;
+    if (step && bot && bot.connectors.includes('browser') && !step.personCheck) browser.use();
+    if (step) this.answer(step, false);
     if (msg.type === 'audio_start') this.listen();
     if (msg.type === 'audio_stop') this.heardDone();
     if (msg.type === 'cancel' || msg.type === 'reset') {

@@ -40,6 +40,11 @@ export function initBrowserPanel(health) {
   let stopNoteUntil = 0; // how long the reason for a stop stays on screen
   let shown = false;
   let failed = '';
+  // The owner's own choice: the panel stays open (Browser button, Take over in a chat) or
+  // is put away. Without either, it shows itself only while the browser is in use.
+  let pinned = false;
+  let putAway = false;
+  const listeners = new Set();
   el.title.textContent = `${health.assistant.name}’s browser`;
 
   const visible = () => open && shown && !$('#chat').hidden && !document.hidden;
@@ -75,9 +80,13 @@ export function initBrowserPanel(health) {
   function render() {
     // The panel is there only while this bot's browser is: running, just stopped, or
     // when the owner needs telling why it can't be watched.
-    const wanted = open && hasConnector && (link.status === 'busy' || link.status === 'refused' ||
-      (link.status === 'open' && (state.running || (state.mode && state.mode !== 'assistant') || performance.now() < stopNoteUntil)));
+    const takingOver = link.status === 'open' && state.mode && state.mode !== 'assistant';
+    if (takingOver) putAway = false; // his window is open or closing: the panel always says so
+    const auto = link.status === 'busy' || link.status === 'refused' ||
+      (link.status === 'open' && (state.running || takingOver || performance.now() < stopNoteUntil));
+    const wanted = open && hasConnector && !putAway && (pinned || auto);
     shown = wanted;
+    for (const fn of listeners) fn({ botId: bot && bot.id, canBrowse: open && hasConnector, shown });
     el.panel.hidden = !wanted;
     el.body.classList.toggle('with-browser', wanted);
     if (!wanted) return dropPicture();
@@ -182,9 +191,24 @@ export function initBrowserPanel(health) {
       bot = nextBot;
       hasConnector = !!canBrowse;
       open = !!bot && hasConnector;
-      if (changedBot) { lastStop = ''; failed = ''; stopNoteUntil = 0; }
+      if (changedBot) { lastStop = ''; failed = ''; stopNoteUntil = 0; pinned = false; putAway = false; }
       sync();
     },
+    // The chat's Browser button: show the panel, or put it away.
+    toggle() {
+      if (shown) { pinned = false; putAway = true; } else { pinned = true; putAway = false; }
+      sync();
+      if (shown) el.panel.focus();
+    },
+    // A failed lookup's Take over: open the panel and press its Take over.
+    takeOver() {
+      pinned = true;
+      putAway = false;
+      sync();
+      el.panel.focus();
+      takeover.start();
+    },
+    onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); },
   };
 }
 

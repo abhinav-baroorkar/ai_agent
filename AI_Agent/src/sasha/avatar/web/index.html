@@ -30,6 +30,7 @@
     <symbol id="i-timer" viewBox="0 0 24 24"><circle cx="12" cy="13.5" r="7"/><path d="M12 13.5V9.5M9.5 3h5M12 3v3.5"/></symbol>
     <symbol id="i-alarm" viewBox="0 0 24 24"><path d="M6.5 16.5v-5a5.5 5.5 0 0 1 11 0v5l1.5 2H5zM10 20.5a2 2 0 0 0 4 0"/></symbol>
     <symbol id="i-note" viewBox="0 0 24 24"><path d="M6 4h12v16l-6-3.5L6 20z"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.5 2.6 3.6 5.4 3.6 8.5s-1.1 5.9-3.6 8.5M12 3.5C9.5 6.1 8.4 8.9 8.4 12s1.1 5.9 3.6 8.5"/></symbol>
     <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
   </defs>
 </svg>
@@ -153,7 +154,7 @@
   <section id="chat" class="pane chat-pane" aria-label="Chat with a bot" hidden>
     <div class="bots-body">
       <div id="chats" class="chats"></div>
-      <aside id="browser-panel" class="browser" aria-labelledby="browser-title" hidden>
+      <aside id="browser-panel" class="browser" aria-labelledby="browser-title" tabindex="-1" hidden>
         <header class="browser-head">
           <div>
             <h2 id="browser-title">Browser</h2>

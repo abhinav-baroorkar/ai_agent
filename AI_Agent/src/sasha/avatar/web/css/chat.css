@@ -60,3 +60,11 @@
 .composer textarea:focus-visible { outline: none; }
 .composer .btn { min-height: 38px; border-radius: 14px; }
 .composer .hint { padding-left: 1rem; font-size: .72rem; color: #6c7a8b; }
+
+/* Narrow windows: the header's buttons wrap under the name instead of pushing the chat sideways */
+.chats, .chat { min-width: 0; }
+@media (max-width: 700px) {
+  .chat-head { flex-wrap: wrap; row-gap: .4rem; padding-inline: .9rem; }
+  .chat-head .who { flex: 1 1 10rem; }
+  .chat-head .grow { display: none; }
+}
