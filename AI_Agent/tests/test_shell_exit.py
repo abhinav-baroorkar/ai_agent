@@ -27,7 +27,7 @@ class Proc:
 
 
 def _unit_open(
-    settings: Settings, rc: int, monkeypatch: pytest.MonkeyPatch
+    settings: Settings, rc: int, monkeypatch: pytest.MonkeyPatch, running: bool = True
 ) -> tuple[str, list[str]]:
     monkeypatch.setattr(launcher.shutil, "which", lambda n: "/usr/bin/systemd-run")
     events: list[str] = []
@@ -38,7 +38,7 @@ def _unit_open(
 
     def alive() -> bool:
         events.append("alive?")
-        return True
+        return running
 
     pings = iter([False, True])
     how = launcher.open_shell(
@@ -67,11 +67,22 @@ def test_systemd_run_failing_is_a_failure_with_a_reason(
     local: Settings,  # noqa: F811
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    how, events = _unit_open(local, 1, monkeypatch)
-    assert how == "failed" and "alive?" not in events
+    how, events = _unit_open(local, 1, monkeypatch, running=False)
+    assert how == "failed" and events == ["spawned", "systemd-run returned", "alive?"]
     text = start_check.first_lines(start_check.log_path(local))
     assert "exit 1" in text
     assert start_check.failure_reason(text) == "systemd couldn't start the window unit"
+
+
+def test_a_unit_that_exists_already_goes_on_to_the_check(
+    local: Settings,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Review S1: systemd-run fails when the unit exists (a shell still starting); that
+    shell answers the ping a moment later, so no Chrome window opens beside it."""
+    how, _ = _unit_open(local, 1, monkeypatch, running=True)
+    assert how == "started"
+    assert "systemd-run" not in start_check.first_lines(start_check.log_path(local))
 
 
 def test_a_slow_systemd_run_leaves_it_to_the_start_check() -> None:

@@ -125,11 +125,13 @@ def open_shell(
         # unit before that read "inactive", so every wake-open was called a failure and
         # the Chrome window opened next to a shell that was still starting (2026-11-16).
         proc = spawn([*unit, *props, *cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        alive = unit_alive or _unit_alive
         rc = _wait(proc)
-        if rc != 0:
+        # Non-zero also when the unit exists already: a shell still starting (its socket
+        # comes up only after QtWebEngine has) is not a failure: the check finds it.
+        if rc != 0 and not alive():
             start_check.note(settings, f"systemd-run could not start the window unit (exit {rc})")
             return "failed"
-        alive = unit_alive or _unit_alive
     else:
         fd = start_check.open_log(settings)
         try:

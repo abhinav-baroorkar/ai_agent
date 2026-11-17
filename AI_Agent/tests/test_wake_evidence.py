@@ -81,6 +81,30 @@ def test_a_short_doubtful_wake_is_not_rechecked(matcher: WakeMatcher) -> None:
     assert g.decide(text, 0.42, seconds=3.0).outcome == wake.ACCEPTED_WITH_COMMAND
 
 
+def test_the_name_heard_without_help_counts(matcher: WakeMatcher) -> None:
+    """Review F1: without the hint "hey" often comes out as "hi"; the name decoded
+    without the hint is the strongest evidence there is."""
+    name = matcher.phrase.split()[-1]
+    g = gate(matcher)
+    text = f"{matcher.phrase} turn on the light"
+    for plain in (f"Hi {name}, turn on the light.", f"A {name} turn on the light"):
+        assert matcher.opens_like_phrase(plain), plain
+        assert g.decide(text, 0.42, seconds=4.5, plain=plain).outcome == (
+            wake.ACCEPTED_WITH_COMMAND
+        )
+    assert not matcher.opens_like_phrase(f"Turn on the light, {name}")  # third word: no
+
+
+def test_a_first_word_spelling_counts() -> None:
+    """word_variants count in the recheck as in the match (review F1: "Hay, …")."""
+    m = WakeMatcher("hey Testname", fillers=["um", "hey"], word_variants={"hey": ["hay"]})
+    assert m.opens_like_phrase("Hay, turn on the light.")
+    assert m.opens_like_phrase("um hay what time is it")
+    assert not m.opens_like_phrase("Hello, turn on the light.")
+    assert WakeMatcher("Testname").opens_like_phrase("so Testname, lights")  # one word
+    assert not WakeMatcher("Testname").opens_like_phrase("Hey, lights on")
+
+
 def test_opens_like_phrase(matcher: WakeMatcher) -> None:
     hey = first_word(matcher)
     assert matcher.opens_like_phrase(f"{matcher.phrase}, lights on")
@@ -119,8 +143,10 @@ class FakeSTT:
         self.hinted, self.plain, self.confidence = hinted, plain, confidence
         self.calls: list[str | None] = []
 
-    def transcribe(self, audio: bytes, rate: int, *, hotwords: str | None = None) -> Transcript:
-        self.calls.append(hotwords)
+    def transcribe(
+        self, audio: bytes, rate: int, *, hotwords: str | None = None, opening: bool = False
+    ) -> Transcript:
+        self.calls.append("opening" if opening else hotwords)
         text = self.hinted if hotwords else self.plain
         return Transcript(text=text, language="en", confidence=self.confidence)
 
@@ -138,4 +164,28 @@ def test_hear_decodes_again_only_when_doubtful(matcher: WakeMatcher) -> None:
         return (heard.text, plain), stt.calls
 
     assert run(0.7) == ((text, None), [matcher.phrase])
-    assert run(0.42) == ((text, "the home side leading"), [matcher.phrase, None])
+    stt = FakeSTT(text, "unused", 0.42)  # a stop-word segment: judged at once
+    asyncio.run(hear(stt, contextlib.AsyncExitStack(), long_audio, 16000, matcher.phrase,
+                     gate(matcher), recheck=False))  # fmt: skip
+    assert stt.calls == [matcher.phrase]
+    # Review N1: decoded without the hint (the armed window ran out meanwhile): the
+    # transcript is the plain decode itself, so a real wake is not refused for want of one.
+    stt = FakeSTT("unused", text, 0.42)
+    heard, plain, _ = asyncio.run(
+        hear(stt, contextlib.AsyncExitStack(), long_audio, 16000, None, gate(matcher))
+    )
+    assert plain == heard.text == text and stt.calls == [None]
+    assert gate(matcher).decide(heard.text, 0.42, seconds=6.0, plain=plain).heard
+    assert run(0.42) == ((text, "the home side leading"), [matcher.phrase, "opening"])
+
+
+def test_the_decoder_options() -> None:
+    """Review S2: the recheck is one pass at temperature 0 for a few tokens, no words."""
+    from sasha.pipeline.stt_whisper import OPENING_TOKENS, decode_options
+
+    assert decode_options("hey x", opening=True) == {
+        "temperature": 0.0,
+        "max_new_tokens": OPENING_TOKENS,
+    }
+    assert decode_options("hey x", opening=False) == {"hotwords": "hey x", "word_timestamps": True}
+    assert decode_options(None, opening=False) == {}

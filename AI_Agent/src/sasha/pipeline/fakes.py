@@ -21,7 +21,12 @@ class FakeSTT:
         return "fake-stt"
 
     def transcribe(
-        self, audio: AudioChunk, sample_rate: int, *, hotwords: str | None = None
+        self,
+        audio: AudioChunk,
+        sample_rate: int,
+        *,
+        hotwords: str | None = None,
+        opening: bool = False,
     ) -> Transcript:
         self.calls.append((len(audio), sample_rate))
         if not audio:

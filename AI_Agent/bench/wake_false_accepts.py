@@ -30,10 +30,10 @@ from typing import Any
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from wake_synthetic import COMMANDS, load, segments, synth
+from wake_synthetic import load, segments, synth
 
 from sasha.config import load_settings
-from sasha.server.wake import HITS, WakeGate, WakeMatcher
+from sasha.server.wake import HITS, REJECTED_UNCONFIRMED, WakeGate, WakeMatcher
 from sasha.server.wake_evidence import phrase_evidence
 
 # Talk with no wake phrase and no "hey" in it, each 5-8 s when spoken.
@@ -68,7 +68,16 @@ CONDITIONS = [
     ("room_rev", 1.0, 10.0, None, 0.0, True, True),
     ("room_rev_two", 0.5, 5.0, 0.8, 0.3, True, True),
 ]
-# The real wakes: (label, gain, SNR dB or None, room reverb)
+# The real wakes. The owner's "phrase, command" runs 3-5.5 s (review F1), so two long
+# commands, all said a little slowly (WAKE_SPEED), make the segments as long as his.
+COMMANDS = [
+    "",
+    ", what time is it",
+    ", set a timer for ten minutes for the pasta please",
+    ", turn on the kitchen light and the lamp in the hall",
+]
+WAKE_SPEED = 0.9
+# (label, gain, SNR dB or None, room reverb)
 WAKE_LEVELS = [
     ("clean", 1.0, None, False),
     ("quiet", 0.25, None, False),
@@ -103,17 +112,19 @@ def decode(stt: Any, gate_args: tuple[Any, ...], seg: bytes, hint: str) -> dict[
     heard = stt.transcribe(seg, 16000, hotwords=hint)
     d = WakeGate(*gate_args[:3]).decide(heard.text, heard.confidence)  # the gate before
     ev = phrase_evidence(heard.text, heard.words, matcher.phrase_tokens(heard.text))
-    plain = stt.transcribe(seg, 16000)  # the same audio without the hint, always (replay)
+    plain = stt.transcribe(seg, 16000)  # the same audio without the hint, in full
+    opening = stt.transcribe(seg, 16000, opening=True).text  # as the recheck decodes it
     seconds = len(seg) / 32000
-    new = WakeGate(*gate_args).decide(
-        heard.text, heard.confidence, heard.words, seconds, plain.text
-    )
+    gate = WakeGate(*gate_args)
+    new = gate.decide(heard.text, heard.confidence, heard.words, seconds, opening)
     return {
         "text": heard.text,
         "seg_s": round(len(seg) / 32000, 2),
         "confidence": heard.confidence,
         "outcome": d.outcome,
         "outcome_new": new.outcome,
+        "rechecked": new.rechecked or new.outcome == REJECTED_UNCONFIRMED,
+        "opening_text": opening,
         "phrase_p": None if ev is None else ev.probability,
         "phrase_words": None if ev is None else list(ev.words),
         "phrase_start": None if ev is None else ev.start_s,
@@ -144,7 +155,7 @@ def rules(matcher: WakeMatcher) -> dict[str, Rule]:
             if c < floor:
                 return False
             if c < sure and r["seg_s"] >= RECHECK_FROM_S:
-                return matcher.opens_like_phrase(r["plain_text"])
+                return matcher.opens_like_phrase(r.get("opening_text", r["plain_text"]))
             return True
 
         return rule
@@ -168,6 +179,12 @@ def summary(rows: list[dict[str, Any]], matcher: WakeMatcher) -> dict[str, dict[
             "missed_alone": sum(not rule(r) for r in wake if not r["cmd"]),
         }
     print(f"\n{len(bg)} background segments, {len(wake)} wake samples")
+    long_ = [r for r in wake if r["cmd"] and r["seg_s"] >= RECHECK_FROM_S]
+    print(
+        f"real wakes with a command: {sum(r['cmd'] for r in wake)}, of which "
+        f"{len(long_)} are {RECHECK_FROM_S:g} s or longer and "
+        f"{sum(bool(r.get('rechecked')) for r in wake)} were rechecked by the shipped gate"
+    )
     print(f"{'rule':16} false_accepts missed_cmd missed_alone")
     for name, t in table.items():
         print(
@@ -209,7 +226,7 @@ def main() -> int:
     for (vname, voice), (form, phon), cmd, (label, gain, snr, room) in (
         wake_items if a.part != "background" else []
     ):
-        x = synth(tts, phon + (ph(cmd) if cmd else ""), voice, 1.0)
+        x = synth(tts, phon + (ph(cmd) if cmd else ""), voice, WAKE_SPEED)
         segs = segments(reverb(x, rng) if room else x, gain, snr, rng)
         row = dict(set="wake", voice=vname, form=form, cmd=bool(cmd), cond=label)
         rows.append({**row, **(decode(stt, gate_args, segs[0], name) if segs else {})})

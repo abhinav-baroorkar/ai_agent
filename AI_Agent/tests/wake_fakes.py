@@ -41,7 +41,7 @@ class ScriptedSTT:
         return "stt@scripted"
 
     def transcribe(
-        self, audio: bytes, sample_rate: int, *, hotwords: str | None = None
+        self, audio: bytes, sample_rate: int, *, hotwords: str | None = None, opening: bool = False
     ) -> Transcript:
         self.calls += 1
         self.hotwords.append(hotwords)

@@ -134,7 +134,7 @@ class FakeSTT:
         return "stt@fake"
 
     def transcribe(
-        self, audio: bytes, sample_rate: int, *, hotwords: str | None = None
+        self, audio: bytes, sample_rate: int, *, hotwords: str | None = None, opening: bool = False
     ) -> Transcript:
         if sample_rate != 16000:
             raise ValueError("sample_rate must be 16000")

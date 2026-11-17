@@ -70,6 +70,7 @@ _DEVICE_ERROR = re.compile(
 )
 _CUDA_LIBRARY = re.compile(r"libcu\w+\.so")
 _QUOTED = re.compile(r"'[^']*'|\"[^\"]*\"")
+OPENING_TOKENS = 8  # the recheck needs the opening words only (review S2)
 GPU_STRIKES = 3  # consecutive GPU failures before STT stays on the CPU until restart
 
 
@@ -93,6 +94,21 @@ def safe_reason(exc: BaseException) -> str:
     unquoted = _QUOTED.sub("<quoted>", str(exc))
     message = "".join(c if 32 <= ord(c) < 127 else "?" for c in unquoted)[:160]
     return f"{type(exc).__name__}: {message}"
+
+
+def decode_options(hotwords: str | None, opening: bool) -> dict[str, Any]:
+    """faster-whisper options beyond the profile's.
+    - `hotwords` favours those words. For a wake segment it is the wake phrase: alone
+      and without context Whisper otherwise writes a short name as almost anything
+      (measured: 2026-11-16 synthetic run, wake-word-design.md). Such a segment also
+      gets per-word probabilities, so the gate can record how sure the decoder was of
+      the phrase itself (false wakes, 2026-11-16; server/wake_evidence.py).
+    - `opening`: only the first words, fast (the wake gate's no-hint recheck): one
+      pass at temperature 0 (no fallback, which is what made doubtful segments take
+      2-5 s) and at most OPENING_TOKENS tokens; no hint, no words."""
+    if opening:
+        return {"temperature": 0.0, "max_new_tokens": OPENING_TOKENS}
+    return {"hotwords": hotwords, "word_timestamps": True} if hotwords else {}
 
 
 class TranscriptionError(RuntimeError):
@@ -196,7 +212,12 @@ class FasterWhisperSTT:
         return self._cpu_model
 
     def transcribe(
-        self, audio: AudioChunk, sample_rate: int, *, hotwords: str | None = None
+        self,
+        audio: AudioChunk,
+        sample_rate: int,
+        *,
+        hotwords: str | None = None,
+        opening: bool = False,
     ) -> Transcript:
         if sample_rate != SAMPLE_RATE:
             raise ValueError(f"STT expects {SAMPLE_RATE} Hz audio, got {sample_rate}")
@@ -209,17 +230,16 @@ class FasterWhisperSTT:
         if samples.size < SAMPLE_RATE // 10:  # under 100 ms: nothing worth decoding
             return Transcript(text="", language=self.languages[0], confidence=0.0)
         with self._state_lock:
-            return self._transcribe_with_fallback(samples, hotwords)
+            return self._transcribe_with_fallback(samples, decode_options(hotwords, opening))
 
     def _transcribe_with_fallback(
-        self, samples: NDArray[np.float32], hotwords: str | None = None
+        self, samples: NDArray[np.float32], extra: dict[str, Any] | None = None
     ) -> Transcript:
+        extra = extra or {}
         if self._loaded_on == "cpu" or self._gpu_disabled:
-            return self._decode_on_cpu(
-                samples, fallback=self._loaded_on != "cpu", hotwords=hotwords
-            )
+            return self._decode_on_cpu(samples, fallback=self._loaded_on != "cpu", extra=extra)
         try:
-            result = self._decode(self._model, samples, hotwords)
+            result = self._decode(self._model, samples, extra)
         except Exception as e:
             if not is_device_error(e):
                 log.error("STT failed on cuda (%s)", safe_reason(e))
@@ -239,16 +259,16 @@ class FasterWhisperSTT:
                     self._gpu_failures,
                     GPU_STRIKES,
                 )
-            return self._decode_on_cpu(samples, fallback=True, hotwords=hotwords)
+            return self._decode_on_cpu(samples, fallback=True, extra=extra)
         self._gpu_failures = 0
         self._used = f"cuda:{self.compute_type}"
         return result
 
     def _decode_on_cpu(
-        self, samples: NDArray[np.float32], fallback: bool, hotwords: str | None = None
+        self, samples: NDArray[np.float32], fallback: bool, extra: dict[str, Any]
     ) -> Transcript:
         try:
-            result = self._decode(self._cpu(), samples, hotwords)
+            result = self._decode(self._cpu(), samples, extra)
         except Exception as e:
             log.error("STT failed on cpu (%s)", safe_reason(e))
             raise TranscriptionError(f"STT failed ({type(e).__name__})") from None
@@ -256,17 +276,17 @@ class FasterWhisperSTT:
         return result
 
     def _decode(
-        self, model: Any, samples: NDArray[np.float32], hotwords: str | None = None
+        self, model: Any, samples: NDArray[np.float32], extra: dict[str, Any]
     ) -> Transcript:
         forced = self.languages[0] if len(self.languages) == 1 else None
-        text, info, logprob, words = self._run(model, samples, forced, hotwords)
+        text, info, logprob, words = self._run(model, samples, forced, extra)
         language = info.language
         if language not in self.languages:
             # Whisper picked a language we don't support (e.g. Hindi for Marathi):
             # re-decode with the most likely supported one.
             probs = dict(info.all_language_probs or [])
             language = max(self.languages, key=lambda lang: probs.get(lang, 0.0))
-            text, info, logprob, words = self._run(model, samples, language, hotwords)
+            text, info, logprob, words = self._run(model, samples, language, extra)
         confidence = round(min(1.0, math.exp(logprob)), 3) if text else 0.0
         return Transcript(text=text, language=language, confidence=confidence, words=words)
 
@@ -275,15 +295,8 @@ class FasterWhisperSTT:
         model: Any,
         samples: NDArray[np.float32],
         language: str | None,
-        hotwords: str | None = None,
+        extra: dict[str, Any],
     ) -> tuple[str, Any, float, tuple[Word, ...]]:
-        # `hotwords` favours those words in the decoder. For a wake segment it is the
-        # wake phrase: alone and without context Whisper otherwise writes a short name
-        # as almost anything (measured: 2026-11-16 synthetic run, wake-word-design.md).
-        # A wake segment also gets per-word probabilities, so the gate can ask whether
-        # the phrase itself was heard, not just the segment on average (false wakes,
-        # 2026-11-16). Segments are at most max_segment_s, so seeking is unchanged.
-        extra: dict[str, Any] = {"hotwords": hotwords, "word_timestamps": True} if hotwords else {}
         segments, info = model.transcribe(
             samples,
             language=language,

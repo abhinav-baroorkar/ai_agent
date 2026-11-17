@@ -97,22 +97,32 @@ class WakeMatcher:
         self._lead = rf"^\W*(?:(?:{filler})\W+)*"
         self._continuations = {c.lower() for c in continuations}
         self._fillers = {f.lower() for f in fillers}
-        self._words = words
+        # Each phrase word and each of its spellings, as word tokens (the no-hint check)
+        self._spellings = [
+            tuple(re.findall(r"\w+", form.lower()))
+            for w in words
+            for form in (w, *spelled.get(w, []))
+            if re.findall(r"\w+", form)
+        ]
 
-    def opens_like_phrase(self, text: str) -> bool:
+    def opens_like_phrase(self, text: str, within: int = 2) -> bool:
         """The no-hint check (false wakes, 2026-11-16): `text`, decoded without the hint,
-        still holds the phrase at the start, or at least its first word ("hey") when
-        the phrase has several: a name the decoder doesn't know may come out as anything
-        without the hint, but "hey" doesn't need one."""
+        still opens with the phrase, or has one of its words (or that word's spellings)
+        among its first `within` words after fillers. Without the hint the decoder may
+        write "hey" as "hi", or a name it doesn't know as anything, but not both gone
+        (review F1: "Hi <name>, …" is the name heard without help)."""
         if self.match(text)[0] in (ACCEPTED_ALONE, ACCEPTED_WITH_COMMAND):
             return True
-        if len(self._words) < 2:
-            return False
         said = re.findall(r"\w+", text.lower())
-        skip = self._fillers - {self._words[0]}
+        ours = {t for spelling in self._spellings for t in spelling}
+        skip = self._fillers - ours
         while said and said[0] in skip:
             said.pop(0)
-        return bool(said) and said[0] == self._words[0]
+        return any(
+            said[at : at + len(spelling)] == list(spelling)
+            for at in range(within)
+            for spelling in self._spellings
+        )
 
     def phrase_tokens(self, text: str) -> tuple[int, int] | None:
         """Where the phrase sits at the start of `text`, in word tokens (\\w+): how many

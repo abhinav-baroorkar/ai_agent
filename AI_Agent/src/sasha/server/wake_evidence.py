@@ -79,16 +79,22 @@ async def hear(
     rate: int,
     hotwords: str | None,
     gate: Any,
+    recheck: bool = True,
 ) -> tuple[Transcript, str | None, float]:
     """Decode a wake segment (with the hint); a doubtful one (`gate.needs_recheck`) again
-    without it, under the same lock. (transcript, no-hint text or None, start time)."""
+    without it, opening words only, under the same lock. (transcript, no-hint text or
+    None, start time). `recheck=False` for a stop-word segment: a ringing timer's stop
+    must not wait for a second decode (review nit)."""
     seconds = len(audio) / (2 * rate)  # 16-bit mono
     async with lock:  # waits while another socket transcribes
         started = time.perf_counter()
         heard: Transcript = await asyncio.to_thread(
             functools.partial(stt.transcribe, hotwords=hotwords), audio, rate
         )
+        if not hotwords:  # decoded without the hint already (e.g. the armed window ran
+            return heard, heard.text, started  # out while waiting): it is the plain one
         plain = None
-        if hotwords and gate.needs_recheck(heard.text, heard.confidence, seconds):
-            plain = (await asyncio.to_thread(stt.transcribe, audio, rate)).text
+        if recheck and gate.needs_recheck(heard.text, heard.confidence, seconds):
+            opening = functools.partial(stt.transcribe, opening=True)
+            plain = (await asyncio.to_thread(opening, audio, rate)).text
     return heard, plain, started
