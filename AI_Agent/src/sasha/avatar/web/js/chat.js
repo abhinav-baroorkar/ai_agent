@@ -3,14 +3,12 @@ import { h, icon, setText } from './dom.js';
 import { Conversation } from './socket.js';
 import { initial } from './clean.js';
 import { renderMarkdown } from './md.js';
-import { lookedUp, failedLookup } from './clean.js';
+import { lookedUp, metPersonCheck } from './clean.js';
 import { VoiceInput, voiceSupported } from './voice-input.js';
 import { cssColor } from './bot-look.js';
 import { miniOrb, wakeOrbs, setOrb } from './faces/mini-orb.js';
 
 const HINT = 'Enter sends. Shift+Enter starts a new line.';
-// The server's person-check line says this (browser/pages.py PERSON_CHECK; a test keeps them in step).
-const PERSON_CHECK = /wants to check you[’']re a person/i;
 // a refusal that means this server will never take voice on a chat: stop offering it
 const VOICE_REFUSED = /not available|not allowed|not supported|unsupported/i;
 
@@ -209,12 +207,9 @@ export class ChatView {
   }
 
   // Right under a failed lookup: the same Take over as the browser panel's, so it never has to be found.
-  takeOverOffer(personCheck) {
-    const text = personCheck
-      ? 'The search site wants to check you’re a person. Take over the browser, solve the check yourself, hand it back, then ask again.'
-      : 'The web lookup didn’t work. If the site wants to check you’re a person, take over the browser and solve it yourself, then ask again.';
-    return h('div', { class: 'takeover-offer', role: 'group', 'aria-label': 'The web lookup didn’t work' },
-      h('p', {}, text),
+  takeOverOffer() {
+    return h('div', { class: 'takeover-offer', role: 'group', 'aria-label': 'The search site wants to check you’re a person' },
+      h('p', {}, 'The search site wants to check you’re a person. Take over the browser, solve the check yourself, hand it back, then ask again.'),
       h('button', { class: 'btn small primary', type: 'button', 'aria-controls': 'browser-panel', onclick: () => this.browser.takeOver() },
         icon('globe'), 'Take over the browser'));
   }
@@ -235,9 +230,10 @@ export class ChatView {
     this.lookupNote(false);
     const sites = lookedUp(m.sites);
     if (sites) r.col.append(h('span', { class: 'looked-up' }, `looked up: ${sites}`)); // text only, never links
-    // Decided from this reply's own tool calls only (review L1): a Stop, an error or Clear chat
-    // can't leave a mark for the next reply, and a lookup that failed then worked gets no card.
-    if (this.browser && failedLookup(m.tool_calls, this.browser.isWebTool)) r.col.append(this.takeOverOffer(PERSON_CHECK.test(r.text)));
+    // Only for the person check, from the server's fixed label on this reply's own tool calls
+    // (review L1, L2): no text match, nothing kept between turns, and a lookup that failed for
+    // another reason, or failed then worked, gets no card (the server's own line says enough).
+    if (this.browser && metPersonCheck(m.tool_calls, this.browser.isWebTool)) r.col.append(this.takeOverOffer());
     if (m.timing && m.timing.total_ms != null) {
       const speed = m.timing.tokens_per_s ? ` · ${Math.round(m.timing.tokens_per_s)} tokens/s` : '';
       r.col.append(h('span', { class: 'timing' }, `${(m.timing.total_ms / 1000).toFixed(1)} s${speed}`));

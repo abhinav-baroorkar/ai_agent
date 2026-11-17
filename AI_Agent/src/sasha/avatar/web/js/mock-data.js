@@ -49,7 +49,10 @@ export const script = [
   { keys: ['dinner'], heard: 'Suggest a quick dinner', tool: null, reply: 'Here is a **quick dinner** that takes about 20 minutes:\n\n## Lemon chickpea rice\n\n1. Rinse *one cup* of rice and start it cooking.\n2. Fry an onion, then add a tin of chickpeas.\n3. Stir in lemon juice and a handful of herbs.\n\nYou will need:\n\n- rice and chickpeas\n- an onion and a lemon\n- herbs (`coriander` or `parsley`)\n\n```\nrice 1 cup : water 2 cups\n```\n\nSee [a longer version](example.org/recipes) if you have more time. <b>Not bold</b>, just text.' },
   // A lookup stopped by the search site's person check (the server's own line, browser/pages.py):
   // the chat offers Take over right under it. The mock browser stays closed, as after a real one.
-  { keys: ['search'], heard: 'Search the web for the latest Python version', tool: { name: 'search', ok: false }, personCheck: true,
-    reply: 'The search site wants to check you\'re a person: open Your bots, then the main assistant\'s chat, press Take over in its browser panel and solve it once.' },
+  { keys: ['search'], heard: 'Search the web for the latest Python version', tool: { name: 'search', ok: false, asks: 'person_check' }, noBrowser: true,
+    reply: 'The search site wants to check you\'re a person: press Take over in the browser panel beside this chat and solve it once.' },
+  // A lookup that found nothing: the server's plain line, and no take-over card.
+  { keys: ['nothing'], heard: 'Find nothing about zqxv', tool: { name: 'search', ok: false, asks: 'nothing_found' }, noBrowser: true,
+    reply: 'No results came back. If this keeps happening, the search site may want to check you\'re a person: press Take over in the browser panel beside this chat and solve it once.' },
   { keys: ['movie'], heard: 'Set the bedroom to movie mode', tool: { name: 'call_service', ok: false }, reply: 'I couldn’t do that. There is no scene called movie mode in the bedroom. The scenes I can see are Reading and Night.' },
 ];
